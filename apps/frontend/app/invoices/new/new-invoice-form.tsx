@@ -13,6 +13,21 @@ type RequestState =
   | { status: 'success'; invoiceId: string }
   | { status: 'error'; message: string };
 
+type CreateInvoicePayload = {
+  amount: number;
+  currency: string;
+  metadata?: unknown;
+};
+
+function safeJsonParse<T = unknown>(raw: string): T | undefined {
+  if (!raw?.trim()) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 export function NewInvoiceForm({ apiBase }: Props) {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('BTC');
@@ -24,17 +39,13 @@ export function NewInvoiceForm({ apiBase }: Props) {
     setState({ status: 'submitting' });
 
     try {
-      const body: Record<string, unknown> = {
+      const payload: CreateInvoicePayload = {
         amount: Number(amount),
         currency
       };
-      if (metadata.trim().length > 0) {
-        try {
-          body.metadata = JSON.parse(metadata);
-        } catch (error) {
-          setState({ status: 'error', message: 'Metadata must be valid JSON.' });
-          return;
-        }
+      const parsed = safeJsonParse(metadata);
+      if (parsed !== undefined) {
+        payload.metadata = parsed;
       }
 
       const response = await fetch(`${apiBase.replace(/\/$/, '')}/invoices`, {
@@ -42,7 +53,7 @@ export function NewInvoiceForm({ apiBase }: Props) {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {

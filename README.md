@@ -47,3 +47,14 @@ docker compose up -d --build
 ```
 
 Health probes are exposed at `https://localhost/healthz` and invoice creation is proxied via `https://localhost/api/invoices`.
+
+## After upgrade to React 19 / Next 15
+Next.js 15's App Router now requires React 19+, and the Docker image copies the `.next/standalone` directory for runtime execution. After pulling these upgrades run the following checks to confirm everything compiles and serves correctly:
+
+```bash
+pnpm -w install
+pnpm -w build
+pnpm -w -F frontend typecheck
+pnpm -w -F frontend dev
+# or docker compose build if you validate container images instead
+```

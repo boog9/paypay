@@ -1,5 +1,32 @@
 {
   auto_https disable_redirects
+  email {$CADDY_ADMIN_EMAIL}
+}
+
+https://{$PAYPAY_DOMAIN} {
+  encode gzip
+
+  @api path /api/*
+  handle @api {
+    reverse_proxy bff:4000
+  }
+
+  handle_path /healthz {
+    reverse_proxy bff:4000
+  }
+
+  handle_path /readyz {
+    reverse_proxy bff:4000
+  }
+
+  handle {
+    reverse_proxy frontend:3000
+  }
+}
+
+https://{$PAYPAY_API_DOMAIN} {
+  encode gzip
+  reverse_proxy bff:4000
 }
 
 https://localhost {

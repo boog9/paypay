@@ -8,7 +8,7 @@ services:
     image: ghcr.io/paypay/frontend:latest
     restart: unless-stopped
     env_file:
-      - ../../infra/env/.env.frontend
+      - ../../infra/env/.env
     environment:
       NODE_ENV: production
     depends_on:
@@ -34,7 +34,7 @@ services:
     image: ghcr.io/paypay/bff:latest
     restart: unless-stopped
     env_file:
-      - ../../infra/env/.env.bff
+      - ../../infra/env/.env
     environment:
       NODE_ENV: production
     depends_on:
@@ -94,6 +94,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    env_file:
+      - ../../infra/env/.env
     depends_on:
       - frontend
       - bff

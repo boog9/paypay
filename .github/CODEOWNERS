@@ -1,0 +1,8 @@
+# Default owners
+* @paypay/maintainers
+
+# Critical infrastructure
+infra/* @paypay/devsecops
+apps/bff/* @paypay/backend-leads
+apps/frontend/* @paypay/frontend-leads
+packages/sdk/* @paypay/platform

@@ -1,13 +1,25 @@
 {
-  email admin@paypay.local
+  auto_https disable_redirects
 }
 
-paypay.local {
+https://localhost {
+  tls internal
   encode gzip
-  reverse_proxy frontend:3000
-}
 
-api.paypay.local {
-  encode gzip
-  reverse_proxy bff:4000
+  @api path /api/*
+  handle @api {
+    reverse_proxy bff:4000
+  }
+
+  handle_path /healthz {
+    reverse_proxy bff:4000
+  }
+
+  handle_path /readyz {
+    reverse_proxy bff:4000
+  }
+
+  handle {
+    reverse_proxy frontend:3000
+  }
 }

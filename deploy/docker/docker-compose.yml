@@ -1,60 +1,72 @@
-version: "3.9"
+version: '3.9'
 
 services:
   frontend:
     build:
       context: ../../
       dockerfile: apps/frontend/Dockerfile
-    image: paypay/frontend:latest
+    image: ghcr.io/paypay/frontend:latest
     restart: unless-stopped
     env_file:
-      - ../../infra/env/.env.example
+      - ../../infra/env/.env.frontend
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
     depends_on:
       - bff
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid
-    read_only: true
-    volumes:
-      - type: tmpfs
-        target: /app/.next/cache
-    networks:
-      - app-net
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(res=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - paynet
 
   bff:
     build:
       context: ../../
       dockerfile: apps/bff/Dockerfile
-    image: paypay/bff:latest
+    image: ghcr.io/paypay/bff:latest
     restart: unless-stopped
     env_file:
-      - ../../infra/env/.env.example
+      - ../../infra/env/.env.bff
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
     depends_on:
-      - postgres
       - redis
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid
-    networks:
-      - app-net
+      - postgres
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(res=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:4000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-    command: ["sh", "-lc", "node dist/database/run-migrations.js && node dist/main.js"]
+    networks:
+      - paynet
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    networks:
+      - paynet
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: postgres:16-alpine
@@ -66,23 +78,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - app-net
+      - paynet
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U paypay"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis-data:/data
-    networks:
-      - app-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD-SHELL', 'pg_isready -U paypay']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,8 +89,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - '443:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -101,14 +98,19 @@ services:
       - frontend
       - bff
     networks:
-      - app-net
+      - paynet
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider https://localhost/healthz || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 networks:
-  app-net:
+  paynet:
     driver: bridge
 
 volumes:
-  postgres-data:
   redis-data:
+  postgres-data:
   caddy-data:
   caddy-config:

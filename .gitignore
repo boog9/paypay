@@ -2,7 +2,9 @@ node_modules/
 dist/
 .next/
 .env
+.env.local
 .env.*
+!**/.env*.example
 Docker/*.log
 coverage/
 npm-debug.log*

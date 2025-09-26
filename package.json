@@ -1,0 +1,17 @@
+{
+  "name": "paypay",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@8.15.4",
+  "workspaces": [
+    "apps/frontend",
+    "apps/bff",
+    "packages/sdk"
+  ],
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:bff": "pnpm --filter bff start:dev",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint"
+  }
+}

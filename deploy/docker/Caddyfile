@@ -1,0 +1,13 @@
+{
+  email admin@paypay.local
+}
+
+paypay.local {
+  encode gzip
+  reverse_proxy frontend:3000
+}
+
+api.paypay.local {
+  encode gzip
+  reverse_proxy bff:4000
+}

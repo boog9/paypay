@@ -1,0 +1,114 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: ../../
+      dockerfile: apps/frontend/Dockerfile
+    image: paypay/frontend:latest
+    restart: unless-stopped
+    env_file:
+      - ../../infra/env/.env.example
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - bff
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
+    read_only: true
+    volumes:
+      - type: tmpfs
+        target: /app/.next/cache
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(res=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  bff:
+    build:
+      context: ../../
+      dockerfile: apps/bff/Dockerfile
+    image: paypay/bff:latest
+    restart: unless-stopped
+    env_file:
+      - ../../infra/env/.env.example
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - postgres
+      - redis
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(res=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command: ["sh", "-lc", "node dist/database/run-migrations.js && node dist/main.js"]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paypay
+      POSTGRES_USER: paypay
+      POSTGRES_PASSWORD: paypay
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paypay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+      - bff
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:

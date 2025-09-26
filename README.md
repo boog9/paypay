@@ -6,27 +6,41 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 - `apps/frontend` – Next.js 15 App Router frontend with Tailwind CSS and shadcn/ui primitives.
 - `apps/bff` – NestJS BFF acting as a secure proxy/orchestrator for BTCPay Server integrations.
 - `packages/sdk` – Lightweight typed client for the BTCPay Greenfield API.
-- `deploy/docker` – Production-like Docker Compose stack including Caddy, Postgres, and Redis.
+- `deploy/docker` – Production-ready Docker Compose stack including Caddy, Postgres, and Redis.
 - `infra/env` – Environment templates for local and production setups.
 - `docs/` – Architecture and privacy references.
 
-## Environment
-Environment templates live in `infra/env`. Copy them into workspace-specific files before running the stack:
+## Production (Docker-only)
+### Prerequisites
+- A host with Docker Engine and the Docker Compose plugin installed.
+- Two DNS A/AAAA records pointing at the host: one for the UI (`PAYPAY_DOMAIN`) and one for the API (`PAYPAY_API_DOMAIN`).
+- The ability to receive HTTPS traffic on port 443 (Caddy terminates TLS and renews certificates automatically).
 
-```bash
-# Frontend (Next.js)
-cp infra/env/.env.frontend.example apps/frontend/.env.local
+### Configuration
+1. Copy the environment template and edit it for your deployment:
+   ```bash
+   cp infra/env/.env.example infra/env/.env
+   ```
+2. Open `infra/env/.env` and set the required values:
+   - `PAYPAY_DOMAIN` / `PAYPAY_API_DOMAIN` – public domains that end-users will visit.
+   - `CADDY_ADMIN_EMAIL` – email for ACME certificate management.
+   - `NEXT_PUBLIC_BFF_URL` – must be `https://<PAYPAY_API_DOMAIN>` so the frontend CSP allows calls to the BFF.
+   - `NEXT_PUBLIC_API_BASE` – defaults to `https://${PAYPAY_API_DOMAIN}/api`; adjust if you expose the API elsewhere.
+   - `FRONTEND_ORIGIN` – must be `https://<PAYPAY_DOMAIN>` so the BFF CORS policy matches the UI.
+   - `BTCPAY_URL` / `BTCPAY_BASE_URL`, `BTCPAY_API_KEY`, `BTCPAY_WEBHOOK_SECRET`, `STORE_ID` – credentials for your BTCPay Server tenant.
+   - `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` – secrets for issuing user tokens.
+   - Database/cache settings (`POSTGRES_*`, `REDIS_*`) – defaults work out of the box but can be overridden.
+3. From the server, build and start the stack (no Node.js or pnpm required on the host):
+   ```bash
+   cd deploy/docker
+   docker compose up -d --build
+   ```
 
-# BFF (NestJS)
-cp infra/env/.env.bff.example apps/bff/.env
+This command builds the frontend and BFF images inside their respective containers and launches five services: Postgres, Redis, the BFF, the frontend, and Caddy. Once running, HTTPS traffic to `https://$PAYPAY_DOMAIN` serves the Next.js UI and `https://$PAYPAY_API_DOMAIN/docs` proxies the BFF Swagger UI via Caddy.
 
-# SDK scripts or local tooling
-cp infra/env/.env.sdk.example packages/sdk/.env
-```
+## Local development (optional)
+Local development still uses pnpm workspaces. Install pnpm (via Corepack) and bootstrap dependencies:
 
-For Docker Compose deployments copy the templates to `.env.frontend` and `.env.bff` in `infra/env/` so that `docker compose` can load them via `env_file`.
-
-## Getting Started
 ```bash
 corepack enable pnpm
 pnpm install
@@ -34,27 +48,10 @@ pnpm dev            # pnpm -r --parallel dev
 pnpm build          # pnpm -r build
 ```
 
-Generate Greenfield types:
+SDK Greenfield types can be regenerated with:
 
 ```bash
 pnpm --filter sdk gen:api
 ```
 
-The Docker setup can be launched with:
-```bash
-cd deploy/docker
-docker compose up -d --build
-```
-
-Health probes are exposed at `https://localhost/healthz` and invoice creation is proxied via `https://localhost/api/invoices`.
-
-## After upgrade to React 19 / Next 15
-Next.js 15's App Router now requires React 19+, and the Docker image copies the `.next/standalone` directory for runtime execution. After pulling these upgrades run the following checks to confirm everything compiles and serves correctly:
-
-```bash
-pnpm -w install
-pnpm -w build
-pnpm -w -F frontend typecheck
-pnpm -w -F frontend dev
-# or docker compose build if you validate container images instead
-```
+You can also spin up the Docker stack locally with the same production instructions after tailoring `infra/env/.env` to your machine.

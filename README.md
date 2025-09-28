@@ -55,3 +55,42 @@ pnpm --filter sdk gen:api
 ```
 
 You can also spin up the Docker stack locally with the same production instructions after tailoring `infra/env/.env` to your machine.
+
+## Secrets and Required Variables
+
+### JWT secrets
+- Used to sign access and refresh tokens.
+- Generate them with:
+  ```bash
+  openssl rand -hex 64  # JWT_ACCESS_TOKEN_SECRET
+  openssl rand -hex 64  # JWT_REFRESH_TOKEN_SECRET
+  ```
+
+### BTCPay webhook secret
+- Validates webhook authenticity from BTCPay Server.
+- Generate it with:
+  ```bash
+  openssl rand -hex 32
+  ```
+- When creating a webhook in BTCPay, set this value in the **Secret** field.
+
+### Mandatory environment variables
+- `FRONTEND_ORIGIN=https://paypay.iddqd.in`
+- `NEXT_PUBLIC_BFF_URL=https://api.paypay.iddqd.in`
+- `BTCPAY_URL=https://pay.iddqd.in`
+- `TRUST_PROXY=1`
+- `NODE_ENV=production`
+- Add them to `deploy/docker/.env` (or your deployment-specific `.env`).
+
+## BTCPay API Key
+- Create a key in **BTCPay Server → Account → API Keys → Create new**.
+- Grant the minimum permissions required for a merchant workflow:
+  - `btcpay.store.cancreateinvoice` — create invoices (required).
+  - `btcpay.store.canviewinvoices` — view invoices for UI/status pages.
+  - `btcpay.store.webhooks.canmodifywebhooks` — manage webhooks from our UI (if needed).
+  - `btcpay.store.canviewstoresettings` — read store settings when necessary.
+- Do **not** grant server-wide permissions such as `btcpay.server.canmodifyserversettings`.
+
+## Operational Checklist
+- `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.
+- `curl -i https://api.paypay.iddqd.in/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.

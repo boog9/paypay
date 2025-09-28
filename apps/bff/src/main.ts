@@ -37,20 +37,19 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
 
   const frontendOrigin = configService.get<string>('FRONTEND_ORIGIN');
-  const paypayDomain = configService.get<string>('PAYPAY_DOMAIN');
-  const computedOrigin = frontendOrigin || (paypayDomain ? `https://${paypayDomain}` : undefined);
+  const corsOrigins = frontendOrigin ? [frontendOrigin] : [];
   app.enableCors({
-    origin: computedOrigin ? [computedOrigin] : false,
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
     credentials: true,
-    methods: ['POST', 'GET'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-csrf-token', 'Accept'],
-    optionsSuccessStatus: 204
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Accept']
   });
 
   const httpAdapter = app.getHttpAdapter();
   const type = httpAdapter.getType();
   const instance = httpAdapter.getInstance();
-  const trustProxyValue = parseTrustProxy(configService.get<string>('TRUST_PROXY'));
+  const trustProxyRaw = configService.get<string>('TRUST_PROXY') ?? '1';
+  const trustProxyValue = parseTrustProxy(trustProxyRaw);
 
   if (type === 'express' && typeof (instance as any).set === 'function') {
     (instance as any).set('trust proxy', trustProxyValue);

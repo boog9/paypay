@@ -22,6 +22,8 @@ FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /opt/app
 COPY --from=build /opt/app ./
+COPY apps/bff/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 USER node
 EXPOSE 4000
-CMD ["node", "dist/main.js"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

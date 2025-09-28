@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class InitSchema0001 implements MigrationInterface {
-  name = 'InitSchema0001';
+export class InitSchema1727563200000 implements MigrationInterface {
+  name = 'InitSchema1727563200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');

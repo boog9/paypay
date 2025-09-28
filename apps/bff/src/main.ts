@@ -9,12 +9,18 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 function parseTrustProxy(v?: string): any {
-  if (!v || v === '') return true;
-  const lower = v.toLowerCase();
+  if (v === undefined) {
+    return 1;
+  }
+  const normalized = v.trim();
+  if (normalized === '') {
+    return 1;
+  }
+  const lower = normalized.toLowerCase();
   if (lower === 'false' || lower === '0') return false;
   if (lower === 'true') return true;
-  const num = Number(v);
-  return Number.isNaN(num) ? v : num;
+  const num = Number(normalized);
+  return Number.isNaN(num) ? normalized : num;
 }
 
 async function bootstrap() {

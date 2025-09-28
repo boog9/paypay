@@ -39,7 +39,7 @@ async function bootstrap() {
   const frontendOrigin = configService.get<string>('FRONTEND_ORIGIN');
   const corsOrigins = frontendOrigin ? [frontendOrigin] : [];
   app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : false,
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Accept']

@@ -2,9 +2,10 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../../components/ui/button';
+import { getApiBasePath, getBffOrigin } from '../../../lib/bff';
 
 type Props = {
-  apiBase: string;
+  apiBaseUrl: string;
 };
 
 type RequestState =
@@ -28,7 +29,7 @@ function safeJsonParse<T = unknown>(raw: string): T | undefined {
   }
 }
 
-export function NewInvoiceForm({ apiBase }: Props) {
+export function NewInvoiceForm({ apiBaseUrl }: Props) {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('BTC');
   const [metadata, setMetadata] = useState('');
@@ -48,7 +49,14 @@ export function NewInvoiceForm({ apiBase }: Props) {
         payload.metadata = parsed;
       }
 
-      const sanitizedBase = apiBase.replace(/\/$/, '');
+      let sanitizedBase = apiBaseUrl.replace(/\/$/, '');
+      if (!sanitizedBase.startsWith('http')) {
+        const origin = getBffOrigin();
+        if (origin) {
+          sanitizedBase = `${origin}${getApiBasePath()}`.replace(/\/$/, '');
+        }
+      }
+
       const csrfResponse = await fetch(`${sanitizedBase}/auth/csrf-token`, {
         method: 'GET',
         credentials: 'include',

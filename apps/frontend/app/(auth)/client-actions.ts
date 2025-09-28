@@ -1,6 +1,7 @@
 'use client';
 
 import { z } from 'zod';
+import { getApiBasePath, getBffApiBaseUrl, getBffOrigin } from '../../lib/bff';
 
 export type AuthFormStateBase = {
   fieldErrors?: Record<string, string[]>;
@@ -20,21 +21,20 @@ const credentialsSchema = z.object({
 
 type Credentials = z.infer<typeof credentialsSchema>;
 
-function getBffBaseUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_BFF_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    return envUrl.replace(/\/$/, '');
+function resolveApiBaseUrl(): string {
+  const baseUrl = getBffApiBaseUrl();
+  const origin = getBffOrigin();
+
+  if (!origin) {
+    const basePath = getApiBasePath();
+    return basePath.replace(/\/$/, '');
   }
 
-  if (typeof window !== 'undefined') {
-    return window.location.origin.replace(/\/$/, '');
-  }
-
-  return 'http://localhost:4000';
+  return baseUrl.replace(/\/$/, '');
 }
 
 async function fetchCsrfToken(baseUrl: string): Promise<string> {
-  const response = await fetch(`${baseUrl}/api/auth/csrf-token`, {
+  const response = await fetch(`${baseUrl}/auth/csrf-token`, {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store'
@@ -53,7 +53,7 @@ async function fetchCsrfToken(baseUrl: string): Promise<string> {
 }
 
 async function performAuthRequest(endpoint: 'signup' | 'login', body: Credentials): Promise<AuthActionResult> {
-  const baseUrl = getBffBaseUrl();
+  const baseUrl = resolveApiBaseUrl();
 
   let csrfToken: string;
   try {
@@ -65,11 +65,11 @@ async function performAuthRequest(endpoint: 'signup' | 'login', body: Credential
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/api/auth/${endpoint}`, {
+    response = await fetch(`${baseUrl}/auth/${endpoint}`, {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
-        'x-csrf-token': csrfToken
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
       },
       body: JSON.stringify(body),
       cache: 'no-store',

@@ -24,8 +24,8 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 2. Open `infra/env/.env` and set the required values:
    - `PAYPAY_DOMAIN` / `PAYPAY_API_DOMAIN` – public domains that end-users will visit.
    - `CADDY_ADMIN_EMAIL` – email for ACME certificate management.
-   - `NEXT_PUBLIC_BFF_URL` – must be `https://<PAYPAY_API_DOMAIN>` so the frontend CSP allows calls to the BFF.
-  - `NEXT_PUBLIC_API_BASE` – defaults to `https://<PAYPAY_API_DOMAIN>/api`; adjust if you expose the API elsewhere.
+  - `NEXT_PUBLIC_BFF_URL` – must be `https://<PAYPAY_API_DOMAIN>` so the frontend CSP allows calls to the BFF.
+  - `NEXT_PUBLIC_API_BASE` – defaults to `/api`; adjust only if the BFF is mounted elsewhere behind your proxy.
    - `FRONTEND_ORIGIN` – must be `https://<PAYPAY_DOMAIN>` so the BFF CORS policy matches the UI.
    - `BTCPAY_URL` / `BTCPAY_BASE_URL`, `BTCPAY_API_KEY`, `BTCPAY_WEBHOOK_SECRET`, `STORE_ID` – credentials for your BTCPay Server tenant.
    - `JWT_ACCESS_TOKEN_SECRET` and `JWT_REFRESH_TOKEN_SECRET` – secrets for issuing user tokens.
@@ -93,4 +93,4 @@ You can also spin up the Docker stack locally with the same production instructi
 
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.
-- `curl -i https://api.paypay.iddqd.in/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.
+- `curl -i https://api.paypay.iddqd.in/api/auth/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.

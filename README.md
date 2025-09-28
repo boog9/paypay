@@ -28,7 +28,7 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
    - `NEXT_PUBLIC_API_BASE` – defaults to `https://${PAYPAY_API_DOMAIN}/api`; adjust if you expose the API elsewhere.
    - `FRONTEND_ORIGIN` – must be `https://<PAYPAY_DOMAIN>` so the BFF CORS policy matches the UI.
    - `BTCPAY_URL` / `BTCPAY_BASE_URL`, `BTCPAY_API_KEY`, `BTCPAY_WEBHOOK_SECRET`, `STORE_ID` – credentials for your BTCPay Server tenant.
-   - `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` – secrets for issuing user tokens.
+   - `JWT_ACCESS_TOKEN_SECRET` and `JWT_REFRESH_TOKEN_SECRET` – secrets for issuing user tokens.
    - Database/cache settings (`POSTGRES_*`, `REDIS_*`) – defaults work out of the box but can be overridden.
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash

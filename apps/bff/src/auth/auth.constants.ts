@@ -1,0 +1,10 @@
+export const ACCESS_TOKEN_TTL_S = 900;
+export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const ACCESS_TOKEN_ISSUER = 'paypay.bff';
+export const ACCESS_TOKEN_AUDIENCE = 'paypay.frontend';
+export const ACCESS_TOKEN_ALGORITHM = 'HS512';
+export const ACCESS_TOKEN_COOKIE_NAME = 'access_token';
+export const REFRESH_TOKEN_COOKIE_NAME = 'refresh_token';
+export const ACCESS_TOKEN_COOKIE_PATH = '/';
+export const REFRESH_TOKEN_COOKIE_PATH = '/api/auth';
+export const CSRF_TOKEN_COOKIE_NAME = 'csrf_token';

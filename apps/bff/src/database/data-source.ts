@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
+import * as path from 'path';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -10,7 +11,10 @@ export const AppDataSource = new DataSource({
   database: process.env.POSTGRES_DB || 'paypay',
   ssl: false,
   entities: [__dirname + '/../**/*.entity.{js,ts}'],
-  migrations: [__dirname + '/../migrations/*.{js,ts}'],
+  migrations:
+    process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+      ? ['src/migrations/*.ts']
+      : [path.join(__dirname, '../migrations/*.js')],
   migrationsTableName: 'migrations',
   synchronize: false,
   logging: ['warn', 'error']

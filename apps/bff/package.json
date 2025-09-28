@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
+    "migrate": "node dist/scripts/migrate.js",
     "start": "node dist/main.js",
     "dev": "nest start --watch",
     "lint": "eslint \"src/**/*.ts\"",
@@ -11,7 +12,7 @@
     "test": "jest --config jest.config.ts",
     "typeorm": "node --require ts-node/register ./node_modules/typeorm/cli.js -d apps/bff/src/database/data-source.ts",
     "migration:generate": "pnpm typeorm migration:generate apps/bff/src/migrations/Auto",
-    "migration:run": "node dist/src/scripts/migrate.js",
+    "migration:run": "node dist/scripts/migrate.js",
     "migration:revert": "pnpm typeorm migration:revert"
   },
   "dependencies": {

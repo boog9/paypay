@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 
-@Controller('api/invoices')
+@Controller('invoices')
 export class InvoicesController {
   constructor(
     private readonly btcpayService: BtcpayService,

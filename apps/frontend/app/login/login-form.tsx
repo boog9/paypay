@@ -1,16 +1,42 @@
 'use client';
 
-import { useActionState } from 'react';
-import { loginAction, type AuthFormState } from '../(auth)/actions';
+import { FormEvent, useCallback, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { loginAction, type AuthFormState } from '../(auth)/client-actions';
 import { Button } from '../../components/ui/button';
 
 const initialState: AuthFormState = { status: 'idle' };
 
 export function LoginForm() {
-  const [state, action, pending] = useActionState(loginAction, initialState);
+  const router = useRouter();
+  const [state, setState] = useState<AuthFormState>(initialState);
+  const [isPending, startTransition] = useTransition();
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+
+      setState(initialState);
+      startTransition(async () => {
+        const result = await loginAction(formData);
+        if (result.status === 'success') {
+          router.replace('/org/stores');
+          return;
+        }
+
+        setState({
+          status: 'error',
+          message: result.message,
+          fieldErrors: result.fieldErrors
+        });
+      });
+    },
+    [router]
+  );
 
   return (
-    <form action={action} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className="text-sm font-medium">
           Email
@@ -57,8 +83,8 @@ export function LoginForm() {
           {state.message}
         </p>
       )}
-      <Button type="submit" disabled={pending} className="w-full">
-        {pending ? 'Signing in…' : 'Sign in'}
+      <Button type="submit" disabled={isPending} className="w-full">
+        {isPending ? 'Signing in…' : 'Sign in'}
       </Button>
     </form>
   );

@@ -48,12 +48,31 @@ export function NewInvoiceForm({ apiBase }: Props) {
         payload.metadata = parsed;
       }
 
-      const response = await fetch(`${apiBase.replace(/\/$/, '')}/invoices`, {
+      const sanitizedBase = apiBase.replace(/\/$/, '');
+      const csrfResponse = await fetch(`${sanitizedBase}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store'
+      });
+
+      if (!csrfResponse.ok) {
+        throw new Error('Failed to obtain CSRF token. Please try again.');
+      }
+
+      const csrfData = await csrfResponse.json();
+      const csrfToken = csrfData?.csrfToken;
+      if (typeof csrfToken !== 'string') {
+        throw new Error('Received malformed CSRF token.');
+      }
+
+      const response = await fetch(`${sanitizedBase}/invoices`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        credentials: 'include'
       });
 
       if (!response.ok) {

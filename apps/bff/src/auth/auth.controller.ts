@@ -7,8 +7,7 @@ import {
   Post,
   Req,
   Res,
-  UnauthorizedException,
-  UseGuards
+  UnauthorizedException
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
@@ -27,7 +26,6 @@ import {
   REFRESH_TOKEN_TTL_MS
 } from './auth.constants';
 import { CsrfService } from './csrf.service';
-import { CsrfGuard } from './csrf.guard';
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -48,7 +46,6 @@ const REFRESH_COOKIE_OPTIONS = {
 };
 
 @Controller('auth')
-@UseGuards(CsrfGuard)
 export class AuthController {
   constructor(private readonly authService: AuthService, private readonly csrfService: CsrfService) {}
 

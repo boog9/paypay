@@ -27,7 +27,7 @@ async function bootstrap() {
     origin,
     credentials: true,
     methods: ['POST', 'GET'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'x-csrf-token', 'Accept'],
     optionsSuccessStatus: 204
   });
 

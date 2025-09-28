@@ -143,7 +143,8 @@ export class AuthService {
         expiresIn: `${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}s`,
         jwtid: tokenId,
         issuer: ACCESS_TOKEN_ISSUER,
-        audience: ACCESS_TOKEN_AUDIENCE
+        audience: ACCESS_TOKEN_AUDIENCE,
+        algorithm: ACCESS_TOKEN_ALGORITHM
       }
     );
 

@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { AppDataSource } from '../database/data-source';
 
 async function main() {

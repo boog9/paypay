@@ -31,8 +31,6 @@ services:
       dockerfile: apps/bff/Dockerfile
     image: ghcr.io/paypay/bff:latest
     restart: unless-stopped
-    ports:
-      - '3000:3000'
     env_file:
       - ../../infra/env/.env
     environment:
@@ -44,8 +42,10 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -106,8 +106,10 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - bff
-      - frontend
+      bff:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
     networks:
       - paynet
     healthcheck:

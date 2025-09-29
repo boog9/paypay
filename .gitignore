@@ -11,3 +11,5 @@ npm-debug.log*
 yarn-error.log*
 .tmp/
 .volumes/
+infra/env/.env
+infra/env/.env.local

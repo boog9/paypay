@@ -27,8 +27,9 @@ services:
 
   bff:
     build:
-      context: ../../
-      dockerfile: apps/bff/Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/bff.Dockerfile
+      target: runtime
     image: ghcr.io/paypay/bff:latest
     restart: unless-stopped
     env_file:

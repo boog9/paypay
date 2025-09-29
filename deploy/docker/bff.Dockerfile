@@ -10,51 +10,49 @@ RUN corepack enable
 WORKDIR /work
 
 ########################
-# Fetch (lockfile cache)
+# Fetch (prepare lock + store)
 ########################
 FROM base AS fetch
-# Copy manifests so pnpm can resolve the graph
+# copy just the manifests
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/bff/package.json apps/bff/
 COPY packages/sdk/package.json packages/sdk/
-# 1) Sync lockfile for just BFF + SDK (no extra workspaces)
-RUN pnpm -w \
-  --filter ./packages/sdk... \
-  --filter ./apps/bff... \
-  install --lockfile-only
-# 2) Fetch everything (dev+prod) into the pnpm store using the refreshed lockfile
+# 1) refresh lockfile with current manifests
+RUN pnpm -w --filter ./packages/sdk... --filter ./apps/bff... install --lockfile-only
+# 2) prefetch to store (no node_modules yet)
 RUN pnpm fetch --frozen-lockfile
 
 ########################
 # Deps for build (dev+prod)
 ########################
 FROM fetch AS deps-build
+# now copy the whole repo
 COPY . .
-# Overwrite the repo lockfile with the freshly generated one from the fetch stage
+# ensure we use the refreshed lockfile from fetch
 COPY --from=fetch /work/pnpm-lock.yaml pnpm-lock.yaml
-# Install only required workspaces (BFF and SDK) with dev+prod deps
+# install dev+prod deps only for sdk + bff workspaces (offline)
 RUN pnpm -r \
   --filter ./packages/sdk... \
   --filter ./apps/bff... \
   install --offline --frozen-lockfile
 
 ########################
-# Build BFF
+# Build SDK then BFF
 ########################
 FROM deps-build AS build
 RUN pnpm --filter ./packages/sdk... build \
  && pnpm --filter ./apps/bff... build
 
 ########################
-# Prod deps only (self-contained deploy)
+# Prod deps bundle (self-contained)
 ########################
 FROM fetch AS deps-prod
-# Fetch prod deps into store
+# prod store only
 RUN pnpm fetch --prod --frozen-lockfile
-# Bring in compiled artefacts so pnpm deploy packages built output
+# bring compiled artefacts so deploy packages built output where needed
 COPY --from=build /work/packages/sdk/dist packages/sdk/dist
 COPY --from=build /work/apps/bff/dist apps/bff/dist
-# Build self-contained deployment package for BFF and its dependencies
+# produce a deployable package for BFF (+ its deps) into /out/<name>
 RUN pnpm --filter ./apps/bff... --prod deploy /out
 
 ########################
@@ -64,18 +62,17 @@ FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /opt/app
 
-# Hardened runtime user
+# non-root
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
-# Production dependencies and artefacts
+# copy packaged prod deps and compiled dist
 COPY --chown=app:app --from=deps-prod /out/bff/ ./
 COPY --chown=app:app --from=build     /work/apps/bff/dist ./dist
 
-# Early failure if reflect-metadata is missing
+# early fail if reflect-metadata is missing
 RUN node -e "require('reflect-metadata'); console.log('reflect-metadata present')"
 
-# Healthcheck keeps consistent with internal expectations
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
   CMD wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1
 

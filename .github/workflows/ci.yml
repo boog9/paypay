@@ -18,12 +18,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Enable corepack
-        run: corepack enable
+      - name: Prepare pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9 --activate
       - name: pnpm version
         run: pnpm -v
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm -w install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint

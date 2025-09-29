@@ -199,8 +199,37 @@ export class BtcpayService {
     }
   }
 
-  async createInvoice(host: string | undefined, apiKey: string, storeId: string, payload: CreateInvoiceRequest) {
-    const http = this.createHttp(host ?? this.config.baseUrl, {
+  async createInvoice(opts: {
+    storeId: string;
+    payload: CreateInvoiceRequest;
+    apiKey?: string;
+    host?: string;
+  }) {
+    const host = opts.host ?? process.env.BTCPAY_SERVER_URL ?? this.config.baseUrl;
+    if (!host) {
+      throw new InternalServerErrorException('BTCPay host is not configured');
+    }
+
+    const apiKey =
+      opts.apiKey ??
+      (await this.getStoreApiKeySafe(opts.storeId)) ??
+      process.env.BTCPAY_DEFAULT_API_KEY ??
+      undefined;
+
+    if (!apiKey) {
+      throw new InternalServerErrorException('BTCPay API key is not configured');
+    }
+
+    return this.doCreateInvoice(host, apiKey, opts.storeId, opts.payload);
+  }
+
+  private async getStoreApiKeySafe(_storeId: string): Promise<string | undefined> {
+    // TODO: Implement scoped API key lookup once store configuration is persisted.
+    return undefined;
+  }
+
+  private async doCreateInvoice(host: string, apiKey: string, storeId: string, payload: CreateInvoiceRequest) {
+    const http = this.createHttp(host, {
       Authorization: `token ${apiKey}`
     });
     try {

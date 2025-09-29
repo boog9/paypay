@@ -33,10 +33,13 @@ export class InvoicesController {
       throw new BadRequestException('Missing store identifier');
     }
 
-    return this.btcpayService.createInvoice(storeId, {
-      amount: body.amount,
-      currency: body.currency,
-      metadata: body.metadata
+    return this.btcpayService.createInvoice({
+      storeId,
+      payload: {
+        amount: body.amount,
+        currency: body.currency,
+        metadata: body.metadata
+      }
     });
   }
 }

@@ -196,10 +196,15 @@ export class TenantsService {
 
     const apiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
     try {
-      const invoice = await this.btcpayService.createInvoice(store.btcpayHost, apiKey, store.btcpayStoreId, {
-        amount: dto.amount,
-        currency: dto.currency,
-        metadata: dto.metadata ?? {}
+      const invoice = await this.btcpayService.createInvoice({
+        storeId: store.btcpayStoreId,
+        host: store.btcpayHost,
+        apiKey,
+        payload: {
+          amount: dto.amount,
+          currency: dto.currency,
+          metadata: dto.metadata ?? {}
+        }
       });
       return {
         invoiceId: invoice.id,

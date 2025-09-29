@@ -17,7 +17,7 @@ jobs:
           - name: frontend
             dockerfile: apps/frontend/Dockerfile
           - name: bff
-            dockerfile: apps/bff/Dockerfile
+            dockerfile: deploy/docker/bff.Dockerfile
     steps:
       - uses: actions/checkout@v4
       - name: Log in to GHCR
@@ -37,3 +37,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:latest
+      - name: Verify reflect-metadata in BFF runtime image
+        if: matrix.name == 'bff'
+        run: |
+          docker run --rm ghcr.io/${{ github.repository_owner }}/bff:${{ github.ref_name }} node -e "require('reflect-metadata')"

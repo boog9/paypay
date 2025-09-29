@@ -5,6 +5,7 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 ## Structure
 - `apps/frontend` – Next.js 15 App Router frontend with Tailwind CSS and shadcn/ui primitives.
 - `apps/bff` – NestJS BFF acting as a secure proxy/orchestrator for BTCPay Server integrations.
+- Nest/TypeORM requires `reflect-metadata`; in `apps/bff` keep the package under `dependencies` and import it as the first line in `src/scripts/migrate.ts` and `src/main.ts`.
 - `packages/sdk` – Lightweight typed client for the BTCPay Greenfield API.
 - `deploy/docker` – Production-ready Docker Compose stack including Caddy, Postgres, and Redis.
 - `infra/env` – Environment templates for local and production setups.
@@ -23,8 +24,8 @@ The stack uses two complementary dotenv files:
   ```
 - Required keys:
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
-  - `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`
-  - `FRONTEND_ORIGIN`
+  - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`), `NEXT_PUBLIC_API_BASE` (e.g. `https://api.example.com/api`)
+  - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
   - `CADDY_ADMIN_EMAIL`
   - Keep these values in sync with the corresponding entries in `infra/env/.env`.
 
@@ -54,6 +55,7 @@ The stack uses two complementary dotenv files:
 
 - **CADDY_ADMIN_EMAIL** (Required) – Used by the Caddy global options block to register the ACME account and receive renewal
   notices. Caddy fails to start when the value is missing.
+- Health probes – Caddy replies to `/healthz` with `200 OK` for liveness checks, while `/health` and `/readyz` are forwarded to the BFF for application readiness.
 - Set the value in `deploy/docker/.env`; Docker Compose passes it through to the Caddy container.
 - Security: never commit the real `infra/env/.env` file. Keep production secrets outside of version control and distribute them
   via your secret management workflow.
@@ -145,8 +147,8 @@ You can also spin up the Docker stack locally with the same production instructi
 ### Mandatory environment variables
 - Public (place in `deploy/docker/.env`):
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
-  - `FRONTEND_ORIGIN`
-  - `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`
+  - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
+  - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`), `NEXT_PUBLIC_API_BASE` (e.g. `https://api.example.com/api`)
 - Private (place in `infra/env/.env`):
   - `BTCPAY_SERVER_URL`
   - `BTCPAY_ADMIN_API_KEY`

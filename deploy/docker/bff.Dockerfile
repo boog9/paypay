@@ -39,16 +39,14 @@ FROM deps-build AS build
 RUN pnpm --filter ./apps/bff... build
 
 ########################
-# Prod deps only (prune)
+# Prod deps only (self-contained deploy)
 ########################
 FROM base AS deps-prod
-# Fetch prod deps separately to keep runtime lean
+# Fetch prod deps into store
 RUN pnpm fetch --prod --frozen-lockfile
 COPY . .
-RUN pnpm -r \
-  --filter ./packages/sdk... \
-  --filter ./apps/bff... \
-  install --offline --prod --frozen-lockfile
+# Build self-contained deployment package for BFF and its dependencies
+RUN pnpm --filter ./apps/bff^... --prod deploy /out
 
 ########################
 # Runtime
@@ -61,10 +59,9 @@ WORKDIR /opt/app
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
-# Prod dependencies and build artefacts
-COPY --chown=app:app --from=deps-prod /work/apps/bff/node_modules ./node_modules
-COPY --chown=app:app --from=build     /work/apps/bff/dist         ./dist
-COPY --chown=app:app --from=deps-prod /work/apps/bff/package.json ./package.json
+# Production dependencies and artefacts
+COPY --chown=app:app --from=deps-prod /out/bff/ ./
+COPY --chown=app:app --from=build     /work/apps/bff/dist ./dist
 
 # Early failure if reflect-metadata is missing
 RUN node -e "require('reflect-metadata'); console.log('reflect-metadata present')"

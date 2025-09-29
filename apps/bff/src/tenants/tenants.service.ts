@@ -283,15 +283,12 @@ export class TenantsService {
     }
   }
 
-  private clearBuffer(value: string | null | undefined) {
+  private clearBuffer(value: string | Buffer | null | undefined) {
     if (!value) {
       return;
     }
-    try {
-      const buf = Buffer.from(value);
-      buf.fill(0);
-    } catch (error) {
-      this.logger.warn('Failed to clear buffer', error as Error);
+    if (Buffer.isBuffer(value)) {
+      value.fill(0);
     }
   }
 

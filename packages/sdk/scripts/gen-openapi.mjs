@@ -6,10 +6,10 @@ import process from 'node:process';
 import { openapiTS } from 'openapi-typescript';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const baseUrl = process.env.OPENAPI_URL || process.env.BTCPAY_URL;
+const baseUrl = process.env.OPENAPI_URL || process.env.BTCPAY_SERVER_URL;
 
 if (!baseUrl) {
-  console.error('Missing OPENAPI_URL or BTCPAY_URL environment variable.');
+  console.error('Missing OPENAPI_URL or BTCPAY_SERVER_URL environment variable.');
   process.exit(1);
 }
 

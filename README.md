@@ -28,7 +28,7 @@ We use two env files:
      ```
    - Set at least:
      - `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`
-     - `BTCPAY_URL`, `BTCPAY_ADMIN_API_KEY`
+    - `BTCPAY_SERVER_URL`, `BTCPAY_ADMIN_API_KEY`
      - `BTCPAY_MASTER_KEY` (base64 32 bytes; generate via `openssl rand -base64 32`)
      - `BTCPAY_WEBHOOK_URL` (use `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`)
      - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`
@@ -51,9 +51,11 @@ We use two env files:
 
 This command builds the frontend and BFF images inside their respective containers and launches five services: Postgres, Redis, the BFF, the frontend, and Caddy. Once running, HTTPS traffic to `https://$PAYPAY_DOMAIN` serves the Next.js UI and `https://$PAYPAY_API_DOMAIN/docs` proxies the BFF Swagger UI via Caddy.
 
+Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml`, keeping secrets in a single place.
+
 ```bash
 # After `docker compose up -d --build`
-docker compose exec bff env | egrep 'BTCPAY_(URL|ADMIN_API_KEY|MASTER_KEY|WEBHOOK_URL)'
+docker compose exec bff env | egrep 'BTCPAY_(SERVER_URL|ADMIN_API_KEY|MASTER_KEY|WEBHOOK_URL)'
 docker compose exec bff curl -sS http://localhost:4000/healthz
 ```
 
@@ -97,7 +99,7 @@ You can also spin up the Docker stack locally with the same production instructi
 ### Mandatory environment variables
 - `FRONTEND_ORIGIN=https://paypay.iddqd.in`
 - `NEXT_PUBLIC_BFF_URL=https://api.paypay.iddqd.in`
-- `BTCPAY_URL=https://pay.iddqd.in`
+- `BTCPAY_SERVER_URL=https://pay.iddqd.in`
 - `BTCPAY_ADMIN_API_KEY=<server-admin-api-key>`
 - `BTCPAY_MASTER_KEY=<base64-32-byte-master-key>`
 - `BTCPAY_WEBHOOK_URL=https://api.paypay.iddqd.in/api/hooks/btcpay`

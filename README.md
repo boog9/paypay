@@ -26,8 +26,12 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
    - `CADDY_ADMIN_EMAIL` – email for ACME certificate management.
   - `NEXT_PUBLIC_BFF_URL` – must be `https://<PAYPAY_API_DOMAIN>` so the frontend CSP allows calls to the BFF.
   - `NEXT_PUBLIC_API_BASE` – defaults to `/api`; adjust only if the BFF is mounted elsewhere behind your proxy.
-   - `FRONTEND_ORIGIN` – must be `https://<PAYPAY_DOMAIN>` so the BFF CORS policy matches the UI.
-   - `BTCPAY_URL` / `BTCPAY_BASE_URL`, `BTCPAY_API_KEY`, `BTCPAY_WEBHOOK_SECRET`, `STORE_ID` – credentials for your BTCPay Server tenant.
+  - `FRONTEND_ORIGIN` – must be `https://<PAYPAY_DOMAIN>` so the BFF CORS policy matches the UI.
+  - `BTCPAY_URL` – base URL of your BTCPay Server instance.
+  - `BTCPAY_ADMIN_API_KEY` – server-admin API key used for automated onboarding.
+  - `BTCPAY_MASTER_KEY` – base64-encoded 32-byte master key for envelope encryption.
+- `BTCPAY_WEBHOOK_URL` – public HTTPS endpoint for webhook deliveries (e.g. `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`).
+  - `BTCPAY_HEALTH_STORE_ID` / `BTCPAY_HEALTH_API_KEY` – optional credentials for the internal BTCPay health probe.
    - `JWT_ACCESS_TOKEN_SECRET` and `JWT_REFRESH_TOKEN_SECRET` – secrets for issuing user tokens.
    - Database/cache settings (`POSTGRES_*`, `REDIS_*`) – defaults work out of the box but can be overridden.
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
@@ -66,30 +70,32 @@ You can also spin up the Docker stack locally with the same production instructi
   openssl rand -hex 64  # JWT_REFRESH_TOKEN_SECRET
   ```
 
-### BTCPay webhook secret
-- Validates webhook authenticity from BTCPay Server.
+### Envelope encryption master key
+- Used to wrap store-scoped Data Encryption Keys (DEKs) for BTCPay API keys and webhook secrets.
+- Must be a 256-bit value encoded in base64.
 - Generate it with:
   ```bash
-  openssl rand -hex 32
+  openssl rand -base64 32
   ```
-- When creating a webhook in BTCPay, set this value in the **Secret** field.
+- Set the result as `BTCPAY_MASTER_KEY` in the BFF environment.
 
 ### Mandatory environment variables
 - `FRONTEND_ORIGIN=https://paypay.iddqd.in`
 - `NEXT_PUBLIC_BFF_URL=https://api.paypay.iddqd.in`
 - `BTCPAY_URL=https://pay.iddqd.in`
+- `BTCPAY_ADMIN_API_KEY=<server-admin-api-key>`
+- `BTCPAY_MASTER_KEY=<base64-32-byte-master-key>`
+- `BTCPAY_WEBHOOK_URL=https://api.paypay.iddqd.in/api/hooks/btcpay`
 - `TRUST_PROXY=1`
 - `NODE_ENV=production`
 - Add them to `deploy/docker/.env` (or your deployment-specific `.env`).
 
-## BTCPay API Key
-- Create a key in **BTCPay Server → Account → API Keys → Create new**.
-- Grant the minimum permissions required for a merchant workflow:
-  - `btcpay.store.cancreateinvoice` — create invoices (required).
-  - `btcpay.store.canviewinvoices` — view invoices for UI/status pages.
-  - `btcpay.store.webhooks.canmodifywebhooks` — manage webhooks from our UI (if needed).
-  - `btcpay.store.canviewstoresettings` — read store settings when necessary.
-- Do **not** grant server-wide permissions such as `btcpay.server.canmodifyserversettings`.
+If your edge or proxy strips the `/api` prefix before reaching the BFF, configure `BTCPAY_WEBHOOK_URL` without `/api` and align the routing rules accordingly.
+
+## BTCPay admin API key
+- Create a server-admin API key in **BTCPay Server → Server Settings → Access Tokens**.
+- Grant only `btcpay.server.canmanageusers`; the BFF provisions stores using temporary user-scoped API keys with `btcpay.store.canmodifystoresettings` and then replaces them with permanent store-scoped keys.
+- Tenant-facing API keys are generated per store with the minimal permissions listed in the BTCPay eCommerce Integration Guide. Keys and webhook secrets are envelope encrypted and never exposed to the frontend.
 
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.

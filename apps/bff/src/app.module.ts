@@ -7,11 +7,16 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CsrfGuard } from './auth/csrf.guard';
 import { LoggerModule } from 'nestjs-pino';
 import { BtcpayModule } from './btcpay/btcpay.module';
-import { InvoicesModule } from './invoices/invoices.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UserEntity } from './auth/entities/user.entity';
 import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
+import { TenantEntity } from './tenants/entities/tenant.entity';
+import { StoreEntity } from './tenants/entities/store.entity';
+import { AuditLogEntity } from './tenants/entities/audit-log.entity';
+import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity';
+import { TenantsModule } from './tenants/tenants.module';
+import { HooksModule } from './hooks/hooks.module';
 
 @Module({
   imports: [
@@ -27,7 +32,9 @@ import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
             'res.headers["set-cookie"]',
             'req.body.password',
             'req.body.refreshToken',
-            'req.body.token'
+            'req.body.token',
+            'req.headers["btcpay-sig"]',
+            'req.headers["btcpay-delivery"]'
           ],
           remove: true
         }
@@ -44,7 +51,14 @@ import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
           return {
             type: 'sqlite',
             database,
-            entities: [UserEntity, RefreshTokenEntity],
+            entities: [
+              UserEntity,
+              RefreshTokenEntity,
+              TenantEntity,
+              StoreEntity,
+              AuditLogEntity,
+              IdempotencyKeyEntity
+            ],
             synchronize: true,
             dropSchema: true,
             logging: false
@@ -53,7 +67,14 @@ import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
 
         const baseOptions = {
           type: 'postgres',
-          entities: [UserEntity, RefreshTokenEntity],
+          entities: [
+            UserEntity,
+            RefreshTokenEntity,
+            TenantEntity,
+            StoreEntity,
+            AuditLogEntity,
+            IdempotencyKeyEntity
+          ],
           synchronize: false,
           migrations: ['dist/migrations/*.js'],
           migrationsRun: true
@@ -96,8 +117,9 @@ import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
     }),
     AuthModule,
     BtcpayModule,
-    InvoicesModule,
-    HealthModule
+    HealthModule,
+    TenantsModule,
+    HooksModule
   ],
   providers: [
     {

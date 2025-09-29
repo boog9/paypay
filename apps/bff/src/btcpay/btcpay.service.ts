@@ -1,39 +1,251 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type {
-  BTCPayClient,
-  CreateInvoiceRequest,
-  Invoice,
-  Store
-} from '@paypay/sdk';
-import { BTCPAY_CLIENT, BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException
+} from '@nestjs/common';
+import axios, { AxiosError, AxiosInstance } from 'axios';
+import { BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens';
 import { BTCPAY_MINIMAL_PERMISSIONS } from './btcpay.constants';
+
+export interface CreateInvoiceRequest {
+  amount: number;
+  currency: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface ApiKeyResponse {
+  apiKey: string;
+  permissions: string[];
+}
+
+interface WebhookResponse {
+  id: string;
+  secret?: string | null;
+}
+
+interface StoreResponse {
+  id: string;
+  name?: string;
+}
+
+interface UserResponse {
+  id: string;
+  email: string;
+}
 
 @Injectable()
 export class BtcpayService {
-  constructor(
-    @Inject(BTCPAY_CLIENT) private readonly client: BTCPayClient,
-    @Inject(BTCPAY_CONFIG) private readonly config: BtcpayConfig
-  ) {}
+  private readonly logger = new Logger(BtcpayService.name, { timestamp: false });
 
-  listStores(): Promise<Store[]> {
-    return this.client.listStores();
+  constructor(@Inject(BTCPAY_CONFIG) private readonly config: BtcpayConfig) {}
+
+  private normaliseBaseUrl(url: string): string {
+    return url.endsWith('/') ? url.slice(0, -1) : url;
   }
 
-  createInvoice(storeId: string, payload: CreateInvoiceRequest): Promise<Invoice> {
-    return this.client.createInvoice(storeId, payload);
+  private getBaseUrl(host?: string): string {
+    return this.normaliseBaseUrl(host ?? this.config.baseUrl);
   }
 
-  getInvoice(storeId: string, invoiceId: string): Promise<Invoice> {
-    return this.client.getInvoice(storeId, invoiceId);
+  resolveBaseUrl(host?: string): string {
+    return this.getBaseUrl(host);
   }
 
-  buildAuthorizeUserUrl(params: { storeId: string; applicationName: string; redirectUrl: string }): string {
-    const baseUrl = new URL(this.config.baseUrl);
+  private createHttp(baseUrl: string, headers: Record<string, string>): AxiosInstance {
+    return axios.create({
+      baseURL: this.getBaseUrl(baseUrl),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...headers
+      },
+      timeout: 15_000
+    });
+  }
+
+  private maskError(error: unknown): never {
+    if (axios.isAxiosError(error)) {
+      const err = error as AxiosError<{ message?: string; errors?: unknown }>;
+      const code = err.response?.status ?? 500;
+      const body = err.response?.data;
+      this.logger.error(`BTCPay request failed with status ${code}`, body ? JSON.stringify(body) : undefined);
+      const message = body?.message ?? 'BTCPay request failed';
+      switch (code) {
+        case 400:
+          throw new BadRequestException(message, { cause: error as Error });
+        case 401:
+          throw new UnauthorizedException(message, { cause: error as Error });
+        case 403:
+          throw new ForbiddenException(message, { cause: error as Error });
+        case 404:
+          throw new NotFoundException(message, { cause: error as Error });
+        default:
+          throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+      }
+    }
+    throw new InternalServerErrorException('Unexpected BTCPay error', { cause: error as Error });
+  }
+
+  async createUser(
+    host: string | undefined,
+    payload: { email: string; password?: string; name?: string; sendInvitationEmail?: boolean }
+  ): Promise<UserResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.config.adminApiKey}`
+    });
+    try {
+      const body: Record<string, unknown> = {
+        email: payload.email,
+        name: payload.name,
+        sendInvitationEmail: payload.sendInvitationEmail ?? false
+      };
+      if (payload.password) {
+        body.password = payload.password;
+      }
+      const { data } = await http.post<UserResponse>('/api/v1/users', body);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async createUserApiKey(host: string | undefined, email: string, storeId: string, includePullPayments = false): Promise<ApiKeyResponse> {
+    const permissions = this.buildStorePermissions(storeId, includePullPayments);
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.config.adminApiKey}`
+    });
+    try {
+      const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
+        label: `Store ${storeId} key`,
+        permissions
+      });
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async createUserApiKeyUnscoped(
+    host: string | undefined,
+    email: string,
+    permissions: string[],
+    label = 'Temporary key'
+  ): Promise<ApiKeyResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.config.adminApiKey}`
+    });
+    try {
+      const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
+        label,
+        permissions
+      });
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async createStoreWithUserToken(host: string | undefined, apiKey: string, payload: { name: string }): Promise<StoreResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.post<StoreResponse>('/api/v1/stores', payload);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async deleteApiKey(host: string | undefined, apiKey: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.config.adminApiKey}`
+    });
+    try {
+      await http.delete(`/api/v1/api-keys/${encodeURIComponent(apiKey)}`);
+    } catch (error) {
+      this.maskError(error);
+    }
+  }
+
+  async removeStoreUser(host: string | undefined, storeId: string, idOrEmail: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.config.adminApiKey}`
+    });
+    try {
+      await http.delete(`/api/v1/stores/${storeId}/users/${encodeURIComponent(idOrEmail)}`);
+    } catch (error) {
+      this.maskError(error);
+    }
+  }
+
+  async registerWebhook(host: string | undefined, apiKey: string, storeId: string): Promise<WebhookResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.post<WebhookResponse>(`/api/v1/stores/${storeId}/webhooks`, {
+        url: this.config.webhookUrl
+      });
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async createInvoice(host: string | undefined, apiKey: string, storeId: string, payload: CreateInvoiceRequest) {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.post(`/api/v1/stores/${storeId}/invoices`, payload);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async getStore(host: string | undefined, apiKey: string, storeId: string) {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.get(`/api/v1/stores/${storeId}`);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async healthProbe(): Promise<void> {
+    const { healthApiKey, healthStoreId } = this.config;
+    if (!healthApiKey || !healthStoreId) {
+      return;
+    }
+    await this.getStore(undefined, healthApiKey, healthStoreId);
+  }
+
+  buildAuthorizeUserUrl(params: { storeId: string; applicationName: string; redirectUrl: string; host?: string }): string {
+    const baseUrl = new URL(this.getBaseUrl(params.host));
     const authorizeUrl = new URL('/api-keys/authorize', baseUrl);
     authorizeUrl.searchParams.set('applicationName', params.applicationName);
     authorizeUrl.searchParams.set('redirectUrl', params.redirectUrl);
     authorizeUrl.searchParams.set('storeId', params.storeId);
     authorizeUrl.searchParams.set('permissions', BTCPAY_MINIMAL_PERMISSIONS.join(','));
     return authorizeUrl.toString();
+  }
+
+  private buildStorePermissions(storeId: string, includePullPayments: boolean): string[] {
+    const scoped = BTCPAY_MINIMAL_PERMISSIONS.map((permission) => `${permission}:${storeId}`);
+    if (!includePullPayments) {
+      return scoped.filter((permission) => !permission.startsWith('btcpay.store.cancreatenonapprovedpullpayments'));
+    }
+    return scoped;
   }
 }

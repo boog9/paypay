@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createBTCPayClient } from '@paypay/sdk';
 import { BtcpayService } from './btcpay.service';
-import { BTCPAY_CLIENT, BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens';
+import { BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens';
 
 @Module({
   providers: [
@@ -11,15 +10,12 @@ import { BTCPAY_CLIENT, BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens
       provide: BTCPAY_CONFIG,
       useFactory: (config: ConfigService): BtcpayConfig => ({
         baseUrl: config.getOrThrow<string>('BTCPAY_URL'),
-        apiKey: config.getOrThrow<string>('BTCPAY_API_KEY')
+        adminApiKey: config.getOrThrow<string>('BTCPAY_ADMIN_API_KEY'),
+        webhookUrl: config.getOrThrow<string>('BTCPAY_WEBHOOK_URL'),
+        healthStoreId: config.get<string>('BTCPAY_HEALTH_STORE_ID') ?? undefined,
+        healthApiKey: config.get<string>('BTCPAY_HEALTH_API_KEY') ?? undefined
       }),
       inject: [ConfigService]
-    },
-    {
-      provide: BTCPAY_CLIENT,
-      useFactory: (cfg: BtcpayConfig) =>
-        createBTCPayClient({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }),
-      inject: [BTCPAY_CONFIG]
     }
   ],
   exports: [BtcpayService]

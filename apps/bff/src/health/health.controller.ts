@@ -13,10 +13,16 @@ export class HealthController {
   @Get('readyz')
   async readyz() {
     try {
-      await this.btcpayService.listStores();
+      await this.btcpayService.healthProbe();
       return { status: 'ready' };
     } catch (error) {
       throw new InternalServerErrorException('BTCPay is not reachable', { cause: error as Error });
     }
+  }
+
+  @Get('internal/health/btcpay')
+  async btcpayHealth() {
+    await this.btcpayService.healthProbe();
+    return { status: 'ok' };
   }
 }

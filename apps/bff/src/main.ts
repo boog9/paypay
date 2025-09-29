@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { json } from 'express';
 
 function parseTrustProxy(v?: string): any {
   if (v === undefined) {
@@ -34,8 +35,6 @@ async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
-
   const frontendOrigin = configService.get<string>('FRONTEND_ORIGIN');
   const corsOrigins = frontendOrigin ? [frontendOrigin] : [];
   app.enableCors({
@@ -53,9 +52,19 @@ async function bootstrap() {
 
   if (type === 'express' && typeof (instance as any).set === 'function') {
     (instance as any).set('trust proxy', trustProxyValue);
+    instance.use(
+      ['/hooks/btcpay', '/api/hooks/btcpay'],
+      json({
+        verify: (req: any, _res, buf: Buffer) => {
+          req.rawBody = Buffer.from(buf);
+        }
+      })
+    );
   } else if (type === 'fastify') {
     (instance as any).trustProxy = trustProxyValue;
   }
+
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
 
   app.setGlobalPrefix('api', {
     exclude: [

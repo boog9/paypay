@@ -24,6 +24,7 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/typeorm": "^11.0.0",
     "@paypay/sdk": "workspace:*",
+    "axios": "^1.7.7",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",

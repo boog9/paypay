@@ -10,8 +10,12 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import { BTCPAY_CONFIG, type BtcpayConfig } from './btcpay.tokens';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 import { BTCPAY_MINIMAL_PERMISSIONS } from './btcpay.constants';
+import { StoreEntity } from '../tenants/entities/store.entity';
+import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 
 export interface CreateInvoiceRequest {
   amount: number;
@@ -43,7 +47,11 @@ interface UserResponse {
 export class BtcpayService {
   private readonly logger = new Logger(BtcpayService.name, { timestamp: false });
 
-  constructor(@Inject(BTCPAY_CONFIG) private readonly config: BtcpayConfig) {}
+  constructor(
+    @Inject(BTCPAY_CONFIG) private readonly config: BtcpayRuntimeConfig,
+    @InjectRepository(StoreEntity) private readonly storesRepository: Repository<StoreEntity>,
+    private readonly encryptionService: EnvelopeEncryptionService
+  ) {}
 
   private normaliseBaseUrl(url: string): string {
     return url.endsWith('/') ? url.slice(0, -1) : url;
@@ -97,7 +105,7 @@ export class BtcpayService {
     payload: { email: string; password?: string; name?: string; sendInvitationEmail?: boolean }
   ): Promise<UserResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.config.adminApiKey}`
+      Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       const body: Record<string, unknown> = {
@@ -118,7 +126,7 @@ export class BtcpayService {
   async createUserApiKey(host: string | undefined, email: string, storeId: string, includePullPayments = false): Promise<ApiKeyResponse> {
     const permissions = this.buildStorePermissions(storeId, includePullPayments);
     const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.config.adminApiKey}`
+      Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
@@ -138,7 +146,7 @@ export class BtcpayService {
     label = 'Temporary key'
   ): Promise<ApiKeyResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.config.adminApiKey}`
+      Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
@@ -165,7 +173,7 @@ export class BtcpayService {
 
   async deleteApiKey(host: string | undefined, apiKey: string): Promise<void> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.config.adminApiKey}`
+      Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       await http.delete(`/api/v1/api-keys/${encodeURIComponent(apiKey)}`);
@@ -176,7 +184,7 @@ export class BtcpayService {
 
   async removeStoreUser(host: string | undefined, storeId: string, idOrEmail: string): Promise<void> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.config.adminApiKey}`
+      Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       await http.delete(`/api/v1/stores/${storeId}/users/${encodeURIComponent(idOrEmail)}`);
@@ -191,7 +199,7 @@ export class BtcpayService {
     });
     try {
       const { data } = await http.post<WebhookResponse>(`/api/v1/stores/${storeId}/webhooks`, {
-        url: this.config.webhookUrl
+        url: this.getWebhookUrl()
       });
       return data;
     } catch (error) {
@@ -205,27 +213,40 @@ export class BtcpayService {
     apiKey?: string;
     host?: string;
   }) {
-    const host = opts.host ?? process.env.BTCPAY_SERVER_URL ?? this.config.baseUrl;
+    const host = opts.host ?? this.config.baseUrl;
     if (!host) {
       throw new InternalServerErrorException('BTCPay host is not configured');
     }
 
-    const apiKey =
-      opts.apiKey ??
-      (await this.getStoreApiKeySafe(opts.storeId)) ??
-      process.env.BTCPAY_DEFAULT_API_KEY ??
-      undefined;
-
+    const apiKey = opts.apiKey ?? (await this.getStoreApiKeySafe(opts.storeId));
     if (!apiKey) {
-      throw new InternalServerErrorException('BTCPay API key is not configured');
+      throw new InternalServerErrorException('BTCPay API key for store is not available');
     }
 
     return this.doCreateInvoice(host, apiKey, opts.storeId, opts.payload);
   }
 
-  private async getStoreApiKeySafe(_storeId: string): Promise<string | undefined> {
-    // TODO: Implement scoped API key lookup once store configuration is persisted.
-    return undefined;
+  private async getStoreApiKeySafe(storeId: string): Promise<string | undefined> {
+    const store = await this.storesRepository.findOne({
+      where: [{ btcpayStoreId: storeId }, { id: storeId }]
+    });
+    if (!store) {
+      return undefined;
+    }
+    try {
+      return this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
+    } catch (error) {
+      const message = `Failed to decrypt BTCPay API key for store ${store.btcpayStoreId}`;
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error(message);
+      } else {
+        const trace = error instanceof Error ? error.stack ?? error.message : undefined;
+        this.logger.error(message, trace);
+      }
+      throw new InternalServerErrorException('Failed to decrypt BTCPay API key', {
+        cause: error instanceof Error ? error : undefined
+      });
+    }
   }
 
   private async doCreateInvoice(host: string, apiKey: string, storeId: string, payload: CreateInvoiceRequest) {
@@ -258,6 +279,14 @@ export class BtcpayService {
       return;
     }
     await this.getStore(undefined, healthApiKey, healthStoreId);
+  }
+
+  private getAdminApiKey(): string {
+    return this.config.adminApiKey;
+  }
+
+  private getWebhookUrl(): string {
+    return this.config.webhookUrl;
   }
 
   buildAuthorizeUserUrl(params: { storeId: string; applicationName: string; redirectUrl: string; host?: string }): string {

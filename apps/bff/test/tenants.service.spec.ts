@@ -43,7 +43,11 @@ describe('TenantsService onboarding flows', () => {
       save: jest.fn().mockResolvedValue(undefined)
     };
 
-    const manager = {
+    type TestEntityManager = {
+      getRepository: jest.Mock;
+    };
+
+    const manager: TestEntityManager = {
       getRepository: jest.fn((entity) => {
         if (entity === TenantEntity) return tenantRepoInTx;
         if (entity === StoreEntity) return storeRepoInTx;
@@ -53,7 +57,7 @@ describe('TenantsService onboarding flows', () => {
     };
 
     const dataSource = {
-      transaction: jest.fn(async (callback: (manager: typeof manager) => Promise<any>) => callback(manager))
+      transaction: jest.fn(async (callback: (manager: TestEntityManager) => Promise<any>) => callback(manager))
     } as unknown as DataSource;
 
     const service = new TenantsService(

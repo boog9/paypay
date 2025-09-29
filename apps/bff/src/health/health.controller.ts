@@ -1,9 +1,10 @@
-import { Controller, Get, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Get, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
 import { BtcpayService } from '../btcpay/btcpay.service';
+import { DataSource } from 'typeorm';
 
 @Controller()
 export class HealthController {
-  constructor(private readonly btcpayService: BtcpayService) {}
+  constructor(private readonly btcpayService: BtcpayService, private readonly dataSource: DataSource) {}
 
   @Get('health')
   health() {
@@ -18,10 +19,17 @@ export class HealthController {
   @Get('readyz')
   async readyz() {
     try {
+      if (!this.dataSource.isInitialized) {
+        throw new ServiceUnavailableException('Database is not initialized');
+      }
+      await this.dataSource.query('SELECT 1');
       await this.btcpayService.healthProbe();
       return { status: 'ready' };
     } catch (error) {
-      throw new InternalServerErrorException('BTCPay is not reachable', { cause: error as Error });
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Dependencies are not ready', { cause: error as Error });
     }
   }
 

@@ -2,16 +2,17 @@
   "name": "paypay",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@9.x",
   "workspaces": [
     "apps/frontend",
     "apps/bff",
     "packages/sdk"
   ],
   "engines": {
-    "node": ">=22 <23",
+    "node": ">=22.14.0",
     "pnpm": ">=9"
   },
+  "engineStrict": true,
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",

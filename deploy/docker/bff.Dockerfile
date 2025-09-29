@@ -17,7 +17,12 @@ FROM base AS fetch
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/bff/package.json apps/bff/
 COPY packages/sdk/package.json packages/sdk/
-# Pull everything (dev+prod) for compilation
+# 1) Sync lockfile for just BFF + SDK (no extra workspaces)
+RUN pnpm -w \
+  --filter ./packages/sdk... \
+  --filter ./apps/bff... \
+  install --lockfile-only
+# 2) Fetch everything (dev+prod) into the pnpm store using the refreshed lockfile
 RUN pnpm fetch --frozen-lockfile
 
 ########################
@@ -25,6 +30,8 @@ RUN pnpm fetch --frozen-lockfile
 ########################
 FROM fetch AS deps-build
 COPY . .
+# Overwrite the repo lockfile with the freshly generated one from the fetch stage
+COPY --from=fetch /work/pnpm-lock.yaml pnpm-lock.yaml
 # Install only required workspaces (BFF and SDK) with dev+prod deps
 RUN pnpm -r \
   --filter ./packages/sdk... \

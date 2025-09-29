@@ -91,7 +91,7 @@ Docker Compose sources the runtime environment for all services from `infra/env/
 ```bash
 # After `docker compose up -d --build`
 docker compose exec bff env | egrep 'BTCPAY_(SERVER_URL|ADMIN_API_KEY|MASTER_KEY|WEBHOOK_URL)'
-docker compose exec bff curl -sS http://localhost:4000/healthz
+docker compose exec bff curl -sS http://localhost:3000/health
 ```
 
 ## Troubleshooting

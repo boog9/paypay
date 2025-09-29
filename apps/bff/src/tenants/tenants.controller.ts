@@ -8,7 +8,7 @@ import {
   Req
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { TenantsService } from './tenants.service';
+import { TenantsService, CreateTenantResult } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { CreateTenantInvoiceDto } from './dto/create-invoice.dto';
@@ -19,7 +19,7 @@ export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
   @Post()
-  createTenant(@Body() dto: CreateTenantDto, @Req() req: Request) {
+  createTenant(@Body() dto: CreateTenantDto, @Req() req: Request): Promise<CreateTenantResult> {
     const actorId = this.resolveActorId(req);
     const ip = this.extractIp(req);
     return this.tenantsService.createTenant(dto, actorId, ip);

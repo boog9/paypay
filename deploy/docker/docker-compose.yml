@@ -31,6 +31,8 @@ services:
       dockerfile: apps/bff/Dockerfile
     image: ghcr.io/paypay/bff:latest
     restart: unless-stopped
+    ports:
+      - '3000:3000'
     env_file:
       - ../../infra/env/.env
     environment:
@@ -50,7 +52,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:4000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 30s
       timeout: 5s
@@ -104,8 +106,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - frontend
       - bff
+      - frontend
     networks:
       - paynet
     healthcheck:

@@ -5,6 +5,11 @@ import { BtcpayService } from '../btcpay/btcpay.service';
 export class HealthController {
   constructor(private readonly btcpayService: BtcpayService) {}
 
+  @Get('health')
+  health() {
+    return { status: 'ok' };
+  }
+
   @Get('healthz')
   healthz() {
     return { status: 'ok' };

@@ -10,7 +10,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -25,7 +25,7 @@ import {
   REFRESH_TOKEN_COOKIE_PATH,
   REFRESH_TOKEN_TTL_MS
 } from './auth.constants';
-import { CsrfService } from './csrf.service';
+import { CsrfService, RequestWithCsrf } from './csrf.service';
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -52,27 +52,38 @@ export class AuthController {
   @Get('csrf-token')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
-  getCsrfToken(@Res({ passthrough: true }) res: Response): { csrfToken: string } {
-    const token = this.csrfService.issueToken(res);
+  getCsrfToken(
+    @Req() req: RequestWithCsrf,
+    @Res({ passthrough: true }) res: Response
+  ): { csrfToken: string } {
+    const token = this.csrfService.issueToken(req, res);
     return { csrfToken: token };
   }
 
   @Post('signup')
   @Throttle({ default: { limit: 5, ttl: 60 } })
-  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response): Promise<AuthUserResponse> {
+  async signup(
+    @Req() req: RequestWithCsrf,
+    @Body() dto: SignupDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<AuthUserResponse> {
     const result = await this.authService.signup(dto);
     this.applyAuthCookies(res, result);
-    this.csrfService.rotateToken(res);
+    this.csrfService.rotateToken(req, res);
     return { user: result.user };
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60 } })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response): Promise<AuthUserResponse> {
+  async login(
+    @Req() req: RequestWithCsrf,
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<AuthUserResponse> {
     const result = await this.authService.login(dto);
     this.applyAuthCookies(res, result);
-    this.csrfService.rotateToken(res);
+    this.csrfService.rotateToken(req, res);
     return { user: result.user };
   }
 
@@ -80,7 +91,7 @@ export class AuthController {
   @Post('refresh')
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async refresh(
-    @Req() req: Request,
+    @Req() req: RequestWithCsrf,
     @Body() dto: RefreshTokenDto,
     @Res({ passthrough: true }) res: Response
   ): Promise<AuthUserResponse> {
@@ -91,7 +102,7 @@ export class AuthController {
 
     const result = await this.authService.refresh({ refreshToken });
     this.applyAuthCookies(res, result);
-    this.csrfService.rotateToken(res);
+    this.csrfService.rotateToken(req, res);
     return { user: result.user };
   }
 
@@ -99,7 +110,7 @@ export class AuthController {
   @Post('logout')
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async logout(
-    @Req() req: Request,
+    @Req() req: RequestWithCsrf,
     @Body() dto: LogoutDto,
     @Res({ passthrough: true }) res: Response
   ): Promise<{ success: boolean }> {
@@ -110,7 +121,7 @@ export class AuthController {
 
     const result = await this.authService.logout({ refreshToken });
     this.clearAuthCookies(res);
-    this.csrfService.rotateToken(res);
+    this.csrfService.rotateToken(req, res);
     return result;
   }
 
@@ -124,7 +135,7 @@ export class AuthController {
     res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
   }
 
-  private resolveRefreshToken(req: Request): string | undefined {
+  private resolveRefreshToken(req: RequestWithCsrf): string | undefined {
     return req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
   }
 }

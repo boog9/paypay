@@ -11,7 +11,7 @@ import { EnvelopeEncryptionService } from '../security/envelope-encryption.servi
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { CreateTenantInvoiceDto } from './dto/create-invoice.dto';
 
-interface CreateTenantResult {
+export interface CreateTenantResult {
   tenantId: string;
   storeId: string;
   btcpayStoreId: string;

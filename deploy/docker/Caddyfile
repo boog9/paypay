@@ -8,15 +8,19 @@ https://{$PAYPAY_DOMAIN} {
 
   @api path /api/*
   handle @api {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
+  }
+
+  handle_path /health {
+    reverse_proxy bff:3000
   }
 
   handle_path /healthz {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
   }
 
   handle_path /readyz {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
   }
 
   handle {
@@ -26,7 +30,7 @@ https://{$PAYPAY_DOMAIN} {
 
 https://{$PAYPAY_API_DOMAIN} {
   encode gzip
-  reverse_proxy bff:4000
+  reverse_proxy bff:3000
 }
 
 https://localhost {
@@ -35,15 +39,19 @@ https://localhost {
 
   @api path /api/*
   handle @api {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
+  }
+
+  handle_path /health {
+    reverse_proxy bff:3000
   }
 
   handle_path /healthz {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
   }
 
   handle_path /readyz {
-    reverse_proxy bff:4000
+    reverse_proxy bff:3000
   }
 
   handle {

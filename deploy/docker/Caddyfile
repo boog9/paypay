@@ -1,6 +1,6 @@
 {
   auto_https disable_redirects
-  email {$CADDY_ADMIN_EMAIL}
+  email {env.CADDY_ADMIN_EMAIL}
 }
 
 https://{$PAYPAY_DOMAIN} {

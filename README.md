@@ -34,6 +34,25 @@ We use two env files:
      - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`
      - `POSTGRES_*`, `REDIS_*` (or leave defaults)
 
+## Configuration (Docker/Caddy)
+
+- **CADDY_ADMIN_EMAIL** (Required) – Used by the Caddy global options block to register the ACME account and receive renewal
+  notices. Caddy fails to start when the value is missing.
+- Set the value in `deploy/docker/.env` (copy from `deploy/docker/.env.example` and edit); Docker Compose passes it through to
+  the Caddy container.
+- Security: never commit the real `deploy/docker/.env` file. Keep production secrets outside of version control and distribute
+  them via your secret management workflow.
+- Note: Docker Compose V2 no longer requires a top-level `version` field; removing it silences the deprecation warning.
+
+## Quick start (deploy/docker)
+
+1. `cp deploy/docker/.env.example deploy/docker/.env && vi deploy/docker/.env`
+2. `cd deploy/docker`
+3. `docker compose up -d --build`
+4. Validate:
+   - `docker compose logs -n 50 caddy` has no "parsing caddyfile tokens for 'email'" error
+   - `docker compose exec caddy sh -lc 'caddy validate --config /etc/caddy/Caddyfile && echo OK'`
+
 ## Production (Docker-only)
 ### Prerequisites
 - A host with Docker Engine and the Docker Compose plugin installed.
@@ -58,6 +77,13 @@ Docker Compose sources the runtime environment for all services from `infra/env/
 docker compose exec bff env | egrep 'BTCPAY_(SERVER_URL|ADMIN_API_KEY|MASTER_KEY|WEBHOOK_URL)'
 docker compose exec bff curl -sS http://localhost:4000/healthz
 ```
+
+## Troubleshooting
+
+- Error: `parsing caddyfile tokens for 'email'`
+  - Cause: `CADDY_ADMIN_EMAIL` is missing, empty, or not passed through Docker Compose to the Caddy container.
+  - Fix: populate `deploy/docker/.env` and ensure the `caddy` service includes the `.env` file and `environment` entry in
+    `deploy/docker/docker-compose.yml`.
 
 ## Local development (optional)
 Local development still uses pnpm workspaces. Install pnpm (via Corepack) and bootstrap dependencies:

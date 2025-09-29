@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   frontend:
     build:
@@ -95,14 +93,18 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    env_file:
+      - .env
+      - ../../infra/env/.env
+    environment:
+      - CADDY_ADMIN_EMAIL=${CADDY_ADMIN_EMAIL:?CADDY_ADMIN_EMAIL is required}
     ports:
+      - '80:80'
       - '443:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    env_file:
-      - ../../infra/env/.env
     depends_on:
       - frontend
       - bff

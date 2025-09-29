@@ -9,15 +9,14 @@ ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 WORKDIR /work
 
-# Copy manifests so pnpm can resolve the graph
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-COPY apps/bff/package.json apps/bff/
-COPY packages/sdk/package.json packages/sdk/
-
 ########################
 # Fetch (lockfile cache)
 ########################
 FROM base AS fetch
+# Copy manifests so pnpm can resolve the graph
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/bff/package.json apps/bff/
+COPY packages/sdk/package.json packages/sdk/
 # Pull everything (dev+prod) for compilation
 RUN pnpm fetch --frozen-lockfile
 
@@ -36,17 +35,20 @@ RUN pnpm -r \
 # Build BFF
 ########################
 FROM deps-build AS build
-RUN pnpm --filter ./apps/bff... build
+RUN pnpm --filter ./packages/sdk... build \
+ && pnpm --filter ./apps/bff... build
 
 ########################
 # Prod deps only (self-contained deploy)
 ########################
-FROM base AS deps-prod
+FROM fetch AS deps-prod
 # Fetch prod deps into store
 RUN pnpm fetch --prod --frozen-lockfile
-COPY . .
+# Bring in compiled artefacts so pnpm deploy packages built output
+COPY --from=build /work/packages/sdk/dist packages/sdk/dist
+COPY --from=build /work/apps/bff/dist apps/bff/dist
 # Build self-contained deployment package for BFF and its dependencies
-RUN pnpm --filter ./apps/bff^... --prod deploy /out
+RUN pnpm --filter ./apps/bff... --prod deploy /out
 
 ########################
 # Runtime

@@ -5,10 +5,10 @@ services:
       dockerfile: apps/frontend/Dockerfile
     image: ghcr.io/paypay/frontend:latest
     restart: unless-stopped
-    env_file:
-      - ../../infra/env/.env
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_BFF_URL: ${NEXT_PUBLIC_BFF_URL:?NEXT_PUBLIC_BFF_URL is required}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:?NEXT_PUBLIC_API_BASE is required}
     depends_on:
       - bff
     healthcheck:
@@ -35,8 +35,7 @@ services:
       - ../../infra/env/.env
     environment:
       NODE_ENV: production
-      JWT_ACCESS_TOKEN_SECRET: ${JWT_ACCESS_TOKEN_SECRET:?JWT_ACCESS_TOKEN_SECRET is required}
-      JWT_REFRESH_TOKEN_SECRET: ${JWT_REFRESH_TOKEN_SECRET:?JWT_REFRESH_TOKEN_SECRET is required}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -95,7 +94,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-      - ../../infra/env/.env
     environment:
       - CADDY_ADMIN_EMAIL=${CADDY_ADMIN_EMAIL:?CADDY_ADMIN_EMAIL is required}
     ports:

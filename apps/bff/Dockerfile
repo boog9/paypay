@@ -3,7 +3,7 @@ ARG NODE_VERSION=22-alpine
 FROM node:${NODE_VERSION} AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN corepack enable && pnpm config set store-dir /pnpm/store
 WORKDIR /opt/app
 ENV NODE_ENV=production
 
@@ -25,6 +25,7 @@ RUN pnpm --filter bff... build
 FROM base AS runtime
 WORKDIR /opt/app
 COPY --from=deps /opt/app/node_modules ./node_modules
+COPY --from=deps /pnpm/store /pnpm/store
 COPY --from=deps /opt/app/package.json ./
 COPY --from=deps /opt/app/pnpm-lock.yaml ./
 COPY --from=deps /opt/app/pnpm-workspace.yaml ./

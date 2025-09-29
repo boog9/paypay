@@ -1,10 +1,14 @@
 import { Controller, Get, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { DataSource } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 
 @Controller()
 export class HealthController {
-  constructor(private readonly btcpayService: BtcpayService, private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly btcpayService: BtcpayService,
+    @InjectDataSource() private readonly dataSource: DataSource,
+  ) {}
 
   @Get('health')
   health() {

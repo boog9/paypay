@@ -21,6 +21,15 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    const path = `${request.baseUrl ?? ''}${request.path ?? ''}` || request.originalUrl || '';
+    const hasBtcpaySignature = typeof request.header('btcpay-sig') === 'string';
+    if (
+      hasBtcpaySignature &&
+      (path.startsWith('/hooks/btcpay') || path.startsWith('/api/hooks/btcpay'))
+    ) {
+      return true;
+    }
+
     const headerToken = request.header('x-csrf-token');
     const cookieToken = request.cookies?.[CSRF_TOKEN_COOKIE_NAME];
 

@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "start:prod": "node --require reflect-metadata dist/main.js",
-    "migrate": "node -r reflect-metadata dist/scripts/migrate.js"
+    "start:prod": "node dist/main.js",
+    "migrate": "node dist/scripts/migrate.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.7",

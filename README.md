@@ -2,6 +2,26 @@
 
 PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a typed SDK for interacting with the BTCPay Greenfield API.
 
+## Prerequisites
+- Node.js 22.14.0 (LTS) with Corepack enabled.
+- pnpm 9 (managed via Corepack).
+
+## Install
+1. `corepack enable`
+2. `corepack prepare pnpm@9 --activate`
+3. `pnpm install`
+
+## Build
+- `pnpm -r build`
+
+## Run
+- `pnpm dev` – starts the frontend and BFF in watch mode.
+- `pnpm --filter bff build && pnpm --filter bff start:prod` – compile and launch the NestJS gateway locally.
+- `pnpm --filter frontend dev` – run only the Next.js UI if you need a focused session.
+
+## Health check
+- The BFF exposes `GET /health` and `GET /readyz`. After starting locally or via Docker, verify readiness with `curl http://localhost:3000/health`.
+
 ## Structure
 - `apps/frontend` – Next.js 15 App Router frontend with Tailwind CSS and shadcn/ui primitives.
 - `apps/bff` – NestJS BFF acting as a secure proxy/orchestrator for BTCPay Server integrations.
@@ -65,9 +85,12 @@ The stack uses two complementary dotenv files:
 
 1. `cp deploy/docker/.env.example deploy/docker/.env && vi deploy/docker/.env`
 2. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
-3. `cd deploy/docker`
-4. `docker compose up -d --build`
-5. Validate:
+3. Ensure both files contain the same values for shared keys (JWT, BTCPay, database, SMTP).
+4. `cd deploy/docker`
+5. `docker compose up -d --build`
+6. Validate:
+   - `docker compose ps` reports all services as `running (healthy)`
+   - `curl http://localhost:3000/health` returns `{"status":"ok"}`
    - `docker compose logs -n 50 caddy` has no "parsing caddyfile tokens for 'email'" error
    - `docker compose exec caddy sh -lc 'caddy validate --config /etc/caddy/Caddyfile && echo OK'`
 

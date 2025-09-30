@@ -47,11 +47,8 @@ RUN pnpm --filter ./packages/sdk... build \
 # Prepare production bundle for the BFF
 ########################
 FROM build AS deploy
-# Ensure hoisted node_modules in the deploy artifact
-RUN mkdir -p /out \
-  && echo "shamefully-hoist=true" > /out/.npmrc \
-  && echo "node-linker=hoisted" >> /out/.npmrc \
-  && echo "public-hoist-pattern[]=*" >> /out/.npmrc
+# Ensure /out is empty and produce hoisted layout via CLI flags
+RUN rm -rf /out && mkdir -p /out
 RUN pnpm --filter ./apps/bff... --prod \
   --node-linker=hoisted --shamefully-hoist \
   deploy /out
@@ -66,7 +63,7 @@ RUN addgroup -S app \
   && adduser -S app -G app \
   && apk add --no-cache dumb-init
 USER app
-# Flatten deploy output into /opt/app (expects single filtered project)
+# Flatten the single filtered package into /opt/app
 COPY --chown=app:app --from=deploy /out/*/ ./
 COPY --chown=app:app --from=build /opt/app/apps/bff/dist ./dist
 EXPOSE 3000

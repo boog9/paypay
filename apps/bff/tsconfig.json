@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "module": "commonjs",
     "declaration": true,
     "removeComments": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "target": "es2021",
@@ -15,7 +15,7 @@
     "strict": true,
     "skipLibCheck": true,
     "paths": {
-      "@paypay/sdk": ["../packages/sdk/src/index.ts"]
+      "@paypay/sdk": ["../../packages/sdk/src/index.ts"]
     }
   },
   "include": ["src/**/*", "test/**/*"],

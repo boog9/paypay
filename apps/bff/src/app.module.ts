@@ -17,6 +17,7 @@ import { AuditLogEntity } from './tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity';
 import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -121,6 +122,7 @@ import { HooksModule } from './hooks/hooks.module';
     TenantsModule,
     HooksModule
   ],
+  controllers: [HealthController],
   providers: [
     {
       provide: APP_GUARD,

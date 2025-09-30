@@ -4,9 +4,11 @@
 # Base image with pnpm
 ########################
 FROM node:22-alpine AS base
+ARG PNPM_VERSION=9.15.4
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable \
+  && corepack prepare pnpm@${PNPM_VERSION} --activate \
   && pnpm config set store-dir /pnpm/store
 WORKDIR /opt/app
 
@@ -53,10 +55,14 @@ RUN pnpm --filter ./apps/bff... --prod deploy /out
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /opt/app
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S app \
+  && adduser -S app -G app \
+  && apk add --no-cache dumb-init
 USER app
-COPY --chown=app:app --from=deploy /out/bff/ ./
+COPY --chown=app:app --from=deploy /out/*/ ./
 COPY --chown=app:app --from=build /opt/app/apps/bff/dist ./dist
+EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
-  CMD wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1
+  CMD node -e "require('http').get('http://127.0.0.1:3000/health', r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]

@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "start:prod": "node dist/main.js",
-    "migrate": "node dist/scripts/migrate.js"
+    "start:prod": "node -r reflect-metadata dist/main.js",
+    "migrate": "node -r reflect-metadata dist/scripts/migrate.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.7",
@@ -52,5 +52,10 @@
     "ts-jest": "^29.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "reflect-metadata": "^0.2.2"
+    }
   }
 }

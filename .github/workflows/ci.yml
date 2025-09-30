@@ -21,7 +21,7 @@ jobs:
       - name: Prepare pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@9.15.4 --activate
+          corepack prepare pnpm@9 --activate
       - name: Get pnpm store path
         id: pnpm-store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
@@ -29,9 +29,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ matrix.node-version }}-9.15.4-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-pnpm-${{ matrix.node-version }}-9-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-${{ matrix.node-version }}-9.15.4-
+            ${{ runner.os }}-pnpm-${{ matrix.node-version }}-9-
             ${{ runner.os }}-pnpm-
       - name: pnpm version
         run: pnpm -v

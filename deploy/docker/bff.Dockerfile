@@ -47,7 +47,13 @@ RUN pnpm --filter ./packages/sdk... build \
 # Prepare production bundle for the BFF
 ########################
 FROM build AS deploy
-RUN pnpm --filter ./apps/bff... --prod deploy /out
+# Ensure hoisted node_modules in the deploy artifact
+RUN echo "shamefully-hoist=true" > /out/.npmrc && \
+    echo "node-linker=hoisted" >> /out/.npmrc && \
+    echo "public-hoist-pattern[]=*" >> /out/.npmrc
+RUN pnpm --filter ./apps/bff... --prod \
+    --node-linker=hoisted --shamefully-hoist \
+    deploy /out
 
 ########################
 # Runtime image
@@ -59,10 +65,10 @@ RUN addgroup -S app \
   && adduser -S app -G app \
   && apk add --no-cache dumb-init
 USER app
-COPY --chown=app:app --from=deploy /out/*/ ./
+COPY --chown=app:app --from=deploy /out/ ./
 COPY --chown=app:app --from=build /opt/app/apps/bff/dist ./dist
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
   CMD node -e "require('http').get('http://127.0.0.1:3000/health', r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["node", "-r", "reflect-metadata", "dist/main.js"]

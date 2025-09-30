@@ -41,5 +41,5 @@ jobs:
         run: pnpm typecheck
       - name: Lint
         run: pnpm lint
-      - name: Build
-        run: pnpm build
+      - name: Build BFF image
+        run: docker build -f apps/bff/Dockerfile -t ghcr.io/paypay/bff:ci .

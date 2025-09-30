@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ -f dist/scripts/migrate.js ]; then
-  node dist/scripts/migrate.js
+  node -r reflect-metadata dist/scripts/migrate.js
 fi
 
-exec node dist/main.js
+exec node -r reflect-metadata dist/main.js

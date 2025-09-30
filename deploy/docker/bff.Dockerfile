@@ -3,7 +3,7 @@
 ########################
 # Base image with pnpm
 ########################
-FROM node:22-alpine AS base
+FROM node:22.14.0-alpine AS base
 ARG PNPM_VERSION=9.15.4
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
@@ -48,24 +48,26 @@ RUN pnpm --filter ./packages/sdk... build \
 ########################
 FROM build AS deploy
 # Ensure hoisted node_modules in the deploy artifact
-RUN echo "shamefully-hoist=true" > /out/.npmrc && \
-    echo "node-linker=hoisted" >> /out/.npmrc && \
-    echo "public-hoist-pattern[]=*" >> /out/.npmrc
+RUN mkdir -p /out \
+  && echo "shamefully-hoist=true" > /out/.npmrc \
+  && echo "node-linker=hoisted" >> /out/.npmrc \
+  && echo "public-hoist-pattern[]=*" >> /out/.npmrc
 RUN pnpm --filter ./apps/bff... --prod \
-    --node-linker=hoisted --shamefully-hoist \
-    deploy /out
+  --node-linker=hoisted --shamefully-hoist \
+  deploy /out
 
 ########################
 # Runtime image
 ########################
-FROM node:22-alpine AS runtime
+FROM node:22.14.0-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /opt/app
 RUN addgroup -S app \
   && adduser -S app -G app \
   && apk add --no-cache dumb-init
 USER app
-COPY --chown=app:app --from=deploy /out/ ./
+# Flatten deploy output into /opt/app (expects single filtered project)
+COPY --chown=app:app --from=deploy /out/*/ ./
 COPY --chown=app:app --from=build /opt/app/apps/bff/dist ./dist
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \

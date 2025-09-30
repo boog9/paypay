@@ -124,7 +124,7 @@ importers:
         version: 3.25.76
     devDependencies:
       '@nestjs/cli':
-        specifier: ^11.0.1
+        specifier: 11.0.10
         version: 11.0.10(@types/node@22.18.6)
       '@nestjs/schematics':
         specifier: ^11.0.0

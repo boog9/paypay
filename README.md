@@ -19,6 +19,17 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 - `pnpm --filter bff build && pnpm --filter bff start:prod` – compile and launch the NestJS gateway locally.
 - `pnpm --filter frontend dev` – run only the Next.js UI if you need a focused session.
 
+### One source of truth for env
+Use `infra/env/.env` (private). Do not create `deploy/docker/.env`.
+Template: `infra/env/.env.example`.
+
+Run:
+```bash
+cd deploy/docker
+./check-required-env.sh ../../infra/env/.env
+docker compose --env-file ../../infra/env/.env up -d --build
+```
+
 ## Health check
 - The BFF exposes `GET /health` and `GET /readyz`. After starting locally or via Docker, verify readiness with `curl http://localhost:3000/health`.
 
@@ -72,6 +83,7 @@ Use `infra/env/.env` as the **only** source of truth for environment variables. 
 Run Docker Compose with this file for interpolation and runtime injection:
 ```bash
 cd deploy/docker
+./check-required-env.sh ../../infra/env/.env
 docker compose --env-file ../../infra/env/.env up -d --build
 ```
 Each service also declares:
@@ -83,10 +95,10 @@ so that containers receive the same values at runtime.
 
 **Required keys** (non-exhaustive): `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`, `CADDY_ADMIN_EMAIL`, `COOKIE_SECRET`, `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `BTCPAY_SERVER_URL`, `BTCPAY_ADMIN_API_KEY`, `BTCPAY_WEBHOOK_URL`.
 
-Check before bringing the stack up:
+Check before bringing the stack up with the helper script:
 ```bash
 cd deploy/docker
-./check-env.sh ../../infra/env/.env
+./check-required-env.sh ../../infra/env/.env
 docker compose --env-file ../../infra/env/.env up -d --build
 ```
 
@@ -94,7 +106,7 @@ docker compose --env-file ../../infra/env/.env up -d --build
 
 1. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
 2. `cd deploy/docker`
-3. `./check-env.sh ../../infra/env/.env`
+3. `./check-required-env.sh ../../infra/env/.env`
 4. `docker compose --env-file ../../infra/env/.env up -d --build`
 5. Validate:
    - `docker compose ps` reports all services as `running (healthy)`
@@ -121,7 +133,7 @@ git config core.hooksPath .githooks
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash
    cd deploy/docker
-   ./check-env.sh ../../infra/env/.env
+   ./check-required-env.sh ../../infra/env/.env
    docker compose --env-file ../../infra/env/.env up -d --build
    ```
 

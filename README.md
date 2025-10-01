@@ -31,64 +31,56 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 - `infra/env` – Environment templates for local and production setups.
 - `docs/` – Architecture and privacy references.
 
-## Environment layout
+## Deployment
 
-The stack uses two complementary dotenv files:
+### Configuration & Secrets
 
-### 1. `deploy/docker/.env` (public Compose variables)
-- Loaded automatically by `docker compose` for variable substitution.
-- Safe to commit with example values; contains only public data such as domains and browser-facing URLs.
-- Populate it from the template:
-  ```bash
-  cp deploy/docker/.env.example deploy/docker/.env
-  ```
-- Required keys:
-  - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
-  - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`), `NEXT_PUBLIC_API_BASE` (e.g. `https://api.example.com/api`)
-  - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
-  - `CADDY_ADMIN_EMAIL`
-  - Keep these values in sync with the corresponding entries in `infra/env/.env`.
+All runtime configuration is provided via environment variables. Use a single canonical file at `infra/env/.env` (do **not** commit real secrets). An example template is at `infra/env/.env.example`.
 
-### 2. `infra/env/.env` (secrets + runtime configuration)
-- **Single source of truth** for private configuration shared across services.
-- Mounted into containers via the `env_file` directive in `deploy/docker/docker-compose.yml`.
-- Create it from the example and keep it out of Git:
-  ```bash
-  cp infra/env/.env.example infra/env/.env
-  ```
-- Fill every value before production. Leave optional entries blank if you do not use that integration.
-- Public values such as `FRONTEND_ORIGIN` and `NEXT_PUBLIC_*` should match the contents of `deploy/docker/.env` so Compose
-  validation and runtime configuration stay aligned.
+#### Critical secrets
+- `COOKIE_SECRET` — HMAC key for signed HttpOnly cookies (anti-tampering for CSRF/refresh cookies). **Min 32 bytes entropy** (recommend Base64-encoded 32 random bytes).
+- `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET` — JWT signing secrets; must be different from `COOKIE_SECRET`.
 
-### Generating sensitive values
-- JWT signing keys (used by the BFF):
-  ```bash
-  openssl rand -hex 32  # JWT_ACCESS_TOKEN_SECRET
-  openssl rand -hex 32  # JWT_REFRESH_TOKEN_SECRET
-  ```
-- BTCPay envelope master key (used to wrap store secrets):
-  ```bash
-  openssl rand -base64 32  # BTCPAY_MASTER_KEY
-  ```
+Generate strong secrets (any method below is OK):
+```bash
+openssl rand -base64 32
+# or
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# or use the helper script:
+scripts/gen-secrets.sh >> infra/env/.env
+```
 
-## Configuration (Docker/Caddy)
+#### BTCPay integration
+- `BTCPAY_SERVER_URL` — e.g. `https://pay.iddqd.in`
+- `BTCPAY_ADMIN_API_KEY` — admin API key used by BFF for store provisioning & health checks
+- `BTCPAY_WEBHOOK_URL` — public BFF endpoint for BTCPay webhooks, e.g. `https://api.paypay.iddqd.in/api/hooks/btcpay`
+- Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 
-- **CADDY_ADMIN_EMAIL** (Required) – Used by the Caddy global options block to register the ACME account and receive renewal
-  notices. Caddy fails to start when the value is missing.
-- Health probes – Caddy replies to `/healthz` with `200 OK` for liveness checks, while `/health` and `/readyz` are forwarded to the BFF for application readiness.
-- Set the value in `deploy/docker/.env`; Docker Compose passes it through to the Caddy container.
-- Security: never commit the real `infra/env/.env` file. Keep production secrets outside of version control and distribute them
-  via your secret management workflow.
-- Note: Docker Compose V2 no longer requires a top-level `version` field; removing it silences the deprecation warning.
+#### Domains / Origins
+- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`
+
+#### Database & SMTP
+- Either `DATABASE_URL` or `POSTGRES_*` (host/user/password/db)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`
+
+#### TLS/ACME
+- `CADDY_ADMIN_EMAIL` — contact email for certificate issuer
+
+### Single source of truth for env
+We use **`infra/env/.env`** as the only source of truth. Docker Compose is invoked with:
+```bash
+cd deploy/docker
+docker compose --env-file ../../infra/env/.env up -d --build
+```
+Compose services also reference the same file via `env_file:` to inject variables at container runtime.
 
 ## Quick start (deploy/docker)
 
-1. `cp deploy/docker/.env.example deploy/docker/.env && vi deploy/docker/.env`
-2. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
-3. Ensure both files contain the same values for shared keys (JWT, BTCPay, database, SMTP).
-4. `cd deploy/docker`
-5. `docker compose up -d --build`
-6. Validate:
+1. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
+2. `cp deploy/docker/.env.example deploy/docker/.env` (placeholder only; keep values in sync with `infra/env/.env` if you override any Compose defaults.)
+3. `cd deploy/docker`
+4. `docker compose --env-file ../../infra/env/.env up -d --build`
+5. Validate:
    - `docker compose ps` reports all services as `running (healthy)`
    - `curl http://localhost:3000/health` returns `{"status":"ok"}`
    - `docker compose logs -n 50 caddy` has no "parsing caddyfile tokens for 'email'" error
@@ -101,7 +93,7 @@ The stack uses two complementary dotenv files:
 - The ability to receive HTTPS traffic on port 443 (Caddy terminates TLS and renews certificates automatically).
 
 ### Configuration
-1. Prepare `deploy/docker/.env` and `infra/env/.env` using the templates described above.
+1. Prepare `infra/env/.env` using the canonical template (optionally mirror non-secret placeholders in `deploy/docker/.env`).
 2. Review `infra/env/.env` and ensure domains, BTCPay credentials, JWT secrets, and database settings are correct for your deployment. `BTCPAY_WEBHOOK_URL` should point to the BFF webhook endpoint proxied by Caddy (default: `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`).
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash
@@ -168,17 +160,20 @@ You can also spin up the Docker stack locally with the same production instructi
 - Set the result as `BTCPAY_MASTER_KEY` in the BFF environment.
 
 ### Mandatory environment variables
-- Public (place in `deploy/docker/.env`):
+- Store canonical values in `infra/env/.env` (single source of truth). Mirror non-secret placeholders in `deploy/docker/.env` only if you rely on Compose interpolation without the `--env-file` flag.
+- Domains and public URLs:
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
   - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
   - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`), `NEXT_PUBLIC_API_BASE` (e.g. `https://api.example.com/api`)
-- Private (place in `infra/env/.env`):
+- BTCPay + auth secrets:
   - `BTCPAY_SERVER_URL`
   - `BTCPAY_ADMIN_API_KEY`
   - `BTCPAY_MASTER_KEY`
   - `BTCPAY_WEBHOOK_URL`
-  - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`
+  - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `COOKIE_SECRET`
+- Platform services:
   - `POSTGRES_*` or `DATABASE_URL`
+  - `SMTP_*`
   - `TRUST_PROXY` (override if your proxy chain differs)
   - `NODE_ENV=production`
 

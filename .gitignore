@@ -13,3 +13,4 @@ yarn-error.log*
 .volumes/
 infra/env/.env
 infra/env/.env.local
+deploy/docker/.env

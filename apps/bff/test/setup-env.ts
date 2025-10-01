@@ -3,7 +3,11 @@ process.env.DB_TYPE = process.env.DB_TYPE ?? 'sqlite';
 process.env.DB_DATABASE = process.env.DB_DATABASE ?? ':memory:';
 process.env.JWT_ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_TOKEN_SECRET ?? 'test-access-secret';
 process.env.JWT_REFRESH_TOKEN_SECRET = process.env.JWT_REFRESH_TOKEN_SECRET ?? 'test-refresh-secret';
+process.env.COOKIE_SECRET =
+  process.env.COOKIE_SECRET ?? 'test-cookie-secret-should-be-at-least-32-characters';
 process.env.FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000';
+process.env.PAYPAY_DOMAIN = process.env.PAYPAY_DOMAIN ?? 'paypay.test';
+process.env.PAYPAY_API_DOMAIN = process.env.PAYPAY_API_DOMAIN ?? 'api.paypay.test';
 process.env.BTCPAY_SERVER_URL = process.env.BTCPAY_SERVER_URL ?? 'https://btcpay.local';
 process.env.BTCPAY_ADMIN_API_KEY = process.env.BTCPAY_ADMIN_API_KEY ?? 'test-admin-api-key';
 process.env.BTCPAY_MASTER_KEY =

@@ -11,16 +11,16 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/bff/package.json apps/bff/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --filter ./packages/sdk...
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --filter ./apps/bff...
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --prod --filter ./apps/bff...
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch \
+      --filter ./packages/sdk... \
+      --filter ./apps/bff...
 COPY . .
 ## Ensure dependencies for the SDK and BFF are installed prior to building
 RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm install --offline --frozen-lockfile \
       --filter ./packages/sdk... \
       --filter ./apps/bff...
-RUN pnpm --filter ./packages/sdk... build
-RUN pnpm --filter ./apps/bff... build
+RUN pnpm -w --filter @paypay/sdk build
+RUN pnpm -w --filter ./apps/bff... build
 
 FROM base AS runner
 ENV NODE_ENV=production

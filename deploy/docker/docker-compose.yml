@@ -72,6 +72,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    env_file:
+      - ../../infra/env/.env
     command: ['redis-server', '--appendonly', 'yes']
     volumes:
       - redis-data:/data
@@ -86,6 +88,8 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - ../../infra/env/.env
     environment:
       POSTGRES_DB: paypay
       POSTGRES_USER: paypay

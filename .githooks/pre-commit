@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+if git ls-files --error-unmatch infra/env/.env >/dev/null 2>&1; then
+  echo "Do not commit infra/env/.env"; exit 1
+fi

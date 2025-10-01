@@ -66,25 +66,48 @@ scripts/gen-secrets.sh >> infra/env/.env
 #### TLS/ACME
 - `CADDY_ADMIN_EMAIL` — contact email for certificate issuer
 
-### Single source of truth for env
-We use **`infra/env/.env`** as the only source of truth. Docker Compose is invoked with:
+### Environment configuration (single source of truth)
+Use `infra/env/.env` as the **only** source of truth for environment variables. Commit only `infra/env/.env.example` with placeholders.
+
+Run Docker Compose with this file for interpolation and runtime injection:
 ```bash
 cd deploy/docker
 docker compose --env-file ../../infra/env/.env up -d --build
 ```
-Compose services also reference the same file via `env_file:` to inject variables at container runtime.
+Each service also declares:
+```yaml
+env_file:
+  - ../../infra/env/.env
+```
+so that containers receive the same values at runtime.
+
+**Required keys** (non-exhaustive): `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`, `CADDY_ADMIN_EMAIL`, `COOKIE_SECRET`, `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `BTCPAY_SERVER_URL`, `BTCPAY_ADMIN_API_KEY`, `BTCPAY_WEBHOOK_URL`.
+
+Check before bringing the stack up:
+```bash
+cd deploy/docker
+./check-env.sh ../../infra/env/.env
+docker compose --env-file ../../infra/env/.env up -d --build
+```
 
 ## Quick start (deploy/docker)
 
 1. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
-2. `cp deploy/docker/.env.example deploy/docker/.env` (placeholder only; keep values in sync with `infra/env/.env` if you override any Compose defaults.)
-3. `cd deploy/docker`
+2. `cd deploy/docker`
+3. `./check-env.sh ../../infra/env/.env`
 4. `docker compose --env-file ../../infra/env/.env up -d --build`
 5. Validate:
    - `docker compose ps` reports all services as `running (healthy)`
    - `curl http://localhost:3000/health` returns `{"status":"ok"}`
    - `docker compose logs -n 50 caddy` has no "parsing caddyfile tokens for 'email'" error
    - `docker compose exec caddy sh -lc 'caddy validate --config /etc/caddy/Caddyfile && echo OK'`
+
+### Git hooks
+
+Configure the local hooks path to prevent accidentally committing `infra/env/.env`:
+```bash
+git config core.hooksPath .githooks
+```
 
 ## Production (Docker-only)
 ### Prerequisites
@@ -93,17 +116,18 @@ Compose services also reference the same file via `env_file:` to inject variable
 - The ability to receive HTTPS traffic on port 443 (Caddy terminates TLS and renews certificates automatically).
 
 ### Configuration
-1. Prepare `infra/env/.env` using the canonical template (optionally mirror non-secret placeholders in `deploy/docker/.env`).
+1. Prepare `infra/env/.env` using the canonical template.
 2. Review `infra/env/.env` and ensure domains, BTCPay credentials, JWT secrets, and database settings are correct for your deployment. `BTCPAY_WEBHOOK_URL` should point to the BFF webhook endpoint proxied by Caddy (default: `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`).
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash
    cd deploy/docker
-   docker compose up -d --build
+   ./check-env.sh ../../infra/env/.env
+   docker compose --env-file ../../infra/env/.env up -d --build
    ```
 
 This command builds the frontend and BFF images inside their respective containers and launches five services: Postgres, Redis, the BFF, the frontend, and Caddy. Once running, HTTPS traffic to `https://$PAYPAY_DOMAIN` serves the Next.js UI and `https://$PAYPAY_API_DOMAIN/docs` proxies the BFF Swagger UI via Caddy.
 
-Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml`, keeping secrets in a single place.
+Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml` and the `--env-file` flag, keeping secrets in a single place.
 
 ```bash
 # After `docker compose up -d --build`
@@ -115,12 +139,10 @@ docker compose exec bff curl -sS http://localhost:3000/health
 
 - Error: `parsing caddyfile tokens for 'email'`
   - Cause: `CADDY_ADMIN_EMAIL` is missing, empty, or not passed through Docker Compose to the Caddy container.
-  - Fix: populate `deploy/docker/.env` and ensure the `caddy` service includes the `.env` file and `environment` entry in
-    `deploy/docker/docker-compose.yml`.
+  - Fix: populate `infra/env/.env`, ensure the `caddy` service lists it under `env_file`, and invoke Compose with `--env-file ../../infra/env/.env`.
 - Error: `required variable XYZ is missing a value`
   - Cause: Docker Compose enforces required placeholders defined with `${VAR:?message}` in `docker-compose.yml`.
-  - Fix: verify the key exists in the appropriate dotenv file (`deploy/docker/.env` for public values, `infra/env/.env` for
-    secrets) and that the affected service lists the file under `env_file`.
+  - Fix: verify the key exists in `infra/env/.env` and that the affected service lists the file under `env_file` while Compose is invoked with `--env-file ../../infra/env/.env`.
 
 ## Local development (optional)
 Local development still uses pnpm workspaces. Install pnpm (via Corepack) and bootstrap dependencies:
@@ -160,7 +182,7 @@ You can also spin up the Docker stack locally with the same production instructi
 - Set the result as `BTCPAY_MASTER_KEY` in the BFF environment.
 
 ### Mandatory environment variables
-- Store canonical values in `infra/env/.env` (single source of truth). Mirror non-secret placeholders in `deploy/docker/.env` only if you rely on Compose interpolation without the `--env-file` flag.
+- Store canonical values in `infra/env/.env` (single source of truth). Compose loads them via the shared `env_file` directive and the `--env-file` flag, so additional dotenv files are not required.
 - Domains and public URLs:
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
   - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)

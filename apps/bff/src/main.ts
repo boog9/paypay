@@ -42,12 +42,11 @@ async function bootstrap() {
 
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
-  const isProduction = env.NODE_ENV === 'production';
   const defaultOrigin = 'https://paypay.iddqd.in';
   const configuredOrigins = env.FRONTEND_ORIGIN.split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
-  const allowedOrigins = Array.from(new Set([defaultOrigin, ...(configuredOrigins ?? [])]));
+  const allowedOrigins = Array.from(new Set([defaultOrigin, ...configuredOrigins]));
 
   app.use(helmet());
   app.use(
@@ -92,8 +91,8 @@ async function bootstrap() {
       cookie: {
         key: CSRF_SECRET_COOKIE_NAME,
         httpOnly: true,
-        sameSite: 'lax',
-        secure: isProduction,
+        sameSite: 'none',
+        secure: true,
         signed: true,
         path: '/'
       },

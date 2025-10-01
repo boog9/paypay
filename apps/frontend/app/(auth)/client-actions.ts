@@ -1,7 +1,7 @@
 'use client';
 
 import { z } from 'zod';
-import { getApiBasePath, getBffApiBaseUrl, getBffOrigin } from '../../lib/bff';
+import { bffFetch, fetchCsrf } from '../../lib/http-client';
 
 export type AuthFormStateBase = {
   fieldErrors?: Record<string, string[]>;
@@ -21,43 +21,10 @@ const credentialsSchema = z.object({
 
 type Credentials = z.infer<typeof credentialsSchema>;
 
-function resolveApiBaseUrl(): string {
-  const baseUrl = getBffApiBaseUrl();
-  const origin = getBffOrigin();
-
-  if (!origin) {
-    const basePath = getApiBasePath();
-    return basePath.replace(/\/$/, '');
-  }
-
-  return baseUrl.replace(/\/$/, '');
-}
-
-async function fetchCsrfToken(baseUrl: string): Promise<string> {
-  const response = await fetch(`${baseUrl}/auth/csrf-token`, {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store'
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to obtain CSRF token.');
-  }
-
-  const payload = await response.json().catch(() => null);
-  if (!payload || typeof payload.csrfToken !== 'string' || payload.csrfToken.length === 0) {
-    throw new Error('Received malformed CSRF token response.');
-  }
-
-  return payload.csrfToken;
-}
-
 async function performAuthRequest(endpoint: 'signup' | 'login', body: Credentials): Promise<AuthActionResult> {
-  const baseUrl = resolveApiBaseUrl();
-
   let csrfToken: string;
   try {
-    csrfToken = await fetchCsrfToken(baseUrl);
+    csrfToken = await fetchCsrf();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to prepare secure request.';
     return { status: 'error', message };
@@ -65,15 +32,14 @@ async function performAuthRequest(endpoint: 'signup' | 'login', body: Credential
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/auth/${endpoint}`, {
+    response = await bffFetch(`/auth/${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': csrfToken
       },
       body: JSON.stringify(body),
-      cache: 'no-store',
-      credentials: 'include'
+      cache: 'no-store'
     });
   } catch (error) {
     console.error('Auth request failed', error);

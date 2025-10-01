@@ -69,14 +69,19 @@ Rotate secrets with `openssl rand -base64 32` (48 for BTCPay master keys), updat
 
 ### Bootstrapping Docker Compose
 
-The Docker stack reads the same file via both `env_file` directives and the `--env-file` flag. Start everything with the helper script, which validates required keys before invoking Docker Compose:
+The Docker stack reads the same file via both `env_file` directives and the `--env-file` flag. Start everything with the Compose command so a single dotenv file powers the deployment:
 
 ```bash
 cd deploy/docker
-./up.sh
+docker compose --env-file ../../infra/env/.env up -d --build
 ```
 
-Internally, `up.sh` calls `./check-required-env.sh infra/env/.env` and then runs `docker compose --env-file infra/env/.env up -d --build` so there is exactly one source of truth for secrets.
+Optional: validate the file before launching the stack:
+
+```bash
+cd deploy/docker
+./check-required-env.sh ../../infra/env/.env
+```
 
 ## Health check
 - The BFF exposes `GET /health` and `GET /readyz`. After starting locally or via Docker, verify readiness with `curl http://localhost:3000/health`.
@@ -116,7 +121,7 @@ All runtime configuration is delivered via environment variables loaded from `in
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 
 #### Domains / Origins
-- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`, `NEXT_PUBLIC_API_BASE`
+- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`
 
 #### Database & SMTP
 - Either `DATABASE_URL` or `POSTGRES_*` (host/user/password/db)
@@ -126,13 +131,20 @@ All runtime configuration is delivered via environment variables loaded from `in
 - `CADDY_ADMIN_EMAIL` — contact email for certificate issuer
 
 ### Environment configuration (single source of truth)
-The Compose stack already references `infra/env/.env` via `env_file` directives, and `deploy/docker/up.sh` calls `docker compose --env-file infra/env/.env up -d --build` to inject the same values at runtime. Run `./up.sh` whenever you need to rebuild or restart the stack; it will invoke `./check-required-env.sh` first and warn about missing keys without echoing secret values.
+The Compose stack references `infra/env/.env` via `env_file` directives, and the recommended launch command injects the same file at runtime to avoid drift between build-time and runtime environments:
+
+```bash
+cd deploy/docker
+docker compose --env-file ../../infra/env/.env up -d --build
+```
+
+Run `./check-required-env.sh ../../infra/env/.env` inside `deploy/docker` before the Compose command if you want to verify required keys without printing their values.
 
 ## Quick start (deploy/docker)
 
 1. `cp infra/env/.env.example infra/env/.env && vi infra/env/.env`
 2. `cd deploy/docker`
-3. `./up.sh`
+3. `docker compose --env-file ../../infra/env/.env up -d --build`
 4. Validate:
    - `docker compose ps` reports all services as `running (healthy)`
    - `curl http://localhost:3000/health` returns `{"status":"ok"}`
@@ -158,15 +170,15 @@ git config core.hooksPath .githooks
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash
    cd deploy/docker
-   ./up.sh
+   docker compose --env-file ../../infra/env/.env up -d --build
    ```
 
 This command builds the frontend and BFF images inside their respective containers and launches five services: Postgres, Redis, the BFF, the frontend, and Caddy. Once running, HTTPS traffic to `https://$PAYPAY_DOMAIN` serves the Next.js UI and `https://$PAYPAY_API_DOMAIN/docs` proxies the BFF Swagger UI via Caddy.
 
-Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml` and the `--env-file infra/env/.env` flag baked into `up.sh`, keeping secrets in a single place.
+Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml` and the explicit `--env-file ../../infra/env/.env` flag, keeping secrets in a single place.
 
 ```bash
-# After `./up.sh`
+# After `docker compose --env-file ../../infra/env/.env up -d --build`
 docker compose exec bff bash -lc 'for key in BTCPAY_SERVER_URL BTCPAY_ADMIN_API_KEY BTCPAY_MASTER_KEY BTCPAY_WEBHOOK_URL; do if [[ -n ${!key:-} ]]; then echo "✅ ${key} set"; else echo "❌ ${key} missing"; fi; done'
 docker compose exec bff curl -sS http://localhost:3000/health
 ```
@@ -175,10 +187,10 @@ docker compose exec bff curl -sS http://localhost:3000/health
 
 - Error: `parsing caddyfile tokens for 'email'`
   - Cause: `CADDY_ADMIN_EMAIL` is missing, empty, or not passed through Docker Compose to the Caddy container.
-  - Fix: populate `infra/env/.env`, ensure the `caddy` service lists it under `env_file`, and launch via `./up.sh` (which already passes `--env-file infra/env/.env`).
+  - Fix: populate `infra/env/.env`, ensure the `caddy` service lists it under `env_file`, and launch via `docker compose --env-file ../../infra/env/.env up -d --build`.
 - Error: `required variable XYZ is missing a value`
   - Cause: Docker Compose enforces required placeholders defined with `${VAR:?message}` in `docker-compose.yml`.
-  - Fix: verify the key exists in `infra/env/.env` and that the affected service lists the file under `env_file`; rerun `./up.sh` so Compose receives `--env-file infra/env/.env`.
+  - Fix: verify the key exists in `infra/env/.env` and that the affected service lists the file under `env_file`; rerun `docker compose --env-file ../../infra/env/.env up -d --build` so Compose receives the correct values.
 
 ## Local development (optional)
 Local development still uses pnpm workspaces. Install pnpm (via Corepack) and bootstrap dependencies:
@@ -218,11 +230,11 @@ You can also spin up the Docker stack locally with the same production instructi
 - Set the result as `BTCPAY_MASTER_KEY` in the BFF environment.
 
 ### Mandatory environment variables
-- Store canonical values in `infra/env/.env` (single source of truth). Compose loads them via the shared `env_file` directive and the `--env-file infra/env/.env` flag that `up.sh` passes automatically, so additional dotenv files are not required.
+- Store canonical values in `infra/env/.env` (single source of truth). Compose loads them via the shared `env_file` directive and the explicit `--env-file ../../infra/env/.env` flag in the launch command, so additional dotenv files are not required.
 - Domains and public URLs:
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
   - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
-  - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`), `NEXT_PUBLIC_API_BASE` (e.g. `https://api.example.com/api`)
+  - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`)
 - BTCPay + auth secrets:
   - `BTCPAY_SERVER_URL`
   - `BTCPAY_ADMIN_API_KEY`
@@ -244,4 +256,4 @@ If your edge or proxy strips the `/api` prefix before reaching the BFF, configur
 
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.
-- `curl -i https://api.paypay.iddqd.in/api/auth/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.
+- `curl -i https://api.paypay.iddqd.in/api/auth/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=None; Path=/`.

@@ -28,3 +28,7 @@
     import paypay_common
     reverse_proxy bff:3000
 }
+
+:80 {
+    respond /healthz 200
+}

@@ -27,20 +27,18 @@ import {
 } from './auth.constants';
 import { CsrfService, RequestWithCsrf } from './csrf.service';
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-
 const ACCESS_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: IS_PROD,
-  sameSite: 'strict' as const,
+  secure: true,
+  sameSite: 'none' as const,
   maxAge: ACCESS_TOKEN_TTL_S * 1000,
   path: ACCESS_TOKEN_COOKIE_PATH
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: IS_PROD,
-  sameSite: 'strict' as const,
+  secure: true,
+  sameSite: 'none' as const,
   maxAge: REFRESH_TOKEN_TTL_MS,
   path: REFRESH_TOKEN_COOKIE_PATH
 };

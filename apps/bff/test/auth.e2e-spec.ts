@@ -4,6 +4,11 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import { AppModule } from '../src/app.module';
+import {
+  ACCESS_TOKEN_COOKIE_NAME,
+  REFRESH_TOKEN_COOKIE_NAME,
+  CSRF_SECRET_COOKIE_NAME
+} from '../src/auth/auth.constants';
 
 describe('AuthModule (e2e)', () => {
   let app: INestApplication;
@@ -76,8 +81,8 @@ describe('AuthModule (e2e)', () => {
       })
     );
     const signupCookies = getCookies(signupResponse);
-    expect(signupCookies.join(';')).toContain('access_token=');
-    expect(signupCookies.join(';')).toContain('refresh_token=');
+    expect(signupCookies.join(';')).toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
+    expect(signupCookies.join(';')).toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
 
     const { token: duplicateCsrf } = await fetchCsrfToken();
     await agent
@@ -107,7 +112,7 @@ describe('AuthModule (e2e)', () => {
     );
 
     const loginCookies = getCookies(loginResponse);
-    const firstRefreshToken = extractCookieValue(loginCookies, 'refresh_token');
+    const firstRefreshToken = extractCookieValue(loginCookies, REFRESH_TOKEN_COOKIE_NAME);
     expect(firstRefreshToken).toBeDefined();
 
     const { token: refreshCsrf } = await fetchCsrfToken();
@@ -124,17 +129,20 @@ describe('AuthModule (e2e)', () => {
     );
 
     const refreshCookies = getCookies(refreshedResponse);
-    const latestRefreshToken = extractCookieValue(refreshCookies, 'refresh_token');
+    const latestRefreshToken = extractCookieValue(refreshCookies, REFRESH_TOKEN_COOKIE_NAME);
     expect(latestRefreshToken).toBeDefined();
     expect(latestRefreshToken).not.toEqual(firstRefreshToken);
 
     const reuseCsrf = await fetchCsrfToken();
-    const reuseCsrfCookie = extractCookieValue(reuseCsrf.cookies, 'csrf_token');
-    expect(reuseCsrfCookie).toBeDefined();
+    const reuseCsrfSecret = extractCookieValue(reuseCsrf.cookies, CSRF_SECRET_COOKIE_NAME);
+    expect(reuseCsrfSecret).toBeDefined();
     await request(server)
       .post('/api/auth/refresh')
       .set('X-CSRF-Token', reuseCsrf.token)
-      .set('Cookie', [`refresh_token=${firstRefreshToken}`, `csrf_token=${reuseCsrfCookie}`])
+      .set('Cookie', [
+        `${REFRESH_TOKEN_COOKIE_NAME}=${firstRefreshToken}`,
+        `${CSRF_SECRET_COOKIE_NAME}=${reuseCsrfSecret}`
+      ])
       .send({ refreshToken: firstRefreshToken })
       .expect(401);
 

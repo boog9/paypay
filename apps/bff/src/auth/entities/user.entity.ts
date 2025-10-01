@@ -1,5 +1,4 @@
 import {
-  BeforeInsert,
   Column,
   CreateDateColumn,
   Entity,
@@ -8,7 +7,6 @@ import {
   UpdateDateColumn
 } from 'typeorm';
 import { RefreshTokenEntity } from './refresh-token.entity';
-import { normalizeEmail } from '../email.utils';
 
 @Entity({ name: 'users' })
 export class UserEntity {
@@ -30,8 +28,4 @@ export class UserEntity {
   @OneToMany(() => RefreshTokenEntity, (token) => token.user)
   refreshTokens!: RefreshTokenEntity[];
 
-  @BeforeInsert()
-  normalizeEmailBeforeInsert(): void {
-    this.email = normalizeEmail(this.email);
-  }
 }

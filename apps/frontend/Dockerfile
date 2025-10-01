@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-alpine AS base
+FROM node:22.14.0-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -17,8 +17,9 @@ COPY . .
 RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm install --offline --frozen-lockfile --filter ./apps/frontend...
 RUN pnpm --filter ./apps/frontend... build
 
-FROM node:22-alpine AS runner
+FROM node:22.14.0-alpine AS runner
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY --from=build /workspace/apps/frontend/.next/standalone ./
 COPY --from=build /workspace/apps/frontend/.next/static ./apps/frontend/.next/static

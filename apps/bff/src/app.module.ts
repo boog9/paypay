@@ -7,7 +7,6 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CsrfGuard } from './auth/csrf.guard';
 import { LoggerModule } from 'nestjs-pino';
 import { BtcpayModule } from './btcpay/btcpay.module';
-import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UserEntity } from './auth/entities/user.entity';
 import { RefreshTokenEntity } from './auth/entities/refresh-token.entity';
@@ -118,7 +117,6 @@ import { HealthController } from './health.controller';
     }),
     AuthModule,
     BtcpayModule,
-    HealthModule,
     TenantsModule,
     HooksModule
   ],

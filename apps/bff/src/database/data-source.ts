@@ -2,13 +2,26 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import * as path from 'path';
 
+const requireEnv = (key: string): string => {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`[database] Missing required environment variable: ${key}`);
+  }
+  return value;
+};
+
+const postgresPort = Number(requireEnv('POSTGRES_PORT'));
+if (Number.isNaN(postgresPort)) {
+  throw new Error('[database] POSTGRES_PORT must be a valid number');
+}
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.POSTGRES_HOST || 'postgres',
-  port: Number(process.env.POSTGRES_PORT || 5432),
-  username: process.env.POSTGRES_USER || 'paypay',
-  password: process.env.POSTGRES_PASSWORD || 'paypay',
-  database: process.env.POSTGRES_DB || 'paypay',
+  host: requireEnv('POSTGRES_HOST'),
+  port: postgresPort,
+  username: requireEnv('POSTGRES_USER'),
+  password: requireEnv('POSTGRES_PASSWORD'),
+  database: requireEnv('POSTGRES_DB'),
   ssl: false,
   entities: [__dirname + '/../**/*.entity.{js,ts}'],
   migrations:

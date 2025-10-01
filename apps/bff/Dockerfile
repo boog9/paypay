@@ -35,12 +35,12 @@ COPY --from=build /workspace/apps/bff/dist ./apps/bff/dist
 COPY --from=build /workspace/apps/bff/package.json ./apps/bff/package.json
 COPY --from=build /workspace/apps/bff/nest-cli.json ./apps/bff/nest-cli.json
 COPY --from=build /workspace/packages ./packages
-COPY --from=build /workspace/apps/bff/docker-entrypoint.sh /usr/local/bin/bff-entrypoint.sh
-RUN chmod +x /usr/local/bin/bff-entrypoint.sh
 RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm install \
       --offline --prod --frozen-lockfile --filter ./apps/bff...
-EXPOSE 3000
+COPY --from=build /workspace/apps/bff/docker-entrypoint.sh /usr/local/bin/bff-entrypoint.sh
+RUN chmod +x /usr/local/bin/bff-entrypoint.sh
 USER node
+EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 CMD \
   node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '3000') + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 ENTRYPOINT ["bff-entrypoint.sh"]

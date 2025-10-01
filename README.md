@@ -49,7 +49,7 @@ To confirm that only Docker Compose–provided variables reach the container, in
 
 ```bash
 docker compose run --rm --no-deps --entrypoint env bff | egrep 'JWT|COOKIE|BTCPAY|POSTGRES|FRONTEND_ORIGIN|PORT'
-docker inspect docker-bff-1 | jq -r '.[0].Config.Env[]' | egrep 'JWT|COOKIE|BTCPAY|POSTGRES|FRONTEND_ORIGIN|PORT'
+docker inspect "$(docker compose ps -q bff)" | jq -r '.[0].Config.Env[]' | egrep 'JWT|COOKIE|BTCPAY|POSTGRES|FRONTEND_ORIGIN|PORT'
 ```
 
 If you previously built images with placeholder defaults baked into the layers, perform a cold rebuild so Docker drops every cached layer before composing new images:

@@ -2,7 +2,7 @@
   "name": "paypay",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@9.11.0",
   "workspaces": [
     "apps/frontend",
     "apps/bff",

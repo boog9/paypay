@@ -81,6 +81,19 @@ Internally, `up.sh` calls `./check-required-env.sh infra/env/.env` and then runs
 ## Health check
 - The BFF exposes `GET /health` and `GET /readyz`. After starting locally or via Docker, verify readiness with `curl http://localhost:3000/health`.
 
+### Frontend health endpoint
+The frontend ships with a lightweight `GET /health` endpoint to support Docker health probes. It returns `200 OK` with `{ "ok": true }` only if the Next.js process is running, without leaking secrets or touching external services.
+
+Check the endpoint manually inside the container:
+```
+docker compose exec frontend wget -qO- http://127.0.0.1:3000/health
+```
+Confirm the container status:
+```
+docker compose ps
+```
+The frontend service should report `running (healthy)` once the probe succeeds.
+
 ## Structure
 - `apps/frontend` – Next.js 15 App Router frontend with Tailwind CSS and shadcn/ui primitives.
 - `apps/bff` – NestJS BFF acting as a secure proxy/orchestrator for BTCPay Server integrations.

@@ -1,20 +1,20 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { getApiBasePath } from './bff';
+import { getBffApiBaseUrl } from './bff';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const apiBasePath = getApiBasePath();
+const apiBaseUrl = getBffApiBaseUrl().replace(/\/$/, '');
 
 export const apiRoutes = {
   auth: {
-    login: `${apiBasePath}/auth/login`,
-    signup: `${apiBasePath}/auth/signup`,
-    refresh: `${apiBasePath}/auth/refresh`
+    login: `${apiBaseUrl}/auth/login`,
+    signup: `${apiBaseUrl}/auth/signup`,
+    refresh: `${apiBaseUrl}/auth/refresh`
   },
   organizations: {
-    list: `${apiBasePath}/organizations`
+    list: `${apiBaseUrl}/organizations`
   }
 };

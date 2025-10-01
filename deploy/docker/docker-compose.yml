@@ -3,13 +3,14 @@ services:
     build:
       context: ../../
       dockerfile: apps/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_BFF_URL: ${NEXT_PUBLIC_BFF_URL}
     image: ghcr.io/paypay/frontend:latest
     restart: unless-stopped
     env_file:
       - ../../infra/env/.env
     environment:
       - NEXT_PUBLIC_BFF_URL
-      - NEXT_PUBLIC_API_BASE
       - HOSTNAME=0.0.0.0
       - PORT=3000
     depends_on:

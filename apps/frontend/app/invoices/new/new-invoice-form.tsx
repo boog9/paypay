@@ -2,11 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../../components/ui/button';
-import { getApiBasePath, getBffOrigin } from '../../../lib/bff';
-
-type Props = {
-  apiBaseUrl: string;
-};
+import { bffFetch, fetchCsrf } from '../../../lib/http-client';
 
 type RequestState =
   | { status: 'idle' }
@@ -29,7 +25,7 @@ function safeJsonParse<T = unknown>(raw: string): T | undefined {
   }
 }
 
-export function NewInvoiceForm({ apiBaseUrl }: Props) {
+export function NewInvoiceForm() {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('BTC');
   const [metadata, setMetadata] = useState('');
@@ -49,38 +45,15 @@ export function NewInvoiceForm({ apiBaseUrl }: Props) {
         payload.metadata = parsed;
       }
 
-      let sanitizedBase = apiBaseUrl.replace(/\/$/, '');
-      if (!sanitizedBase.startsWith('http')) {
-        const origin = getBffOrigin();
-        if (origin) {
-          sanitizedBase = `${origin}${getApiBasePath()}`.replace(/\/$/, '');
-        }
-      }
+      const csrfToken = await fetchCsrf();
 
-      const csrfResponse = await fetch(`${sanitizedBase}/auth/csrf-token`, {
-        method: 'GET',
-        credentials: 'include',
-        cache: 'no-store'
-      });
-
-      if (!csrfResponse.ok) {
-        throw new Error('Failed to obtain CSRF token. Please try again.');
-      }
-
-      const csrfData = await csrfResponse.json();
-      const csrfToken = csrfData?.csrfToken;
-      if (typeof csrfToken !== 'string') {
-        throw new Error('Received malformed CSRF token.');
-      }
-
-      const response = await fetch(`${sanitizedBase}/invoices`, {
+      const response = await bffFetch('/invoices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken
         },
-        body: JSON.stringify(payload),
-        credentials: 'include'
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {

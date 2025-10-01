@@ -1,15 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSecureHeaders } from "next-secure-headers";
+import { getBffOrigin } from "./lib/bff";
 
 const csrfProtectedRoutes = [/^\/login$/, /^\/signup$/, /^\/organizations\/[^/]+\/settings\/emails$/];
 
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
-  const bffOrigin = process.env.NEXT_PUBLIC_BFF_URL;
   const connectSrc = ["'self'"];
-  if (bffOrigin) {
-    connectSrc.push(bffOrigin);
-  }
+  connectSrc.push(getBffOrigin());
 
   const secureHeaders = createSecureHeaders({
     forceHTTPSRedirect: [true, { maxAge: 60 * 60 * 24 * 365, includeSubDomains: true }],

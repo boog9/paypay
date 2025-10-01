@@ -1,4 +1,7 @@
-.env
-.env.*
+**/.env*
+.env*
 node_modules
 dist
+../infra/env
+Dockerfile*
+docker-compose*

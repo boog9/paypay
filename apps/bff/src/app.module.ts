@@ -92,22 +92,15 @@ import { HealthController } from './health.controller';
           } satisfies DataSourceOptions;
         }
 
-        const isProduction = nodeEnv === 'production';
-        const host = isProduction
-          ? configService.getOrThrow<string>('POSTGRES_HOST')
-          : configService.get<string>('POSTGRES_HOST') ?? 'localhost';
-        const port = isProduction
-          ? Number(configService.getOrThrow<string>('POSTGRES_PORT'))
-          : Number(configService.get<string>('POSTGRES_PORT') ?? '5432');
-        const username = isProduction
-          ? configService.getOrThrow<string>('POSTGRES_USER')
-          : configService.get<string>('POSTGRES_USER') ?? 'paypay';
-        const password = isProduction
-          ? configService.getOrThrow<string>('POSTGRES_PASSWORD')
-          : configService.get<string>('POSTGRES_PASSWORD') ?? 'paypay';
-        const database = isProduction
-          ? configService.getOrThrow<string>('POSTGRES_DB')
-          : configService.get<string>('POSTGRES_DB') ?? 'paypay';
+        const host = configService.getOrThrow<string>('POSTGRES_HOST');
+        const portRaw = configService.getOrThrow<string>('POSTGRES_PORT');
+        const port = Number(portRaw);
+        if (Number.isNaN(port)) {
+          throw new Error('POSTGRES_PORT must be a valid number');
+        }
+        const username = configService.getOrThrow<string>('POSTGRES_USER');
+        const password = configService.getOrThrow<string>('POSTGRES_PASSWORD');
+        const database = configService.getOrThrow<string>('POSTGRES_DB');
 
         return {
           ...baseOptions,

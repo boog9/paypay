@@ -52,8 +52,8 @@ export function LoginForm() {
           aria-describedby={state.fieldErrors?.email ? 'login-email-error' : undefined}
         />
         {state.fieldErrors?.email && (
-          <p id="login-email-error" className="text-sm text-destructive">
-            {state.fieldErrors.email.join(' ')}
+          <p id="login-email-error" className="whitespace-pre-line text-sm text-destructive">
+            {state.fieldErrors.email.join('\n')}
           </p>
         )}
       </div>
@@ -73,13 +73,13 @@ export function LoginForm() {
           aria-describedby={state.fieldErrors?.password ? 'login-password-error' : undefined}
         />
         {state.fieldErrors?.password && (
-          <p id="login-password-error" className="text-sm text-destructive">
-            {state.fieldErrors.password.join(' ')}
+          <p id="login-password-error" className="whitespace-pre-line text-sm text-destructive">
+            {state.fieldErrors.password.join('\n')}
           </p>
         )}
       </div>
       {state.status === 'error' && !state.fieldErrors && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+        <p className="whitespace-pre-line rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
           {state.message}
         </p>
       )}

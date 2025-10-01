@@ -13,6 +13,8 @@ import { AuthResult } from './dto/auth-response.dto';
 import { ACCESS_TOKEN_ALGORITHM, ACCESS_TOKEN_AUDIENCE, ACCESS_TOKEN_ISSUER, REFRESH_TOKEN_TTL_MS } from './auth.constants';
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
+import { RegisterDto } from './dto/register.dto';
+import { normalizeEmail } from './email.utils';
 
 interface RefreshTokenPayload {
   sub: string;
@@ -31,10 +33,11 @@ export class AuthService {
     private readonly configService: ConfigService
   ) {}
 
-  async signup(dto: SignupDto): Promise<AuthResult> {
-    const existing = await this.usersRepository.findOne({ where: { email: dto.email } });
-    if (existing) {
-      throw new ConflictException('Email is already registered.');
+  async register(dto: RegisterDto): Promise<UserEntity> {
+    const email = normalizeEmail(dto.email);
+    const exists = await this.usersRepository.exist({ where: { email } });
+    if (exists) {
+      throw new ConflictException('Email already registered');
     }
 
     const passwordHash = await argon2.hash(dto.password, {
@@ -43,14 +46,20 @@ export class AuthService {
       timeCost: 2,
       parallelism: 1
     });
-    const user = this.usersRepository.create({ email: dto.email, passwordHash });
-    await this.usersRepository.save(user);
+
+    const user = this.usersRepository.create({ email, passwordHash });
+    return this.usersRepository.save(user);
+  }
+
+  async signup(dto: SignupDto): Promise<AuthResult> {
+    const user = await this.register(dto);
 
     return this.issueTokens(user, true);
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {
-    const user = await this.usersRepository.findOne({ where: { email: dto.email } });
+    const email = normalizeEmail(dto.email);
+    const user = await this.usersRepository.findOne({ where: { email } });
     if (!user) {
       throw new UnauthorizedException('Invalid credentials.');
     }

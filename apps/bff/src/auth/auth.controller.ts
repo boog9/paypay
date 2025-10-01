@@ -26,6 +26,7 @@ import {
   REFRESH_TOKEN_TTL_MS
 } from './auth.constants';
 import { CsrfService, RequestWithCsrf } from './csrf.service';
+import { RegisterDto } from './dto/register.dto';
 
 const ACCESS_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -56,6 +57,19 @@ export class AuthController {
   ): { csrfToken: string } {
     const token = this.csrfService.issueToken(req, res);
     return { csrfToken: token };
+  }
+
+  @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Req() req: RequestWithCsrf,
+    @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const user = await this.authService.register(dto);
+    this.csrfService.rotateToken(req, res);
+    return { id: user.id, email: user.email };
   }
 
   @Post('signup')

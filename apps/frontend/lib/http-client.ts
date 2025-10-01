@@ -30,7 +30,10 @@ export async function bffFetch(input: string, init: RequestInit = {}): Promise<R
 export async function fetchCsrf(): Promise<string> {
   const response = await bffFetch('/auth/csrf-token', {
     method: 'GET',
-    cache: 'no-store'
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json'
+    }
   });
 
   if (!response.ok) {

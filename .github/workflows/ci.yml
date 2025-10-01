@@ -42,5 +42,5 @@ jobs:
         run: pnpm --filter ./apps/bff... exec node -e "require.resolve('reflect-metadata')"
       - name: Verify health controller routes exist (static check)
         run: |
-          grep -R --line-number "Get('/health')" apps/bff/src || (echo "missing /health" && exit 1)
-          grep -R --line-number "Get('/readyz')" apps/bff/src || (echo "missing /readyz" && exit 1)
+          grep -REn "Get\\((\"|')/health\\1\\)" apps/bff/src || (echo "missing /health" && exit 1)
+          grep -REn "Get\\((\"|')/readyz\\1\\)" apps/bff/src || (echo "missing /readyz" && exit 1)

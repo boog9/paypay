@@ -27,4 +27,7 @@ COPY --from=build /workspace/apps/frontend/public ./apps/frontend/public
 USER node
 EXPOSE 3000
 ENV PORT=3000
+ENV HOST=0.0.0.0
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=5 \
+  CMD node -e "const http=require('http');const req=http.request({hostname:'127.0.0.1',port:3000,path:'/health',timeout:2000},res=>process.exit(res.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.end()"
 CMD ["node", "apps/frontend/server.js"]

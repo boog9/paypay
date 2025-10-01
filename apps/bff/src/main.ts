@@ -8,7 +8,7 @@ import csurf from 'csurf';
 import type { NextFunction, Request, Response } from 'express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { json } from 'express';
+import { json as expressJson, urlencoded as expressUrlencoded } from 'express';
 import { CSRF_SECRET_COOKIE_NAME } from './auth/auth.constants';
 import { getEnv } from './config/env.validation';
 
@@ -75,14 +75,42 @@ async function bootstrap() {
     const effectiveTrustProxyValue = trustProxyValue === false ? 1 : trustProxyValue;
     // Ensure IP forwarding works correctly when running behind a layer 7 proxy.
     expressInstance.set('trust proxy', effectiveTrustProxyValue ?? 1);
+
+    const hooksPaths = ['/hooks/btcpay', '/api/hooks/btcpay'];
+    const isBtcpayHookPath = (path: string) =>
+      hooksPaths.some((prefix) => path.startsWith(prefix));
+
+    // 1) Keep BTCPay webhooks first with their dedicated parser so raw bodies remain intact.
     expressInstance.use(
-      ['/hooks/btcpay', '/api/hooks/btcpay'],
-      json({
+      hooksPaths,
+      expressJson({
+        limit: '1mb',
+        type: ['application/json', 'application/*+json'],
         verify: (req: any, _res, buf: Buffer) => {
           req.rawBody = Buffer.from(buf);
         }
       })
     );
+
+    const jsonParser = expressJson({
+      limit: '1mb',
+      type: ['application/json', 'application/*+json']
+    });
+    const urlencodedParser = expressUrlencoded({ extended: false, limit: '1mb' });
+
+    // 2) Apply global parsers to every other route so CSRF receives parsed bodies.
+    expressInstance.use((req: Request, res: Response, next: NextFunction) => {
+      const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
+      if (isBtcpayHookPath(path)) {
+        return next();
+      }
+      jsonParser(req, res, (jsonErr?: any) => {
+        if (jsonErr) {
+          return next(jsonErr);
+        }
+        return urlencodedParser(req, res, next);
+      });
+    });
 
     const csrfMiddleware = csurf({
       cookie: {
@@ -102,7 +130,7 @@ async function bootstrap() {
 
     expressInstance.use((req: Request, res: Response, next: NextFunction) => {
       const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
-      if (path.startsWith('/hooks/btcpay') || path.startsWith('/api/hooks/btcpay')) {
+      if (isBtcpayHookPath(path)) {
         return next();
       }
       return csrfMiddleware(req, res, next);

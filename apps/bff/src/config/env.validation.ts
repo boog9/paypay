@@ -30,11 +30,11 @@ export const EnvSchema = z.object({
   BTCPAY_HEALTH_API_KEY: z.string().optional(),
 
   DATABASE_URL: z.string().optional(),
-  POSTGRES_HOST: z.string().default('postgres'),
+  POSTGRES_HOST: z.string().min(1),
   POSTGRES_PORT: z.coerce.number().default(5432),
-  POSTGRES_USER: z.string().default('paypay'),
-  POSTGRES_PASSWORD: z.string().default('paypay'),
-  POSTGRES_DB: z.string().default('paypay'),
+  POSTGRES_USER: z.string().min(1),
+  POSTGRES_PASSWORD: z.string().min(1),
+  POSTGRES_DB: z.string().min(1),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional(),

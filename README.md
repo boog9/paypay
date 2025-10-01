@@ -21,7 +21,7 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 
 ## Secrets & Env
 
-PayPay keeps every secret and runtime toggle in a single dotenv file: `infra/env/.env`. The template lives at `infra/env/.env.example`; copy it, fill in the values, and keep the real file out of Git (see `.gitignore`). Do **not** create `deploy/docker/.env` or any other shadow copies—the Docker stack, scripts, and CI tooling all read from `infra/env/.env` directly.
+PayPay keeps every secret and runtime toggle in a single dotenv file: `infra/env/.env`. The template lives at `infra/env/.env.example`; copy it, fill in the values, and keep the real file out of Git (see `.gitignore`). Do **not** create `deploy/docker/.env` or any other shadow copies—the Docker stack, scripts, and CI tooling all read from `infra/env/.env` directly. The BFF Docker image ignores `.env` files whenever `NODE_ENV=production`; Docker Compose injects `infra/env/.env` through `env_file`, so there are no baked-in fallbacks inside the container.
 
 ### Minimum secret requirements
 
@@ -42,6 +42,30 @@ You can also pipe the helper script into the file:
 ```bash
 scripts/gen-secrets.sh >> infra/env/.env
 ```
+
+### Runtime verification
+
+To confirm that only Docker Compose–provided variables reach the container, inspect the environment at runtime:
+
+```bash
+docker compose run --rm --no-deps --entrypoint env bff | egrep 'JWT|COOKIE|BTCPAY|POSTGRES|FRONTEND_ORIGIN|PORT'
+docker inspect docker-bff-1 | jq -r '.[0].Config.Env[]' | egrep 'JWT|COOKIE|BTCPAY|POSTGRES|FRONTEND_ORIGIN|PORT'
+```
+
+If you previously built images with placeholder defaults baked into the layers, perform a cold rebuild so Docker drops every cached layer before composing new images:
+
+```bash
+cd deploy/docker
+docker compose down --remove-orphans
+docker rmi ghcr.io/paypay/bff:latest ghcr.io/paypay/frontend:latest 2>/dev/null || true
+docker builder prune -af
+docker compose build --no-cache bff frontend
+docker compose up -d
+```
+
+The cache purge ensures the resulting images only contain the values provided via `infra/env/.env`. After the stack restarts, rerun the environment inspection commands above.
+
+Rotate secrets with `openssl rand -base64 32` (48 for BTCPay master keys), update `infra/env/.env`, and rebuild the stack. Never commit populated dotenv files.
 
 ### Bootstrapping Docker Compose
 

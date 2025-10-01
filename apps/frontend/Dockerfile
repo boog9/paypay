@@ -28,6 +28,7 @@ USER node
 EXPOSE 3000
 ENV PORT=3000
 ENV HOST=0.0.0.0
-HEALTHCHECK --interval=30s --timeout=5s --retries=12 \
+ENV HOSTNAME=0.0.0.0
+HEALTHCHECK --interval=30s --timeout=5s --retries=12 --start-period=15s \
   CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '3000') + '/health',{cache:'no-store'}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "apps/frontend/server.js"]

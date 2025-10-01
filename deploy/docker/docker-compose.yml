@@ -10,15 +10,17 @@ services:
     environment:
       - NEXT_PUBLIC_BFF_URL
       - NEXT_PUBLIC_API_BASE
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
     depends_on:
       bff:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O- http://127.0.0.1:3000/health >/dev/null']
-      interval: 10s
-      timeout: 3s
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || '3000') + '/health',{cache:'no-store'}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
       start_period: 15s
-      retries: 5
+      retries: 12
     networks:
       - paynet
 

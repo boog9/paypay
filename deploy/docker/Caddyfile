@@ -15,9 +15,10 @@ https://{$PAYPAY_DOMAIN} {
     reverse_proxy bff:3000
   }
 
-  handle_path /healthz {
-    respond "ok" 200
+  @healthz {
+    path /healthz
   }
+  respond @healthz 200
 
   handle /readyz {
     reverse_proxy bff:3000
@@ -31,9 +32,10 @@ https://{$PAYPAY_DOMAIN} {
 https://{$PAYPAY_API_DOMAIN} {
   encode gzip
 
-  handle_path /healthz {
-    respond "ok" 200
+  @healthz_api {
+    path /healthz
   }
+  respond @healthz_api 200
 
   reverse_proxy bff:3000
 }
@@ -51,9 +53,10 @@ https://localhost {
     reverse_proxy bff:3000
   }
 
-  handle_path /healthz {
-    respond "ok" 200
+  @localhost_healthz {
+    path /healthz
   }
+  respond @localhost_healthz 200
 
   handle /readyz {
     reverse_proxy bff:3000

@@ -10,26 +10,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-        - uses: actions/checkout@v4
-        - name: Setup Node.js
-          uses: actions/setup-node@v4
-          with:
-            node-version: 22.14.0
-        - name: Prepare pnpm
-          run: |
-            corepack enable
-            corepack prepare pnpm@9 --activate
-        - name: Get pnpm store path
-          id: pnpm-store
-          run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-        - name: Cache pnpm store
-          uses: actions/cache@v4
-          with:
-            path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-            key: ${{ runner.os }}-pnpm-22.14.0-9-${{ hashFiles('pnpm-lock.yaml') }}
-            restore-keys: |
-              ${{ runner.os }}-pnpm-22.14.0-9-
-              ${{ runner.os }}-pnpm-
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+      - name: Prepare pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9 --activate
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-22.14.0-9-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-22.14.0-9-
+            ${{ runner.os }}-pnpm-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -40,3 +40,7 @@ jobs:
         run: pnpm -r build
       - name: Ensure reflect-metadata is available for the BFF
         run: pnpm --filter ./apps/bff... exec node -e "require.resolve('reflect-metadata')"
+      - name: Verify health controller routes exist (static check)
+        run: |
+          grep -R --line-number "Get('/health')" apps/bff/src || (echo "missing /health" && exit 1)
+          grep -R --line-number "Get('/readyz')" apps/bff/src || (echo "missing /readyz" && exit 1)

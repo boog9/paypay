@@ -1,12 +1,21 @@
-import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  BeforeInsert,
+  Column,
+  CreateDateColumn,
+  Entity,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn
+} from 'typeorm';
 import { RefreshTokenEntity } from './refresh-token.entity';
+import { normalizeEmail } from '../email.utils';
 
 @Entity({ name: 'users' })
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', length: 320, unique: true })
   email!: string;
 
   @Column({ name: 'password_hash' })
@@ -20,4 +29,9 @@ export class UserEntity {
 
   @OneToMany(() => RefreshTokenEntity, (token) => token.user)
   refreshTokens!: RefreshTokenEntity[];
+
+  @BeforeInsert()
+  normalizeEmailBeforeInsert(): void {
+    this.email = normalizeEmail(this.email);
+  }
 }

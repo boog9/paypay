@@ -25,7 +25,7 @@ describe('AuthModule (e2e)', () => {
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
-        transform: true,
+        transform: false,
         forbidNonWhitelisted: true
       })
     );
@@ -68,27 +68,48 @@ describe('AuthModule (e2e)', () => {
   it('should handle the full auth flow', async () => {
     const credentials = { email: 'merchant@example.com', password: 'averysecurepassword' };
 
+    const { token: registerCsrf } = await fetchCsrfToken();
+    const registerResponse = await agent
+      .post('/api/auth/register')
+      .set('X-CSRF-Token', registerCsrf)
+      .send(credentials)
+      .expect(201);
+
+    expect(registerResponse.body).toEqual(
+      expect.objectContaining({ id: expect.any(String), email: credentials.email })
+    );
+    const registerCookies = getCookies(registerResponse);
+    expect(registerCookies.join(';')).not.toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
+    expect(registerCookies.join(';')).not.toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
+
+    const { token: duplicateRegisterCsrf } = await fetchCsrfToken();
+    await agent
+      .post('/api/auth/register')
+      .set('X-CSRF-Token', duplicateRegisterCsrf)
+      .send(credentials)
+      .expect(409);
+
     const { token: signupCsrf } = await fetchCsrfToken();
     const signupResponse = await agent
       .post('/api/auth/signup')
       .set('X-CSRF-Token', signupCsrf)
-      .send(credentials)
+      .send({ email: 'second@example.com', password: 'averysecurepassword' })
       .expect(201);
 
     expect(signupResponse.body).toEqual(
       expect.objectContaining({
-        user: expect.objectContaining({ email: credentials.email, id: expect.any(String) })
+        user: expect.objectContaining({ email: 'second@example.com', id: expect.any(String) })
       })
     );
     const signupCookies = getCookies(signupResponse);
     expect(signupCookies.join(';')).toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
     expect(signupCookies.join(';')).toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
 
-    const { token: duplicateCsrf } = await fetchCsrfToken();
+    const { token: duplicateSignupCsrf } = await fetchCsrfToken();
     await agent
       .post('/api/auth/signup')
-      .set('X-CSRF-Token', duplicateCsrf)
-      .send(credentials)
+      .set('X-CSRF-Token', duplicateSignupCsrf)
+      .send({ email: 'second@example.com', password: 'averysecurepassword' })
       .expect(409);
 
     const { token: invalidLoginCsrf } = await fetchCsrfToken();

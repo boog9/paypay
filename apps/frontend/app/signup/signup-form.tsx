@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signupAction, type AuthFormState } from '../(auth)/client-actions';
 import { Button } from '../../components/ui/button';
@@ -15,13 +16,23 @@ export function SignupForm() {
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const formData = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const formData = new FormData(formElement);
 
       setState(initialState);
       startTransition(async () => {
         const result = await signupAction(formData);
         if (result.status === 'success') {
-          router.replace('/org/stores');
+          formElement.reset();
+          setState({
+            status: 'success',
+            message: result.message ?? 'Account created successfully. You can now sign in.'
+          });
+          try {
+            router.prefetch('/login');
+          } catch {
+            // Ignore prefetch errors; navigation will still work.
+          }
           return;
         }
 
@@ -52,8 +63,8 @@ export function SignupForm() {
           aria-describedby={state.fieldErrors?.email ? 'email-error' : undefined}
         />
         {state.fieldErrors?.email && (
-          <p id="email-error" className="text-sm text-destructive">
-            {state.fieldErrors.email.join(' ')}
+          <p id="email-error" className="whitespace-pre-line text-sm text-destructive">
+            {state.fieldErrors.email.join('\n')}
           </p>
         )}
       </div>
@@ -74,15 +85,25 @@ export function SignupForm() {
         />
         <p className="text-xs text-muted-foreground">Minimum 12 characters; avoid reusing passwords.</p>
         {state.fieldErrors?.password && (
-          <p id="password-error" className="text-sm text-destructive">
-            {state.fieldErrors.password.join(' ')}
+          <p id="password-error" className="whitespace-pre-line text-sm text-destructive">
+            {state.fieldErrors.password.join('\n')}
           </p>
         )}
       </div>
       {state.status === 'error' && !state.fieldErrors && (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+        <p className="whitespace-pre-line rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
           {state.message}
         </p>
+      )}
+      {state.status === 'success' && (
+        <div className="rounded-md border border-primary/50 bg-primary/10 p-3 text-sm text-primary">
+          <p className="whitespace-pre-line">{state.message}</p>
+          <p className="mt-2">
+            <Link href="/login" className="font-medium underline">
+              Go to sign in
+            </Link>
+          </p>
+        </div>
       )}
       <Button type="submit" disabled={isPending} className="w-full">
         {isPending ? 'Creating…' : 'Create account'}

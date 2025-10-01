@@ -5,13 +5,15 @@ import { bffFetch, fetchCsrf } from '../../lib/http-client';
 
 export type AuthFormStateBase = {
   fieldErrors?: Record<string, string[]>;
-  message?: string;
 };
 
-export type AuthFormState = ({ status: 'idle' } | { status: 'error'; message: string }) & AuthFormStateBase;
+export type AuthFormState =
+  | ({ status: 'idle' } & AuthFormStateBase)
+  | ({ status: 'error'; message: string } & AuthFormStateBase)
+  | ({ status: 'success'; message: string } & AuthFormStateBase);
 
 export type AuthActionResult =
-  | { status: 'success'; user: { id: string; email: string } }
+  | { status: 'success'; user: { id: string; email: string }; message?: string }
   | ({ status: 'error'; message: string } & AuthFormStateBase);
 
 const credentialsSchema = z.object({
@@ -21,7 +23,7 @@ const credentialsSchema = z.object({
 
 type Credentials = z.infer<typeof credentialsSchema>;
 
-async function performAuthRequest(endpoint: 'signup' | 'login', body: Credentials): Promise<AuthActionResult> {
+async function performAuthRequest(endpoint: 'register' | 'login', body: Credentials): Promise<AuthActionResult> {
   let csrfToken: string;
   try {
     csrfToken = await fetchCsrf();
@@ -36,7 +38,8 @@ async function performAuthRequest(endpoint: 'signup' | 'login', body: Credential
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken
+        'X-CSRF-Token': csrfToken,
+        Accept: 'application/json'
       },
       body: JSON.stringify(body),
       cache: 'no-store'
@@ -52,9 +55,36 @@ async function performAuthRequest(endpoint: 'signup' | 'login', body: Credential
     payload = await response.json().catch(() => null);
   }
 
+  const defaultErrorMessage = 'The request could not be completed. Please try again later.';
+
   if (!response.ok) {
-    const message = payload?.message ?? 'The request could not be completed. Please try again later.';
-    return { status: 'error', message };
+    const rawMessage = payload?.message;
+    if (Array.isArray(rawMessage)) {
+      const messages = rawMessage
+        .flatMap((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0);
+      if (messages.length > 0) {
+        return { status: 'error', message: messages.join('\n') };
+      }
+    } else if (typeof rawMessage === 'string' && rawMessage.trim().length > 0) {
+      return { status: 'error', message: rawMessage.trim() };
+    }
+
+    return { status: 'error', message: defaultErrorMessage };
+  }
+
+  if (endpoint === 'register') {
+    const id = payload?.id;
+    const email = payload?.email;
+    if (typeof id === 'string' && typeof email === 'string') {
+      return {
+        status: 'success',
+        user: { id, email },
+        message: `Account ${email} was created successfully. You can now sign in.`
+      };
+    }
+
+    return { status: 'error', message: 'Invalid auth service response payload.' };
   }
 
   if (!payload?.user || typeof payload.user.id !== 'string' || typeof payload.user.email !== 'string') {
@@ -75,7 +105,7 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
     return { status: 'error', message: 'Please review the submitted information.', fieldErrors };
   }
 
-  return performAuthRequest('signup', parsed.data);
+  return performAuthRequest('register', parsed.data);
 }
 
 export async function loginAction(formData: FormData): Promise<AuthActionResult> {

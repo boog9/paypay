@@ -4,7 +4,6 @@ import { NestFactory } from '@nestjs/core';
 import { useContainer } from 'class-validator';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import cors from 'cors';
 import csurf from 'csurf';
 import type { NextFunction, Request, Response } from 'express';
 import { Logger } from 'nestjs-pino';
@@ -49,15 +48,13 @@ async function bootstrap() {
   const allowedOrigins = Array.from(new Set([defaultOrigin, ...configuredOrigins]));
 
   app.use(helmet());
-  app.use(
-    cors({
-      origin: allowedOrigins,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Accept'],
-      exposedHeaders: ['X-CSRF-Token']
-    })
-  );
+  app.enableCors({
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Accept'],
+    exposedHeaders: ['X-CSRF-Token']
+  });
 
   app.use(cookieParser(env.COOKIE_SECRET));
 
@@ -112,7 +109,7 @@ async function bootstrap() {
     });
   }
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: false, forbidNonWhitelisted: true }));
 
   app.setGlobalPrefix('api', {
     exclude: [

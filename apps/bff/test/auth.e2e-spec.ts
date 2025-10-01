@@ -16,7 +16,7 @@ describe('AuthModule (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser());
+    app.use(cookieParser(process.env.COOKIE_SECRET));
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

@@ -1,21 +1,27 @@
 import 'reflect-metadata';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
 import { useContainer } from 'class-validator';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import csrf from 'csurf';
+import csurf from 'csurf';
 import type { NextFunction, Request, Response } from 'express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { json } from 'express';
 import { CSRF_SECRET_COOKIE_NAME } from './auth/auth.constants';
+import { getEnv } from './config/env.validation';
 
-function parseTrustProxy(v?: string): any {
+function parseTrustProxy(v?: string | number | boolean): any {
   if (v === undefined) {
     return 1;
+  }
+  if (typeof v === 'number') {
+    return v;
+  }
+  if (typeof v === 'boolean') {
+    return v;
   }
   const normalized = v.trim();
   if (normalized === '') {
@@ -29,18 +35,16 @@ function parseTrustProxy(v?: string): any {
 }
 
 async function bootstrap() {
+  const env = getEnv();
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  const configService = app.get(ConfigService);
   const logger = app.get(Logger);
   app.useLogger(logger);
 
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
-  const isProduction = configService.get<string>('NODE_ENV') === 'production';
+  const isProduction = env.NODE_ENV === 'production';
   const defaultOrigin = 'https://paypay.iddqd.in';
-  const configuredOrigins = configService
-    .get<string>('FRONTEND_ORIGIN')
-    ?.split(',')
+  const configuredOrigins = env.FRONTEND_ORIGIN.split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
   const allowedOrigins = Array.from(new Set([defaultOrigin, ...(configuredOrigins ?? [])]));
@@ -56,14 +60,12 @@ async function bootstrap() {
     })
   );
 
-  const cookieSecret = configService.get<string>('COOKIE_SECRET');
-  app.use(cookieParser(cookieSecret));
+  app.use(cookieParser(env.COOKIE_SECRET));
 
   const httpAdapter = app.getHttpAdapter();
   const type = httpAdapter.getType();
   const instance = httpAdapter.getInstance();
-  const trustProxyRaw = configService.get<string>('TRUST_PROXY') ?? '1';
-  const trustProxyValue = parseTrustProxy(trustProxyRaw);
+  const trustProxyValue = parseTrustProxy(env.TRUST_PROXY);
 
   if (type === 'fastify') {
     (instance as any).trustProxy = trustProxyValue;
@@ -86,12 +88,13 @@ async function bootstrap() {
       })
     );
 
-    const csrfMiddleware = csrf({
+    const csrfMiddleware = csurf({
       cookie: {
         key: CSRF_SECRET_COOKIE_NAME,
         httpOnly: true,
         sameSite: 'lax',
         secure: isProduction,
+        signed: true,
         path: '/'
       },
       ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
@@ -120,7 +123,7 @@ async function bootstrap() {
     ]
   });
 
-  const port = configService.get<number>('PORT') ?? 3000;
+  const port = env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
   logger.log(`🚀 BFF is running at http://0.0.0.0:${port}`);
 }

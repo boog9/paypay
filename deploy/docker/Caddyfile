@@ -1,68 +1,30 @@
 {
-  auto_https
-  email {env.CADDY_ADMIN_EMAIL}
+    email {env.CADDY_ADMIN_EMAIL}
+    # auto_https is enabled by default. Do not leave a standalone "auto_https" directive.
+    # If needed, you can explicitly disable it: auto_https off
 }
 
-https://{$PAYPAY_DOMAIN} {
-  encode gzip
+(paypay_common) {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=15552000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "interest-cohort=()"
+    }
+    log
+}
 
-  @api path /api/*
-  handle @api {
-    reverse_proxy bff:3000
-  }
-
-  handle /health {
-    reverse_proxy bff:3000
-  }
-
-  @healthz {
-    path /healthz
-  }
-  respond @healthz 200
-
-  handle /readyz {
-    reverse_proxy bff:3000
-  }
-
-  handle {
+{$PAYPAY_DOMAIN} {
+    import paypay_common
+    @health path /health
+    handle @health {
+        respond 200
+    }
     reverse_proxy frontend:3000
-  }
 }
 
-https://{$PAYPAY_API_DOMAIN} {
-  encode gzip
-
-  @healthz_api {
-    path /healthz
-  }
-  respond @healthz_api 200
-
-  reverse_proxy bff:3000
-}
-
-https://localhost {
-  tls internal
-  encode gzip
-
-  @api path /api/*
-  handle @api {
+{$PAYPAY_API_DOMAIN} {
+    import paypay_common
     reverse_proxy bff:3000
-  }
-
-  handle /health {
-    reverse_proxy bff:3000
-  }
-
-  @localhost_healthz {
-    path /healthz
-  }
-  respond @localhost_healthz 200
-
-  handle /readyz {
-    reverse_proxy bff:3000
-  }
-
-  handle {
-    reverse_proxy frontend:3000
-  }
 }

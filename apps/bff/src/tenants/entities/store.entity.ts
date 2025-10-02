@@ -27,6 +27,15 @@ export class StoreEntity {
   @Column({ name: 'btcpay_store_id' })
   btcpayStoreId!: string;
 
+  @Column({ name: 'store_name', nullable: true })
+  storeName!: string | null;
+
+  @Column({ name: 'store_website', nullable: true })
+  storeWebsite!: string | null;
+
+  @Column({ name: 'store_key_last_four', nullable: true, length: 4 })
+  storeKeyLastFour!: string | null;
+
   @Column({ name: 'api_key_ciphertext', type: 'text' })
   apiKeyCiphertext!: string;
 

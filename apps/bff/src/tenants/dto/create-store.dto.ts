@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class CreateStoreDto {
   @IsString()
@@ -9,7 +9,8 @@ export class CreateStoreDto {
   @IsOptional()
   btcpayHost?: string;
 
-  @IsBoolean()
+  @IsUrl({ require_tld: false })
   @IsOptional()
-  includePullPayments?: boolean;
+  storeWebsite?: string;
+
 }

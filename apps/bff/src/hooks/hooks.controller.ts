@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Headers, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, Post, Req, Res } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { HooksService } from './hooks.service';
 
 @Controller('hooks')
@@ -12,9 +12,10 @@ export class HooksController {
   async handleBtcpayWebhook(
     @Req() req: Request,
     @Headers('btcpay-sig') signature: string | undefined,
-    @Headers('btcpay-delivery') deliveryHeader?: string,
-    @Headers('btcpay-deliveryid') legacyDeliveryHeader?: string,
-    @Body() payload: Record<string, unknown> = {}
+    @Headers('btcpay-delivery') deliveryHeader: string | undefined,
+    @Headers('btcpay-deliveryid') legacyDeliveryHeader: string | undefined,
+    @Body() payload: Record<string, unknown> = {},
+    @Res({ passthrough: true }) res: Response
   ) {
     const rawBody = (req as any).rawBody as Buffer | undefined;
     const deliveryId = deliveryHeader || legacyDeliveryHeader;
@@ -22,8 +23,19 @@ export class HooksController {
       throw new BadRequestException('Missing delivery identifier');
     }
 
-    await this.hooksService.handleWebhook(String(deliveryId), signature ?? '', rawBody ?? Buffer.alloc(0), payload);
+    const processed = await this.hooksService.handleWebhook(
+      String(deliveryId),
+      signature ?? '',
+      rawBody ?? Buffer.alloc(0),
+      payload
+    );
 
+    if (!processed) {
+      res.status(204);
+      return;
+    }
+
+    res.status(202);
     return { status: 'accepted' };
   }
 }

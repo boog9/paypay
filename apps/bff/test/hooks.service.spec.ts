@@ -29,13 +29,14 @@ describe('HooksService', () => {
     const body = Buffer.from(JSON.stringify({ storeId: 'store-1', invoiceId: 'inv-1' }));
     const signature = `sha256=${createHmac('sha256', 'secret-value').update(body).digest('hex')}`;
 
-    await service.handleWebhook('delivery-1', signature, body, {
+    const processed = await service.handleWebhook('delivery-1', signature, body, {
       storeId: 'store-1',
       invoiceId: 'inv-1'
     });
 
     expect(encryption.decrypt).toHaveBeenCalled();
     expect(tenants.registerWebhookDelivery).toHaveBeenCalledWith('tenant-1', 'delivery-1', 'inv-1');
+    expect(processed).toBe(true);
   });
 
   it('rejects invalid signatures', async () => {

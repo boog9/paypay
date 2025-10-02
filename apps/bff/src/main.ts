@@ -14,7 +14,7 @@ import { getEnv } from './config/env.validation';
 
 function parseTrustProxy(v?: string | number | boolean): any {
   if (v === undefined) {
-    return 1;
+    return 'loopback';
   }
   if (typeof v === 'number') {
     return v;
@@ -24,11 +24,12 @@ function parseTrustProxy(v?: string | number | boolean): any {
   }
   const normalized = v.trim();
   if (normalized === '') {
-    return 1;
+    return 'loopback';
   }
   const lower = normalized.toLowerCase();
   if (lower === 'false' || lower === '0') return false;
   if (lower === 'true') return true;
+  if (lower === 'loopback') return 'loopback';
   const num = Number(normalized);
   return Number.isNaN(num) ? normalized : num;
 }
@@ -64,7 +65,7 @@ async function bootstrap() {
   const trustProxyValue = parseTrustProxy(env.TRUST_PROXY);
 
   if (type === 'fastify') {
-    (instance as any).trustProxy = trustProxyValue;
+    (instance as any).trustProxy = trustProxyValue ?? 'loopback';
     // TODO: Provide a raw body hook for BTCPay webhooks if we migrate to the Fastify adapter.
   }
 
@@ -73,9 +74,10 @@ async function bootstrap() {
       use: (path: any, ...handlers: any[]) => void;
       set: (setting: string, value: any) => void;
     };
-    const effectiveTrustProxyValue = trustProxyValue === false ? 1 : trustProxyValue;
+    const effectiveTrustProxyValue =
+      trustProxyValue === undefined || trustProxyValue === null ? 'loopback' : trustProxyValue;
     // Ensure IP forwarding works correctly when running behind a layer 7 proxy.
-    expressInstance.set('trust proxy', effectiveTrustProxyValue ?? 1);
+    expressInstance.set('trust proxy', effectiveTrustProxyValue);
 
     const hooksPaths = ['/hooks/btcpay', '/api/hooks/btcpay'];
     const isBtcpayHookPath = (path: string) =>

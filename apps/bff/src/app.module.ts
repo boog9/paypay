@@ -44,7 +44,7 @@ import { HealthController } from './health.controller';
         }
       }
     }),
-    ThrottlerModule.forRoot([{ ttl: 60, limit: 5 }]),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {

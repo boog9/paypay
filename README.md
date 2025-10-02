@@ -244,7 +244,7 @@ You can also spin up the Docker stack locally with the same production instructi
 - Platform services:
   - `POSTGRES_*` or `DATABASE_URL`
   - `SMTP_*`
-  - `TRUST_PROXY` (override if your proxy chain differs)
+- `TRUST_PROXY` (defaults to `loopback`; override if your proxy chain differs)
   - `NODE_ENV=production`
 
 If your edge or proxy strips the `/api` prefix before reaching the BFF, configure `BTCPAY_WEBHOOK_URL` without `/api` and align the routing rules accordingly. By default, we use `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`.

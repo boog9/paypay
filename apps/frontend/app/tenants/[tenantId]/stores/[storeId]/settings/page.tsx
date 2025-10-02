@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import StoreSettingsClient from "./store-settings-client";
@@ -14,7 +15,7 @@ interface StoreSettingsResponse {
 async function fetchStoreSettings(tenantId: string, storeId: string): Promise<StoreSettingsResponse> {
   const baseUrl = getBffApiBaseUrl();
   const url = `${baseUrl}/tenants/${tenantId}/stores/${storeId}`;
-  const cookieStore = cookies();
+  const cookieStore = cookies() as unknown as Awaited<ReturnType<typeof cookies>>;
   const serializedCookies = cookieStore
     .getAll()
     .map((cookie) => `${cookie.name}=${cookie.value}`)
@@ -40,12 +41,12 @@ async function fetchStoreSettings(tenantId: string, storeId: string): Promise<St
   return (await response.json()) as StoreSettingsResponse;
 }
 
-interface StoreSettingsPageParams {
+type StoreSettingsPageParams = {
   tenantId: string;
   storeId: string;
-}
+};
 
-export default async function StoreSettingsPage({
+async function StoreSettingsPage({
   params
 }: {
   params: StoreSettingsPageParams;
@@ -55,3 +56,5 @@ export default async function StoreSettingsPage({
 
   return <StoreSettingsClient tenantId={tenantId} storeId={storeId} initialData={initialData} />;
 }
+
+export default StoreSettingsPage as unknown as (props: any) => Promise<ReactElement>;

@@ -12,7 +12,7 @@ const base64Min32 = z.string().refine((val) => {
 export const EnvSchema = z.object({
   NODE_ENV: z.string().default('production'),
   PORT: z.coerce.number().default(3000),
-  TRUST_PROXY: z.coerce.number().default(1),
+  TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('loopback'),
 
   COOKIE_SECRET: z.string().min(32, 'must be at least 32 chars or Base64'),
   JWT_ACCESS_TOKEN_SECRET: z.string().min(32),

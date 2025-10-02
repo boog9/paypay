@@ -61,7 +61,8 @@ export class TenantsController {
   }
 
   @Post(':tenantId/apikey/rotate')
-  @Throttle(3, 60)
+  // NestJS v6+: object-based syntax; ttl uses milliseconds (60 seconds)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   rotateApiKey(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query() query: RotateApiKeyQueryDto,
@@ -73,7 +74,7 @@ export class TenantsController {
   }
 
   @Delete(':tenantId/stores/:storeId')
-  @Throttle(3, 60)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   deleteStore(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Param('storeId', ParseUUIDPipe) storeId: string,

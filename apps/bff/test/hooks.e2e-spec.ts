@@ -47,7 +47,7 @@ describe('BTCPay webhook CSRF bypass (e2e)', () => {
       .set('BTCPAY-DELIVERY', 'delivery-test')
       .send({ storeId: 'missing-store' });
 
-    expect(response.status).not.toBe(403);
+    expect(response.status).toBe(202);
     expect(response.body).toEqual(expect.objectContaining({ status: 'accepted' }));
   });
 });

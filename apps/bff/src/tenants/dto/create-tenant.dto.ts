@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class CreateTenantDto {
   @IsEmail()
@@ -16,7 +16,8 @@ export class CreateTenantDto {
   @IsNotEmpty()
   storeName!: string;
 
-  @IsBoolean()
+  @IsUrl({ require_tld: false })
   @IsOptional()
-  includePullPayments?: boolean;
+  storeWebsite?: string;
+
 }

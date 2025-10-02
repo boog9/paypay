@@ -21,7 +21,12 @@ export class HooksService {
     private readonly tenantsService: TenantsService
   ) {}
 
-  async handleWebhook(deliveryId: string, signature: string, rawBody: Buffer, payload: WebhookPayload) {
+  async handleWebhook(
+    deliveryId: string,
+    signature: string,
+    rawBody: Buffer,
+    payload: WebhookPayload
+  ): Promise<boolean> {
     if (!signature) {
       throw new UnauthorizedException('Missing BTCPay signature');
     }
@@ -34,18 +39,26 @@ export class HooksService {
 
     const store = await this.storesRepository.findOne({ where: { btcpayStoreId: payload.storeId } });
     if (!store) {
-      await this.tenantsService.registerWebhookDelivery(null, deliveryId, payload.invoiceId ?? null);
-      return;
+      return this.tenantsService.registerWebhookDelivery(
+        null,
+        deliveryId,
+        payload.invoiceId ?? null
+      );
     }
 
     this.verifySignature(store, signature, rawBody);
 
-    const processed = await this.tenantsService.registerWebhookDelivery(store.tenantId, deliveryId, payload.invoiceId ?? null);
+    const processed = await this.tenantsService.registerWebhookDelivery(
+      store.tenantId,
+      deliveryId,
+      payload.invoiceId ?? null
+    );
     if (!processed) {
-      return;
+      return false;
     }
 
     // Additional domain-specific processing (e.g., invoice sync) would occur here.
+    return true;
   }
 
   private verifySignature(store: StoreEntity, signature: string, rawBody: Buffer) {

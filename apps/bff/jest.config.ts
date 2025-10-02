@@ -5,7 +5,7 @@ const config: Config = {
   testEnvironment: 'node',
   rootDir: '.',
   moduleFileExtensions: ['js', 'json', 'ts'],
-  testMatch: ['<rootDir>/test/**/*.e2e-spec.ts'],
+  testMatch: ['<rootDir>/test/**/*.spec.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@paypay/sdk$': '<rootDir>/test/mocks/paypay-sdk.ts'
@@ -16,6 +16,7 @@ const config: Config = {
   setupFiles: ['<rootDir>/test/setup-env.ts'],
   maxWorkers: 1,
   detectOpenHandles: true,
+  testTimeout: 30_000,
   forceExit: true
 };
 

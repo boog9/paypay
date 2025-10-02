@@ -8,7 +8,7 @@ import csurf from 'csurf';
 import type { NextFunction, Request, Response } from 'express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { json as expressJson, urlencoded as expressUrlencoded } from 'express';
+import * as express from 'express';
 import { CSRF_SECRET_COOKIE_NAME } from './auth/auth.constants';
 import { getEnv } from './config/env.validation';
 
@@ -65,6 +65,7 @@ async function bootstrap() {
 
   if (type === 'fastify') {
     (instance as any).trustProxy = trustProxyValue;
+    // TODO: Provide a raw body hook for BTCPay webhooks if we migrate to the Fastify adapter.
   }
 
   if (type === 'express') {
@@ -83,7 +84,7 @@ async function bootstrap() {
     // 1) Keep BTCPay webhooks first with their dedicated parser so raw bodies remain intact.
     expressInstance.use(
       hooksPaths,
-      expressJson({
+      express.json({
         limit: '1mb',
         type: ['application/json', 'application/*+json'],
         verify: (req: any, _res, buf: Buffer) => {
@@ -92,11 +93,11 @@ async function bootstrap() {
       })
     );
 
-    const jsonParser = expressJson({
+    const jsonParser = express.json({
       limit: '1mb',
       type: ['application/json', 'application/*+json']
     });
-    const urlencodedParser = expressUrlencoded({ extended: false, limit: '1mb' });
+    const urlencodedParser = express.urlencoded({ extended: false, limit: '1mb' });
 
     // 2) Apply global parsers to every other route so CSRF receives parsed bodies.
     expressInstance.use((req: Request, res: Response, next: NextFunction) => {

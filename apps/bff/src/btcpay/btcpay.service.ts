@@ -13,7 +13,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
-import { BTCPAY_MINIMAL_PERMISSIONS } from './btcpay.constants';
+import { BTCPAY_INVOICE_WEBHOOK_EVENTS, BTCPAY_MINIMAL_PERMISSIONS } from './btcpay.constants';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 
@@ -71,9 +71,12 @@ export class BtcpayService {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        'User-Agent': 'PayPay-BFF/1.0',
         ...headers
       },
-      timeout: 15_000
+      timeout: 10_000,
+      maxBodyLength: 2 * 1024 * 1024,
+      maxContentLength: 2 * 1024 * 1024
     });
   }
 
@@ -123,8 +126,8 @@ export class BtcpayService {
     }
   }
 
-  async createUserApiKey(host: string | undefined, email: string, storeId: string, includePullPayments = false): Promise<ApiKeyResponse> {
-    const permissions = this.buildStorePermissions(storeId, includePullPayments);
+  async createUserApiKey(host: string | undefined, email: string, storeId: string): Promise<ApiKeyResponse> {
+    const permissions = this.buildStorePermissions(storeId);
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
     });
@@ -159,12 +162,20 @@ export class BtcpayService {
     }
   }
 
-  async createStoreWithUserToken(host: string | undefined, apiKey: string, payload: { name: string }): Promise<StoreResponse> {
+  async createStoreWithUserToken(
+    host: string | undefined,
+    apiKey: string,
+    payload: { name: string; website?: string }
+  ): Promise<StoreResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${apiKey}`
     });
     try {
-      const { data } = await http.post<StoreResponse>('/api/v1/stores', payload);
+      const body: Record<string, string> = { name: payload.name };
+      if (payload.website) {
+        body.website = payload.website;
+      }
+      const { data } = await http.post<StoreResponse>('/api/v1/stores', body);
       return data;
     } catch (error) {
       return this.maskError(error);
@@ -199,11 +210,39 @@ export class BtcpayService {
     });
     try {
       const { data } = await http.post<WebhookResponse>(`/api/v1/stores/${storeId}/webhooks`, {
-        url: this.getWebhookUrl()
+        url: this.getWebhookUrl(),
+        isActive: true,
+        automaticRedelivery: true,
+        authorizedEvents: {
+          everything: false,
+          specificEvents: [...BTCPAY_INVOICE_WEBHOOK_EVENTS]
+        }
       });
       return data;
     } catch (error) {
       return this.maskError(error);
+    }
+  }
+
+  async deleteWebhook(host: string | undefined, apiKey: string, storeId: string, webhookId: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      await http.delete(`/api/v1/stores/${storeId}/webhooks/${webhookId}`);
+    } catch (error) {
+      this.maskError(error);
+    }
+  }
+
+  async deleteStore(host: string | undefined, apiKey: string, storeId: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      await http.delete(`/api/v1/stores/${storeId}`);
+    } catch (error) {
+      this.maskError(error);
     }
   }
 
@@ -299,11 +338,7 @@ export class BtcpayService {
     return authorizeUrl.toString();
   }
 
-  private buildStorePermissions(storeId: string, includePullPayments: boolean): string[] {
-    const scoped = BTCPAY_MINIMAL_PERMISSIONS.map((permission) => `${permission}:${storeId}`);
-    if (!includePullPayments) {
-      return scoped.filter((permission) => !permission.startsWith('btcpay.store.cancreatenonapprovedpullpayments'));
-    }
-    return scoped;
+  private buildStorePermissions(storeId: string): string[] {
+    return BTCPAY_MINIMAL_PERMISSIONS.map((permission) => `${permission}:${storeId}`);
   }
 }

@@ -1,8 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn, UpdateDateColumn } from 'typeorm';
+import { TIMESTAMP_COLUMN_TYPE } from '../../database/utils/column-types';
 import { UserEntity } from './user.entity';
-
-const dateColumnType =
-  process.env.DB_TYPE === 'sqlite' || process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz';
 
 @Entity({ name: 'refresh_tokens' })
 export class RefreshTokenEntity {
@@ -17,18 +15,18 @@ export class RefreshTokenEntity {
   @JoinColumn({ name: 'user_id' })
   user?: UserEntity;
 
-  @Column({ name: 'token_hash' })
+  @Column({ name: 'token_hash', type: 'varchar', length: 255 })
   tokenHash!: string;
 
-  @Column({ name: 'expires_at', type: dateColumnType })
+  @Column({ name: 'expires_at', type: TIMESTAMP_COLUMN_TYPE })
   expiresAt!: Date;
 
-  @Column({ name: 'revoked_at', type: dateColumnType, nullable: true })
+  @Column({ name: 'revoked_at', type: TIMESTAMP_COLUMN_TYPE, nullable: true })
   revokedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: TIMESTAMP_COLUMN_TYPE })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: TIMESTAMP_COLUMN_TYPE })
   updatedAt!: Date;
 }

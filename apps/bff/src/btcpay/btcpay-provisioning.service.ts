@@ -9,7 +9,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from './btcpay.constants';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 
@@ -30,9 +30,8 @@ export class BtcpayProvisioningService {
 
   constructor(@Inject(BTCPAY_CONFIG) private readonly config: BtcpayRuntimeConfig) {}
 
-  async createUserInBtcpay(email: string, password?: string): Promise<CreateUserResponse | null> {
-    const resolvedPassword = password ?? this.generatePassword();
-    const payload = { email, password: resolvedPassword };
+  async createUserInBtcpay(email: string, password: string): Promise<CreateUserResponse | null> {
+    const payload = { email, password, sendInvitationEmail: false };
 
     return this.performRequest<CreateUserResponse | null>({
       operation: 'create-user',
@@ -81,10 +80,6 @@ export class BtcpayProvisioningService {
 
   getDefaultPermissions(): readonly string[] {
     return BTCPAY_PORTAL_USER_PERMISSIONS;
-  }
-
-  private generatePassword(): string {
-    return randomBytes(48).toString('base64url');
   }
 
   private createHttp(): AxiosInstance {

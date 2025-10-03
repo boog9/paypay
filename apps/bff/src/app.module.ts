@@ -17,6 +17,7 @@ import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity'
 import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
 import { HealthController } from './health.controller';
+import type { IncomingMessage, ServerResponse } from 'http';
 
 @Module({
   imports: [
@@ -60,11 +61,13 @@ import { HealthController } from './health.controller';
           }
           return 'info';
         },
-        customLogObject: (req, res, val) => ({
+        customProps: (
+          req: IncomingMessage & { originalUrl?: string | undefined },
+          res: ServerResponse<IncomingMessage>
+        ) => ({
           statusCode: res.statusCode,
-          method: req.method,
-          path: req.originalUrl ?? req.url,
-          responseTime: val.responseTime
+          method: req.method ?? 'UNKNOWN',
+          path: req.originalUrl ?? req.url ?? 'UNKNOWN'
         })
       }
     }),

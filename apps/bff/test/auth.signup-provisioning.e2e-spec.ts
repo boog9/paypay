@@ -5,7 +5,7 @@ import request from 'supertest';
 import type { Response } from 'supertest';
 import nock from 'nock';
 import { DataSource } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
+import * as argon2 from 'argon2';
 import { AppModule } from '../src/app.module';
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
@@ -122,6 +122,6 @@ describe('Auth signup provisioning (e2e)', () => {
     expect(savedUser.btcpayApiKeyPermissions).toEqual(
       JSON.stringify([...BTCPAY_PORTAL_USER_PERMISSIONS].sort())
     );
-    expect(await bcrypt.compare('btcpay-api-key', savedUser.btcpayApiKeyHash!)).toBe(true);
+    expect(await argon2.verify(savedUser.btcpayApiKeyHash!, 'btcpay-api-key')).toBe(true);
   });
 });

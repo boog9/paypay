@@ -15,7 +15,6 @@ import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
 import { normalizeEmail } from './email.utils';
-import * as bcrypt from 'bcryptjs';
 import { BtcpayProvisioningService } from '../btcpay/btcpay-provisioning.service';
 
 interface RefreshTokenPayload {
@@ -81,7 +80,7 @@ export class AuthService {
       user.btcpayUserId = btcpayUser?.id ?? user.btcpayUserId ?? null;
       user.btcpayApiKeyLabel = apiKey.label;
       user.btcpayApiKeyPermissions = JSON.stringify([...apiKey.permissions].sort());
-      user.btcpayApiKeyHash = await bcrypt.hash(apiKey.apiKey, 12);
+      user.btcpayApiKeyHash = await argon2.hash(apiKey.apiKey, { type: argon2.argon2id });
       await this.usersRepository.save(user);
 
       const tokens = await this.issueTokens(user, true);

@@ -15,3 +15,8 @@ export interface AuthResult extends AuthTokens {
 export interface AuthUserResponse {
   user: AuthUser;
 }
+
+export interface SignupResponse {
+  next: string;
+  apiKey?: string;
+}

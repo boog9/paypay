@@ -14,6 +14,7 @@ import {
 } from './auth.constants';
 import { CsrfService } from './csrf.service';
 import { CsrfGuard } from './csrf.guard';
+import { BtcpayModule } from '../btcpay/btcpay.module';
 
 @Module({
   imports: [
@@ -35,7 +36,8 @@ import { CsrfGuard } from './csrf.guard';
         }
       })
     }),
-    TypeOrmModule.forFeature([UserEntity, RefreshTokenEntity])
+    TypeOrmModule.forFeature([UserEntity, RefreshTokenEntity]),
+    BtcpayModule
   ],
   controllers: [AuthController],
   providers: [AuthService, CsrfService, CsrfGuard],

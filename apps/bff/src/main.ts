@@ -42,11 +42,16 @@ async function bootstrap() {
 
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
-  const defaultOrigin = 'https://paypay.iddqd.in';
-  const configuredOrigins = env.FRONTEND_ORIGIN.split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-  const allowedOrigins = Array.from(new Set([defaultOrigin, ...configuredOrigins]));
+  const cookieDomain = (() => {
+    const raw = env.PAYPAY_DOMAIN?.trim() ?? '.iddqd.in';
+    if (!raw) {
+      return '.iddqd.in';
+    }
+    return raw.startsWith('.') ? raw : `.${raw}`;
+  })();
+
+  const allowedOrigins =
+    env.NODE_ENV === 'production' ? ['https://paypay.iddqd.in'] : [env.FRONTEND_ORIGIN];
 
   app.use(helmet());
   app.enableCors({
@@ -122,7 +127,8 @@ async function bootstrap() {
         sameSite: 'none',
         secure: true,
         signed: true,
-        path: '/'
+        path: '/',
+        domain: cookieDomain
       },
       ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
       value: (req: Request) => {

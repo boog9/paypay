@@ -84,9 +84,9 @@ export class BtcpayService {
     if (axios.isAxiosError(error)) {
       const err = error as AxiosError<{ message?: string; errors?: unknown }>;
       const code = err.response?.status ?? 500;
-      const body = err.response?.data;
-      this.logger.error(`BTCPay request failed with status ${code}`, body ? JSON.stringify(body) : undefined);
-      const message = body?.message ?? 'BTCPay request failed';
+      const body = err.response?.data as { message?: string } | undefined;
+      const message = body?.message && typeof body.message === 'string' ? body.message : 'BTCPay request failed';
+      this.logger.error({ statusCode: code, message }, 'BTCPay request failed');
       switch (code) {
         case 400:
           throw new BadRequestException(message, { cause: error as Error });

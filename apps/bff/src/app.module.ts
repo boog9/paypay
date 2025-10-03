@@ -30,6 +30,8 @@ import { HealthController } from './health.controller';
         level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
         redact: {
           paths: [
+            'req',
+            'res',
             'req.headers.authorization',
             'req.headers.cookie',
             'req.headers["x-csrf-token"]',
@@ -38,10 +40,32 @@ import { HealthController } from './health.controller';
             'req.body.refreshToken',
             'req.body.token',
             'req.headers["btcpay-sig"]',
-            'req.headers["btcpay-delivery"]'
+            'req.headers["btcpay-delivery"]',
+            'req.body',
+            'res.body'
           ],
           remove: true
-        }
+        },
+        customSuccessMessage: (_req, res) => `request completed with ${res.statusCode}`,
+        customErrorMessage: (_req, res) => `request failed with ${res.statusCode}`,
+        customLogLevel: (_req, res, err) => {
+          if (err) {
+            return 'error';
+          }
+          if (res.statusCode >= 500) {
+            return 'error';
+          }
+          if (res.statusCode >= 400) {
+            return 'warn';
+          }
+          return 'info';
+        },
+        customLogObject: (req, res, val) => ({
+          statusCode: res.statusCode,
+          method: req.method,
+          path: req.originalUrl ?? req.url,
+          responseTime: val.responseTime
+        })
       }
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),

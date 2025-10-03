@@ -15,11 +15,19 @@ import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
 import { normalizeEmail } from './email.utils';
+import * as bcrypt from 'bcryptjs';
+import { BtcpayProvisioningService } from '../btcpay/btcpay-provisioning.service';
 
 interface RefreshTokenPayload {
   sub: string;
   email: string;
   jti: string;
+}
+
+interface SignupResult {
+  auth: AuthResult;
+  apiKey?: string;
+  next: string;
 }
 
 @Injectable()
@@ -30,7 +38,8 @@ export class AuthService {
     @InjectRepository(RefreshTokenEntity)
     private readonly refreshTokenRepository: Repository<RefreshTokenEntity>,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly btcpayProvisioning: BtcpayProvisioningService
   ) {}
 
   async register(dto: RegisterDto): Promise<UserEntity> {
@@ -47,14 +56,40 @@ export class AuthService {
       parallelism: 1
     });
 
-    const user = this.usersRepository.create({ email, passwordHash });
+    const user = this.usersRepository.create({
+      email,
+      passwordHash,
+      btcpayUserId: null,
+      btcpayApiKeyHash: null,
+      btcpayApiKeyLabel: null,
+      btcpayApiKeyPermissions: null
+    });
     return this.usersRepository.save(user);
   }
 
-  async signup(dto: SignupDto): Promise<AuthResult> {
+  async signup(dto: SignupDto): Promise<SignupResult> {
     const user = await this.register(dto);
 
-    return this.issueTokens(user, true);
+    try {
+      const btcpayUser = await this.btcpayProvisioning.createUserInBtcpay(user.email);
+      const apiKey = await this.btcpayProvisioning.createUserApiKey(
+        user.email,
+        'PayPay Portal',
+        this.btcpayProvisioning.getDefaultPermissions()
+      );
+
+      user.btcpayUserId = btcpayUser?.id ?? user.btcpayUserId ?? null;
+      user.btcpayApiKeyLabel = apiKey.label;
+      user.btcpayApiKeyPermissions = JSON.stringify([...apiKey.permissions].sort());
+      user.btcpayApiKeyHash = await bcrypt.hash(apiKey.apiKey, 12);
+      await this.usersRepository.save(user);
+
+      const tokens = await this.issueTokens(user, true);
+      return { auth: tokens, apiKey: apiKey.apiKey, next: '/portal' };
+    } catch (error) {
+      await this.usersRepository.delete(user.id);
+      throw error;
+    }
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {

@@ -70,7 +70,7 @@ export class AuthService {
     const user = await this.register(dto);
 
     try {
-      const btcpayUser = await this.btcpayProvisioning.createUserInBtcpay(user.email);
+      const btcpayUser = await this.btcpayProvisioning.createUserInBtcpay(user.email, dto.password);
       const apiKey = await this.btcpayProvisioning.createUserApiKey(
         user.email,
         'PayPay Portal',

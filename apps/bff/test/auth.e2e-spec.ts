@@ -100,13 +100,15 @@ describe('AuthModule (e2e)', () => {
     const apiBasePath = btcpayUrl.pathname.replace(/\/$/, '');
     const adminToken = process.env.BTCPAY_ADMIN_API_KEY ?? 'admin-token';
     const signupEmail = 'second@example.com';
+    const signupPassword = 'averysecurepassword';
 
     const scope = nock(btcpayUrl.origin)
       .post(`${apiBasePath}/api/v1/users`, (body: any) => {
         expect(body).toEqual(
           expect.objectContaining({
             email: signupEmail,
-            password: expect.any(String)
+            password: signupPassword,
+            sendInvitationEmail: false
           })
         );
         return true;
@@ -129,7 +131,7 @@ describe('AuthModule (e2e)', () => {
     const signupResponse = await agent
       .post('/api/auth/signup')
       .set('X-CSRF-Token', signupCsrf)
-      .send({ email: signupEmail, password: 'averysecurepassword' })
+      .send({ email: signupEmail, password: signupPassword })
       .expect(201);
 
     expect(scope.isDone()).toBe(true);

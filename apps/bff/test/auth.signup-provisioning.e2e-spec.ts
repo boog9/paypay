@@ -78,7 +78,8 @@ describe('Auth signup provisioning (e2e)', () => {
         expect(body).toEqual(
           expect.objectContaining({
             email,
-            password: expect.any(String)
+            password,
+            sendInvitationEmail: false
           })
         );
         return true;

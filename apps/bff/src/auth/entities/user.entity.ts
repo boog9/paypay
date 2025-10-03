@@ -20,6 +20,18 @@ export class UserEntity {
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
   passwordHash!: string;
 
+  @Column({ name: 'btcpay_user_id', type: 'varchar', length: 64, nullable: true, unique: true })
+  btcpayUserId!: string | null;
+
+  @Column({ name: 'btcpay_api_key_label', type: 'varchar', length: 128, nullable: true })
+  btcpayApiKeyLabel!: string | null;
+
+  @Column({ name: 'btcpay_api_key_hash', type: 'varchar', length: 255, nullable: true })
+  btcpayApiKeyHash!: string | null;
+
+  @Column({ name: 'btcpay_api_key_permissions', type: 'text', nullable: true })
+  btcpayApiKeyPermissions!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: TIMESTAMP_COLUMN_TYPE })
   createdAt!: Date;
 

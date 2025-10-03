@@ -11,12 +11,13 @@ import {
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { AuthResult, AuthUserResponse } from './dto/auth-response.dto';
+import { AuthResult, AuthUserResponse, SignupResponse } from './dto/auth-response.dto';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   ACCESS_TOKEN_COOKIE_PATH,
@@ -28,25 +29,34 @@ import {
 import { CsrfService, RequestWithCsrf } from './csrf.service';
 import { RegisterDto } from './dto/register.dto';
 
-const ACCESS_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
-  maxAge: ACCESS_TOKEN_TTL_S * 1000,
-  path: ACCESS_TOKEN_COOKIE_PATH
-};
-
-const REFRESH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
-  maxAge: REFRESH_TOKEN_TTL_MS,
-  path: REFRESH_TOKEN_COOKIE_PATH
-};
-
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService, private readonly csrfService: CsrfService) {}
+  private readonly accessCookieOptions: Parameters<Response['cookie']>[2];
+  private readonly refreshCookieOptions: Parameters<Response['cookie']>[2];
+
+  constructor(
+    private readonly authService: AuthService,
+    private readonly csrfService: CsrfService,
+    private readonly configService: ConfigService
+  ) {
+    const domain = this.resolveCookieDomain();
+    this.accessCookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none' as const,
+      maxAge: ACCESS_TOKEN_TTL_S * 1000,
+      path: ACCESS_TOKEN_COOKIE_PATH,
+      domain
+    };
+    this.refreshCookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none' as const,
+      maxAge: REFRESH_TOKEN_TTL_MS,
+      path: REFRESH_TOKEN_COOKIE_PATH,
+      domain
+    };
+  }
 
   @Get('csrf-token')
   @SkipThrottle()
@@ -78,11 +88,11 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: SignupDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<AuthUserResponse> {
+  ): Promise<SignupResponse> {
     const result = await this.authService.signup(dto);
-    this.applyAuthCookies(res, result);
+    this.applyAuthCookies(res, result.auth);
     this.csrfService.rotateToken(req, res);
-    return { user: result.user };
+    return result.apiKey ? { next: result.next, apiKey: result.apiKey } : { next: result.next };
   }
 
   @HttpCode(HttpStatus.OK)
@@ -138,16 +148,25 @@ export class AuthController {
   }
 
   private applyAuthCookies(res: Response, result: AuthResult): void {
-    res.cookie(ACCESS_TOKEN_COOKIE_NAME, result.accessToken, ACCESS_COOKIE_OPTIONS);
-    res.cookie(REFRESH_TOKEN_COOKIE_NAME, result.refreshToken, REFRESH_COOKIE_OPTIONS);
+    res.cookie(ACCESS_TOKEN_COOKIE_NAME, result.accessToken, this.accessCookieOptions);
+    res.cookie(REFRESH_TOKEN_COOKIE_NAME, result.refreshToken, this.refreshCookieOptions);
   }
 
   private clearAuthCookies(res: Response): void {
-    res.clearCookie(ACCESS_TOKEN_COOKIE_NAME, ACCESS_COOKIE_OPTIONS);
-    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
+    res.clearCookie(ACCESS_TOKEN_COOKIE_NAME, this.accessCookieOptions);
+    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, this.refreshCookieOptions);
   }
 
   private resolveRefreshToken(req: RequestWithCsrf): string | undefined {
     return req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+  }
+
+  private resolveCookieDomain(): string {
+    const raw = this.configService.get<string>('PAYPAY_DOMAIN') ?? '.iddqd.in';
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return '.iddqd.in';
+    }
+    return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
   }
 }

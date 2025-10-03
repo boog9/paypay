@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "../../../../../../components/ui/button";
-import { bffFetch } from "../../../../../../lib/http-client";
+import { api, isApiError } from "../../../../../../lib/api";
 
 interface StoreSettingsData {
   storeId: string;
@@ -42,25 +42,21 @@ export default function StoreSettingsClient({
     setStatus(null);
     startRotate(async () => {
       try {
-        const response = await bffFetch(`/tenants/${tenantId}/apikey/rotate?storeId=${storeId}`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json"
+        const payload = await api<RotateResponse>(
+          `/tenants/${tenantId}/apikey/rotate?storeId=${storeId}`,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json"
+            }
           }
-        });
+        );
 
-        if (!response.ok) {
-          const message = await extractErrorMessage(response, "Failed to rotate store API key.");
-          setError(message);
-          return;
-        }
-
-        const payload = (await safeJson<RotateResponse>(response)) ?? {};
-        const lastFour = typeof payload.lastFour === "string" ? payload.lastFour : null;
+        const lastFour = typeof payload?.lastFour === "string" ? payload.lastFour : null;
         setData((prev) => ({ ...prev, storeKeyLastFour: lastFour }));
         setStatus("Store API key rotated successfully.");
       } catch (error) {
-        setError((error as Error).message);
+        setError(resolveActionError(error, "Failed to rotate store API key."));
       }
     });
   };
@@ -77,23 +73,17 @@ export default function StoreSettingsClient({
 
     startDelete(async () => {
       try {
-        const response = await bffFetch(`/tenants/${tenantId}/stores/${storeId}`, {
+        await api(`/tenants/${tenantId}/stores/${storeId}`, {
           method: "DELETE",
           headers: {
             Accept: "application/json"
           }
         });
 
-        if (!response.ok) {
-          const message = await extractErrorMessage(response, "Failed to delete store.");
-          setError(message);
-          return;
-        }
-
         setStatus("Store deleted. Redirecting...");
         router.push("/");
       } catch (error) {
-        setError((error as Error).message);
+        setError(resolveActionError(error, "Failed to delete store."));
       }
     });
   };
@@ -167,18 +157,21 @@ export default function StoreSettingsClient({
   );
 }
 
-async function safeJson<T>(response: Response): Promise<T | null> {
-  try {
-    return (await response.json()) as T;
-  } catch {
-    return null;
+function resolveActionError(error: unknown, fallback: string): string {
+  if (isApiError(error)) {
+    const body = error.body as any;
+    if (body && typeof body.message === "string" && body.message.trim().length > 0) {
+      return body.message.trim();
+    }
+    if (typeof body === "string" && body.trim().length > 0) {
+      return body.trim();
+    }
+    return `${fallback} (status ${error.status})`;
   }
-}
 
-async function extractErrorMessage(response: Response, fallback: string): Promise<string> {
-  const payload = await safeJson<{ message?: string }>(response);
-  if (payload?.message) {
-    return payload.message;
+  if (error instanceof Error && error.message) {
+    return error.message;
   }
+
   return fallback;
 }

@@ -21,7 +21,13 @@ export function LoginForm() {
       startTransition(async () => {
         const result = await loginAction(formData);
         if (result.status === 'success') {
-          router.replace('/org/stores');
+          const nextPath = result.next ?? '/portal';
+          try {
+            router.prefetch(nextPath);
+          } catch {
+            // Ignore prefetch errors; navigation will still work.
+          }
+          router.replace(nextPath);
           return;
         }
 

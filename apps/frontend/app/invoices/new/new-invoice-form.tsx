@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../../components/ui/button';
-import { bffFetch, fetchCsrf } from '../../../lib/http-client';
+import { api, fetchCsrfToken, isApiError } from '../../../lib/api';
 
 type RequestState =
   | { status: 'idle' }
@@ -45,28 +45,23 @@ export function NewInvoiceForm() {
         payload.metadata = parsed;
       }
 
-      const csrfToken = await fetchCsrf();
+      const csrfToken = await fetchCsrfToken();
 
-      const response = await bffFetch('/invoices', {
+      const invoice = await api<{ id?: string }>('/invoices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken
+          'X-CSRF-Token': csrfToken,
+          Accept: 'application/json'
         },
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to create invoice');
-      }
-
-      const invoice = await response.json();
-      setState({ status: 'success', invoiceId: invoice.id ?? 'unknown' });
+      setState({ status: 'success', invoiceId: invoice?.id ?? 'unknown' });
       setAmount('');
       setMetadata('');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unexpected error';
+      const message = resolveInvoiceError(error);
       setState({ status: 'error', message });
     }
   };
@@ -127,4 +122,23 @@ export function NewInvoiceForm() {
       </div>
     </form>
   );
+}
+
+function resolveInvoiceError(error: unknown): string {
+  if (isApiError(error)) {
+    const body = error.body as any;
+    if (body && typeof body.message === 'string' && body.message.trim().length > 0) {
+      return body.message.trim();
+    }
+    if (typeof body === 'string' && body.trim().length > 0) {
+      return body.trim();
+    }
+    return `Failed to create invoice (status ${error.status})`;
+  }
+
+  if (error instanceof Error) {
+    return error.message || 'Unexpected error';
+  }
+
+  return 'Unexpected error';
 }

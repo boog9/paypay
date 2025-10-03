@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BtcpayService } from './btcpay.service';
+import { BtcpayProvisioningService } from './btcpay-provisioning.service';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { SecurityModule } from '../security/security.module';
@@ -10,6 +11,7 @@ import { SecurityModule } from '../security/security.module';
   imports: [TypeOrmModule.forFeature([StoreEntity]), SecurityModule],
   providers: [
     BtcpayService,
+    BtcpayProvisioningService,
     {
       provide: BTCPAY_CONFIG,
       useFactory: (config: ConfigService): BtcpayRuntimeConfig => {
@@ -50,6 +52,6 @@ import { SecurityModule } from '../security/security.module';
       inject: [ConfigService]
     }
   ],
-  exports: [BtcpayService]
+  exports: [BtcpayService, BtcpayProvisioningService]
 })
 export class BtcpayModule {}

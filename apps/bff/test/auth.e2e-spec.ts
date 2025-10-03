@@ -3,12 +3,14 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
+import nock from 'nock';
 import { AppModule } from '../src/app.module';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_NAME,
   CSRF_SECRET_COOKIE_NAME
 } from '../src/auth/auth.constants';
+import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 
 describe('AuthModule (e2e)', () => {
   let app: INestApplication;
@@ -37,6 +39,10 @@ describe('AuthModule (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+
+  afterEach(() => {
+    nock.cleanAll();
   });
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
@@ -89,16 +95,48 @@ describe('AuthModule (e2e)', () => {
       .send(credentials)
       .expect(409);
 
+    const btcpayBase = process.env.BTCPAY_SERVER_URL ?? 'https://btcpay.local';
+    const btcpayUrl = new URL(btcpayBase);
+    const apiBasePath = btcpayUrl.pathname.replace(/\/$/, '');
+    const adminToken = process.env.BTCPAY_ADMIN_API_KEY ?? 'admin-token';
+    const signupEmail = 'second@example.com';
+
+    const scope = nock(btcpayUrl.origin)
+      .post(`${apiBasePath}/api/v1/users`, (body: any) => {
+        expect(body).toEqual(
+          expect.objectContaining({
+            email: signupEmail,
+            password: expect.any(String)
+          })
+        );
+        return true;
+      })
+      .matchHeader('Authorization', `token ${adminToken}`)
+      .reply(200, { id: 'user-second', email: signupEmail })
+      .post(`${apiBasePath}/api/v1/users/${encodeURIComponent(signupEmail)}/api-keys`, (body: any) => {
+        expect(body).toEqual({ label: 'PayPay Portal', permissions: BTCPAY_PORTAL_USER_PERMISSIONS });
+        return true;
+      })
+      .matchHeader('Authorization', `token ${adminToken}`)
+      .matchHeader('Idempotency-Key', /.+/)
+      .reply(200, {
+        apiKey: 'btcpay-user-api-key',
+        label: 'PayPay Portal',
+        permissions: BTCPAY_PORTAL_USER_PERMISSIONS
+      });
+
     const { token: signupCsrf } = await fetchCsrfToken();
     const signupResponse = await agent
       .post('/api/auth/signup')
       .set('X-CSRF-Token', signupCsrf)
-      .send({ email: 'second@example.com', password: 'averysecurepassword' })
+      .send({ email: signupEmail, password: 'averysecurepassword' })
       .expect(201);
 
+    expect(scope.isDone()).toBe(true);
     expect(signupResponse.body).toEqual(
       expect.objectContaining({
-        user: expect.objectContaining({ email: 'second@example.com', id: expect.any(String) })
+        next: '/portal',
+        apiKey: 'btcpay-user-api-key'
       })
     );
     const signupCookies = getCookies(signupResponse);

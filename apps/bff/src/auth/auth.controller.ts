@@ -10,7 +10,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { CookieOptions, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
@@ -31,8 +31,8 @@ import { RegisterDto } from './dto/register.dto';
 
 @Controller('auth')
 export class AuthController {
-  private readonly accessCookieOptions: Parameters<Response['cookie']>[2];
-  private readonly refreshCookieOptions: Parameters<Response['cookie']>[2];
+  private readonly accessCookieOptions: CookieOptions;
+  private readonly refreshCookieOptions: CookieOptions;
 
   constructor(
     private readonly authService: AuthService,

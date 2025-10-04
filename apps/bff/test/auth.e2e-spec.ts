@@ -102,6 +102,7 @@ describe('AuthModule (e2e)', () => {
     const signupEmail = 'second@example.com';
     const signupPassword = 'averysecurepassword';
 
+    const invitationPath = '/invitations/accept?code=xyz';
     const scope = nock(btcpayUrl.origin)
       .post(`${apiBasePath}/api/v1/users`, (body: any) => {
         expect(body).toEqual(
@@ -115,6 +116,11 @@ describe('AuthModule (e2e)', () => {
       })
       .matchHeader('Authorization', `token ${adminToken}`)
       .reply(200, { id: 'user-second', email: signupEmail })
+      .get(`${apiBasePath}/api/v1/users/${encodeURIComponent(signupEmail)}`)
+      .matchHeader('Authorization', `token ${adminToken}`)
+      .reply(200, { invitationUrl: `${btcpayUrl.origin}${invitationPath}` })
+      .get(invitationPath)
+      .reply(302, undefined, { Location: '/login' })
       .post(`${apiBasePath}/api/v1/users/${encodeURIComponent(signupEmail)}/api-keys`, (body: any) => {
         expect(body).toEqual({ label: 'PayPay Portal', permissions: BTCPAY_PORTAL_USER_PERMISSIONS });
         return true;

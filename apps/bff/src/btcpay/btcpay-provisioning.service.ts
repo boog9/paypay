@@ -38,6 +38,7 @@ export class BtcpayProvisioningService {
       code: 'INTEGRATION_BTCPAY_CREATE_USER_FAILED',
       handler: async (http) => {
         const { data } = await http.post<CreateUserResponse>('/api/v1/users', payload);
+        await this.finalizeInvitationIfPresent(email);
         return data;
       },
       recover: (error) => {
@@ -80,6 +81,57 @@ export class BtcpayProvisioningService {
 
   getDefaultPermissions(): readonly string[] {
     return BTCPAY_PORTAL_USER_PERMISSIONS;
+  }
+
+  private normalizeInvitationUrl(rawUrl: string): string | undefined {
+    if (!rawUrl) {
+      return undefined;
+    }
+    try {
+      const trimmed = rawUrl.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+      const url = new URL(trimmed, this.config.baseUrl);
+      return url.toString();
+    } catch (error) {
+      this.logger.warn(`Invalid BTCPay invitation URL received: ${rawUrl}`);
+      return undefined;
+    }
+  }
+
+  private async finalizeInvitationIfPresent(email: string): Promise<void> {
+    try {
+      const http = this.createHttp();
+      const encodedEmail = encodeURIComponent(email);
+      const { data } = await http.get<{ invitationUrl?: string | null }>(`/api/v1/users/${encodedEmail}`);
+      const invitationUrl = this.normalizeInvitationUrl(data?.invitationUrl ?? '');
+      if (!invitationUrl) {
+        return;
+      }
+
+      try {
+        await axios.get(invitationUrl, {
+          headers: {
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'PayPay-BFF/1.0'
+          },
+          maxRedirects: 0,
+          validateStatus: (status) => status >= 200 && status < 400
+        });
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response && error.response.status >= 400 && error.response.status < 500) {
+          this.logger.warn(
+            `BTCPay invitation finalization returned status ${error.response.status} for user ${email}. Continuing without failing.`
+          );
+          return;
+        }
+        throw error;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to finalize BTCPay invitation for ${email}: ${message}`);
+    }
   }
 
   private createHttp(): AxiosInstance {

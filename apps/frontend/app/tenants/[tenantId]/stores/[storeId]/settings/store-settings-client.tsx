@@ -11,6 +11,7 @@ interface StoreSettingsData {
   storeName: string | null;
   storeWebsite: string | null;
   storeKeyLastFour: string | null;
+  apiKeyManagedByTenant: boolean;
 }
 
 interface StoreSettingsClientProps {
@@ -36,8 +37,12 @@ export default function StoreSettingsClient({
   const router = useRouter();
 
   const maskedKey = data.storeKeyLastFour ? `****${data.storeKeyLastFour}` : "Unavailable";
+  const rotationDisabled = data.apiKeyManagedByTenant;
 
   const rotateKey = () => {
+    if (rotationDisabled) {
+      return;
+    }
     setError(null);
     setStatus(null);
     startRotate(async () => {
@@ -65,7 +70,11 @@ export default function StoreSettingsClient({
     setError(null);
     setStatus(null);
     if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Delete this store and revoke its BTCPay access?");
+      const confirmed = window.confirm(
+        rotationDisabled
+          ? "Delete this store from the portal? Your BTCPay API key will remain active."
+          : "Delete this store and revoke its BTCPay access?"
+      );
       if (!confirmed) {
         return;
       }
@@ -141,17 +150,25 @@ export default function StoreSettingsClient({
           </div>
         </dl>
       </div>
-      <div className="flex flex-wrap gap-3">
-        <Button disabled={isRotating || isDeleting} onClick={rotateKey}>
-          {isRotating ? "Rotating…" : "Rotate Key"}
-        </Button>
-        <Button
-          disabled={isRotating || isDeleting}
-          onClick={deleteStore}
-          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-        >
-          {isDeleting ? "Deleting…" : "Delete Store"}
-        </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Button disabled={rotationDisabled || isRotating || isDeleting} onClick={rotateKey}>
+            {rotationDisabled ? "Rotation disabled" : isRotating ? "Rotating…" : "Rotate Key"}
+          </Button>
+          <Button
+            disabled={isRotating || isDeleting}
+            onClick={deleteStore}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {isDeleting ? "Deleting…" : "Delete Store"}
+          </Button>
+        </div>
+        {rotationDisabled && (
+          <p className="text-sm text-muted-foreground">
+            Rotation is unavailable because this store uses a merchant-supplied API key. Generate a new key in BTCPay and update
+            the connection from the portal onboarding flow.
+          </p>
+        )}
       </div>
     </div>
   );

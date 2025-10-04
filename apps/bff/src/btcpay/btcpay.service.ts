@@ -38,6 +38,16 @@ interface StoreResponse {
   name?: string;
 }
 
+interface CurrentApiKeyResponse {
+  label?: string;
+  permissions?: string[];
+}
+
+interface ApiKeyDetails {
+  label?: string;
+  permissions: string[];
+}
+
 interface UserResponse {
   id: string;
   email: string;
@@ -165,7 +175,7 @@ export class BtcpayService {
   async createStoreWithUserToken(
     host: string | undefined,
     apiKey: string,
-    payload: { name: string; website?: string }
+    payload: { name: string; website?: string; defaultCurrency?: string; preferredExchange?: string }
   ): Promise<StoreResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${apiKey}`
@@ -175,8 +185,31 @@ export class BtcpayService {
       if (payload.website) {
         body.website = payload.website;
       }
+      if (payload.defaultCurrency) {
+        body.defaultCurrency = payload.defaultCurrency;
+      }
+      if (payload.preferredExchange) {
+        body.preferredExchange = payload.preferredExchange;
+      }
       const { data } = await http.post<StoreResponse>('/api/v1/stores', body);
       return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async getCurrentApiKey(host: string | undefined, apiKey: string): Promise<ApiKeyDetails> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.get<CurrentApiKeyResponse>('/api/v1/api-keys/current');
+      const rawPermissions = Array.isArray(data?.permissions) ? data.permissions ?? [] : [];
+      const permissions = rawPermissions.filter((permission): permission is string => typeof permission === 'string');
+      return {
+        label: typeof data?.label === 'string' ? data.label : undefined,
+        permissions
+      } satisfies ApiKeyDetails;
     } catch (error) {
       return this.maskError(error);
     }

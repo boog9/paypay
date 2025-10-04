@@ -5,9 +5,13 @@ export class CreateStoreDto {
   @IsNotEmpty()
   storeName!: string;
 
-  @IsUrl({ require_tld: false })
+  @IsString()
+  @IsNotEmpty()
+  defaultCurrency!: string;
+
+  @IsString()
   @IsOptional()
-  btcpayHost?: string;
+  preferredExchange?: string;
 
   @IsUrl({ require_tld: false })
   @IsOptional()

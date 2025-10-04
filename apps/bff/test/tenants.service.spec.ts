@@ -5,6 +5,7 @@ import { StoreEntity } from '../src/tenants/entities/store.entity';
 import { AuditLogEntity } from '../src/tenants/entities/audit-log.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
+import { BTCPAY_MINIMAL_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 
 describe('TenantsService onboarding flows', () => {
   function createService() {
@@ -29,7 +30,9 @@ describe('TenantsService onboarding flows', () => {
     const btcpayService = {
       resolveBaseUrl: jest.fn((host?: string) => host ?? 'https://btcpay.test'),
       createUser: jest.fn().mockResolvedValue({ id: 'user-1', email: 'merchant@example.com' }),
-      createUserApiKeyUnscoped: jest.fn().mockResolvedValue({ apiKey: 'temp-key', permissions: ['btcpay.store.canmodifystoresettings'] }),
+      createUserApiKeyUnscoped: jest
+        .fn()
+        .mockResolvedValue({ apiKey: 'persistent-key', permissions: ['btcpay.store.canmodifystoresettings'] }),
       createStoreWithUserToken: jest.fn().mockResolvedValue({ id: 'btcpay-store-id' }),
       deleteApiKey: jest.fn().mockResolvedValue(undefined),
       createUserApiKey: jest.fn().mockResolvedValue({ apiKey: 'store-key', permissions: [] }),
@@ -96,7 +99,7 @@ describe('TenantsService onboarding flows', () => {
     jest.resetAllMocks();
   });
 
-  it('creates tenants using temporary user keys and revokes them', async () => {
+  it('creates tenants with a persistent BTCPay API key', async () => {
     const {
       service,
       encryptionService,
@@ -129,26 +132,28 @@ describe('TenantsService onboarding flows', () => {
     expect(btcpayService.createUserApiKeyUnscoped).toHaveBeenCalledWith(
       'https://btcpay.custom',
       'merchant@example.com',
-      ['btcpay.store.canmodifystoresettings'],
-      'Temp store setup'
+      BTCPAY_MINIMAL_PERMISSIONS,
+      'PayPay Portal access'
     );
-    expect(btcpayService.createStoreWithUserToken).toHaveBeenCalledWith('https://btcpay.custom', 'temp-key', {
+    expect(btcpayService.createStoreWithUserToken).toHaveBeenCalledWith('https://btcpay.custom', 'persistent-key', {
       name: 'Demo Store'
     });
-    expect(btcpayService.deleteApiKey).toHaveBeenCalledWith('https://btcpay.custom', 'temp-key');
-    expect(btcpayService.createUserApiKey).toHaveBeenCalledWith(
+    expect(btcpayService.deleteApiKey).not.toHaveBeenCalled();
+    expect(btcpayService.createUserApiKey).not.toHaveBeenCalled();
+    expect(btcpayService.registerWebhook).toHaveBeenCalledWith(
       'https://btcpay.custom',
-      'merchant@example.com',
+      'persistent-key',
       'btcpay-store-id'
     );
-    expect(btcpayService.registerWebhook).toHaveBeenCalledWith('https://btcpay.custom', 'store-key', 'btcpay-store-id');
 
-    expect(encryptionService.encrypt).toHaveBeenNthCalledWith(1, 'store-key');
+    expect(encryptionService.encrypt).toHaveBeenNthCalledWith(1, 'persistent-key');
     expect(encryptionService.encrypt).toHaveBeenNthCalledWith(2, 'webhook-secret', 'api-dek');
 
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(tenantRepoInTx.create).toHaveBeenCalled();
-    expect(storeRepoInTx.create).toHaveBeenCalled();
+    expect(storeRepoInTx.create).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKeyManagedByTenant: false, storeKeyLastFour: 't-key' })
+    );
     expect(auditRepoInTx.save).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'tenant.created', actorId: 'actor-1' })
     );
@@ -160,7 +165,7 @@ describe('TenantsService onboarding flows', () => {
     });
   });
 
-  it('creates additional stores using the temporary user key flow', async () => {
+  it('creates additional stores using the persisted API key', async () => {
     const {
       service,
       tenantsRepository,
@@ -173,15 +178,21 @@ describe('TenantsService onboarding flows', () => {
     } = createService();
 
     tenantsRepository.findOne.mockResolvedValue({ id: 'tenant-entity-id', email: 'merchant@example.com' });
-    storesRepository.findOne.mockResolvedValue({ btcpayHost: 'https://btcpay.test' });
+    storesRepository.findOne.mockResolvedValue({
+      btcpayHost: 'https://btcpay.test',
+      apiKeyCiphertext: 'cipher-existing',
+      apiKeyDekWrapped: 'dek-existing'
+    });
 
+    (encryptionService.decrypt as jest.Mock).mockReturnValueOnce('stored-key');
     (encryptionService.encrypt as jest.Mock).mockReturnValueOnce({ ciphertext: 'api-cipher', dekWrapped: 'api-dek' });
     (encryptionService.encrypt as jest.Mock).mockReturnValueOnce({ ciphertext: 'webhook-cipher', dekWrapped: 'webhook-dek' });
 
     const result = await service.createAdditionalStore(
       'tenant-entity-id',
       {
-        storeName: 'Second Store'
+        storeName: 'Second Store',
+        defaultCurrency: 'USD'
       },
       'actor-2',
       '127.0.0.1',
@@ -189,28 +200,23 @@ describe('TenantsService onboarding flows', () => {
     );
 
     expect(btcpayService.createUser).not.toHaveBeenCalled();
-    expect(btcpayService.createUserApiKeyUnscoped).toHaveBeenCalledWith(
+    expect(btcpayService.createUserApiKeyUnscoped).not.toHaveBeenCalled();
+    expect(btcpayService.createStoreWithUserToken).toHaveBeenCalledWith(
       'https://btcpay.test',
-      'merchant@example.com',
-      ['btcpay.store.canmodifystoresettings'],
-      'Temp store setup'
+      'stored-key',
+      expect.objectContaining({ name: 'Second Store', defaultCurrency: 'USD' })
     );
-    expect(btcpayService.createStoreWithUserToken).toHaveBeenCalledWith('https://btcpay.test', 'temp-key', {
-      name: 'Second Store'
-    });
-    expect(btcpayService.deleteApiKey).toHaveBeenCalledWith('https://btcpay.test', 'temp-key');
-    expect(btcpayService.createUserApiKey).toHaveBeenCalledWith(
-      'https://btcpay.test',
-      'merchant@example.com',
-      'btcpay-store-id'
-    );
-    expect(btcpayService.registerWebhook).toHaveBeenCalledWith('https://btcpay.test', 'store-key', 'btcpay-store-id');
+    expect(btcpayService.deleteApiKey).not.toHaveBeenCalled();
+    expect(btcpayService.createUserApiKey).not.toHaveBeenCalled();
+    expect(btcpayService.registerWebhook).toHaveBeenCalledWith('https://btcpay.test', 'stored-key', 'btcpay-store-id');
 
-    expect(encryptionService.encrypt).toHaveBeenNthCalledWith(1, 'store-key');
+    expect(encryptionService.encrypt).toHaveBeenNthCalledWith(1, 'stored-key');
     expect(encryptionService.encrypt).toHaveBeenNthCalledWith(2, 'webhook-secret', 'api-dek');
 
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    expect(storeRepoInTx.create).toHaveBeenCalled();
+    expect(storeRepoInTx.create).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKeyManagedByTenant: false, storeKeyLastFour: 'd-key' })
+    );
     expect(auditRepoInTx.save).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'tenant.store.created', actorId: 'actor-2' })
     );

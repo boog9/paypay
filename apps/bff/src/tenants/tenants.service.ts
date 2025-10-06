@@ -32,7 +32,22 @@ export interface StoreSettingsResult {
   storeName: string | null;
   storeWebsite: string | null;
   storeKeyLastFour: string | null;
+  btcpayHost: string;
+  walletSetupStatus: string;
   apiKeyManagedByTenant: boolean;
+}
+
+export interface TenantStoreSummary {
+  storeId: string;
+  btcpayStoreId: string;
+  storeName: string | null;
+  storeWebsite: string | null;
+  storeKeyLastFour: string | null;
+  btcpayHost: string;
+  walletSetupStatus: string;
+  apiKeyManagedByTenant: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 @Injectable()
@@ -213,6 +228,27 @@ export class TenantsService {
     }
   }
 
+  async listTenantStores(tenantId: string, requesterEmail: string | null): Promise<TenantStoreSummary[]> {
+    await this.requireTenantOwner(tenantId, requesterEmail);
+    const stores = await this.storesRepository.find({
+      where: { tenantId },
+      order: { createdAt: 'ASC' }
+    });
+
+    return stores.map((store) => ({
+      storeId: store.id,
+      btcpayStoreId: store.btcpayStoreId,
+      storeName: store.storeName ?? null,
+      storeWebsite: store.storeWebsite ?? null,
+      storeKeyLastFour: store.storeKeyLastFour ?? null,
+      btcpayHost: store.btcpayHost,
+      walletSetupStatus: store.walletSetupStatus,
+      apiKeyManagedByTenant: store.apiKeyManagedByTenant,
+      createdAt: store.createdAt.toISOString(),
+      updatedAt: store.updatedAt.toISOString()
+    }));
+  }
+
   async createInvoice(tenantId: string, dto: CreateTenantInvoiceDto, requesterEmail: string | null) {
     await this.requireTenantOwner(tenantId, requesterEmail);
     const store = await this.storesRepository.findOne({ where: { id: dto.storeId, tenantId } });
@@ -282,6 +318,8 @@ export class TenantsService {
       btcpayStoreId: store.btcpayStoreId,
       storeName,
       storeWebsite,
+      btcpayHost: store.btcpayHost,
+      walletSetupStatus: store.walletSetupStatus,
       storeKeyLastFour: store.storeKeyLastFour ?? null,
       apiKeyManagedByTenant: store.apiKeyManagedByTenant
     } satisfies StoreSettingsResult;

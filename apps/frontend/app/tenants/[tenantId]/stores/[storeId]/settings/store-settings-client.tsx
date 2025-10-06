@@ -11,6 +11,8 @@ interface StoreSettingsData {
   storeName: string | null;
   storeWebsite: string | null;
   storeKeyLastFour: string | null;
+  btcpayHost: string;
+  walletSetupStatus: string;
   apiKeyManagedByTenant: boolean;
 }
 
@@ -116,7 +118,7 @@ export default function StoreSettingsClient({
             {status}
           </div>
         )}
-        <dl className="grid gap-4 md:grid-cols-2">
+        <dl className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-lg border bg-background px-4 py-3">
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">BTCPay Store ID</dt>
             <dd className="mt-1 font-medium text-sm text-foreground break-words">{data.btcpayStoreId}</dd>
@@ -143,6 +145,23 @@ export default function StoreSettingsClient({
                 "Not set"
               )}
             </dd>
+          </div>
+          <div className="rounded-lg border bg-background px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">BTCPay Host</dt>
+            <dd className="mt-1 text-sm font-medium text-foreground">
+              <a
+                href={data.btcpayHost}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline-offset-4 hover:underline break-words"
+              >
+                {data.btcpayHost}
+              </a>
+            </dd>
+          </div>
+          <div className="rounded-lg border bg-background px-4 py-3">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Wallet setup</dt>
+            <dd className="mt-1 text-sm font-medium text-foreground">{formatWalletStatus(data.walletSetupStatus)}</dd>
           </div>
           <div className="rounded-lg border bg-background px-4 py-3">
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Store API key</dt>
@@ -191,4 +210,18 @@ function resolveActionError(error: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+function formatWalletStatus(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  switch (normalized) {
+    case "ready":
+      return "Ready";
+    case "pending":
+      return "Pending setup";
+    case "disabled":
+      return "Disabled";
+    default:
+      return status;
+  }
 }

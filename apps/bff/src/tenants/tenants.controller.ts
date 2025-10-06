@@ -40,6 +40,12 @@ export class TenantsController {
     return this.tenantsService.createAdditionalStore(tenantId, dto, actorId, ip, email);
   }
 
+  @Get(':tenantId/stores')
+  listStores(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Req() req: Request) {
+    const email = this.resolveUserEmail(req);
+    return this.tenantsService.listTenantStores(tenantId, email);
+  }
+
   @Get(':tenantId/stores/:storeId')
   getStoreSettings(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,

@@ -37,6 +37,9 @@ export class StoreEntity {
   @Column({ name: 'store_key_last_four', type: 'varchar', nullable: true, length: 4 })
   storeKeyLastFour!: string | null;
 
+  @Column({ name: 'api_key_managed_by_tenant', type: 'boolean', default: false })
+  apiKeyManagedByTenant!: boolean;
+
   @Column({ name: 'api_key_ciphertext', type: 'text' })
   apiKeyCiphertext!: string;
 

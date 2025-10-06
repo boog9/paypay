@@ -10,6 +10,7 @@ interface StoreSettingsResponse {
   storeName: string | null;
   storeWebsite: string | null;
   storeKeyLastFour: string | null;
+  apiKeyManagedByTenant: boolean;
 }
 
 async function fetchStoreSettings(tenantId: string, storeId: string): Promise<StoreSettingsResponse> {

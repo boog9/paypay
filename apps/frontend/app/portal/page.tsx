@@ -15,7 +15,8 @@ export default function PortalPage() {
         <header className="mb-4 space-y-2">
           <h1 className="text-3xl font-semibold">Welcome to the PayPay portal</h1>
           <p className="text-sm text-muted-foreground">
-            Review your BTCPay integration status, rotate API keys and connect stores. Store creation is coming soon.
+            Review your BTCPay integration status, connect new stores with merchant API keys and manage credentials from a single
+            place.
           </p>
         </header>
         <Suspense fallback={null}>
@@ -27,11 +28,13 @@ export default function PortalPage() {
         <article className="rounded-xl border bg-background p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Stores</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your BTCPay stores will appear here once provisioning is available. For now you can review your initial access key
-            and prepare branding assets.
+            Use the organization navigation to create stores, register webhooks and review settings linked to your BTCPay API
+            keys. Each store uses end-to-end encryption for credential storage.
           </p>
-          <Button disabled className="mt-4" variant="outline">
-            Create Store (coming soon)
+          <Button asChild className="mt-4" variant="outline">
+            <Link href="https://docs.btcpayserver.org/CreateStore/" target="_blank" rel="noopener noreferrer">
+              Review BTCPay guide
+            </Link>
           </Button>
         </article>
         <article className="rounded-xl border bg-background p-5 shadow-sm">

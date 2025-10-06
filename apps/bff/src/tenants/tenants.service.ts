@@ -307,21 +307,70 @@ export class TenantsService {
     const tenant = await this.requireTenantOwner(tenantId, requesterEmail);
 
     const oldApiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
-    const webhookSecret = this.encryptionService.decrypt(store.webhookSecretCiphertext, store.webhookSecretDekWrapped);
 
+    let newApiKeyPlain: string | null = null;
     try {
-      const apiKey = await this.btcpayService.createUserApiKey(store.btcpayHost, tenant.email, store.btcpayStoreId);
-      const lastFour = this.extractLastFour(apiKey.apiKey);
-      const encryptedApiKey = this.encryptionService.encrypt(apiKey.apiKey);
-      const encryptedWebhook = this.encryptionService.encrypt(webhookSecret, encryptedApiKey.dekWrapped);
+      const tenantStores = await this.storesRepository.find({ where: { tenantId } });
 
-      await this.storesRepository.update(store.id, {
-        apiKeyCiphertext: encryptedApiKey.ciphertext,
-        apiKeyDekWrapped: encryptedApiKey.dekWrapped,
-        webhookSecretCiphertext: encryptedWebhook.ciphertext,
-        webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
-        storeKeyLastFour: lastFour
+      const storesSharingKey = tenantStores.filter((candidate) => {
+        if (candidate.apiKeyManagedByTenant) {
+          return false;
+        }
+        if (candidate.id === store.id) {
+          return true;
+        }
+        const candidateKey = this.encryptionService.decrypt(
+          candidate.apiKeyCiphertext,
+          candidate.apiKeyDekWrapped
+        );
+        try {
+          return candidateKey === oldApiKey;
+        } finally {
+          this.clearBuffer(candidateKey);
+        }
       });
+
+      if (storesSharingKey.length === 0) {
+        storesSharingKey.push(store);
+      }
+
+      const apiKey = await this.btcpayService.createUserApiKey(
+        store.btcpayHost,
+        tenant.email,
+        store.btcpayStoreId
+      );
+      newApiKeyPlain = apiKey.apiKey;
+      const lastFour = this.extractLastFour(newApiKeyPlain);
+
+      const nextApiKey = newApiKeyPlain;
+      if (!nextApiKey) {
+        throw new InternalServerErrorException('BTCPay API key rotation failed');
+      }
+
+      await Promise.all(
+        storesSharingKey.map(async (candidate) => {
+          const encryptedApiKey = this.encryptionService.encrypt(nextApiKey);
+          const webhookSecret = this.encryptionService.decrypt(
+            candidate.webhookSecretCiphertext,
+            candidate.webhookSecretDekWrapped
+          );
+          try {
+            const encryptedWebhook = this.encryptionService.encrypt(
+              webhookSecret,
+              encryptedApiKey.dekWrapped
+            );
+            await this.storesRepository.update(candidate.id, {
+              apiKeyCiphertext: encryptedApiKey.ciphertext,
+              apiKeyDekWrapped: encryptedApiKey.dekWrapped,
+              webhookSecretCiphertext: encryptedWebhook.ciphertext,
+              webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
+              storeKeyLastFour: lastFour
+            });
+          } finally {
+            this.clearBuffer(webhookSecret);
+          }
+        })
+      );
 
       await this.auditRepository.save({
         tenantId,
@@ -338,7 +387,7 @@ export class TenantsService {
       return { lastFour };
     } finally {
       this.clearBuffer(oldApiKey);
-      this.clearBuffer(webhookSecret);
+      this.clearBuffer(newApiKeyPlain);
     }
   }
 
@@ -356,11 +405,32 @@ export class TenantsService {
     }
 
     const apiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
+    let shouldRevokeKey = !store.apiKeyManagedByTenant;
+    if (shouldRevokeKey) {
+      const siblingStores = await this.storesRepository.find({ where: { tenantId } });
+      for (const sibling of siblingStores) {
+        if (sibling.id === store.id || sibling.apiKeyManagedByTenant) {
+          continue;
+        }
+        const siblingKey = this.encryptionService.decrypt(
+          sibling.apiKeyCiphertext,
+          sibling.apiKeyDekWrapped
+        );
+        try {
+          if (siblingKey === apiKey) {
+            shouldRevokeKey = false;
+            break;
+          }
+        } finally {
+          this.clearBuffer(siblingKey);
+        }
+      }
+    }
     try {
       await this.tryDeleteWebhook(store, apiKey);
       await this.tryDeleteStore(store, apiKey);
     } finally {
-      if (!store.apiKeyManagedByTenant) {
+      if (shouldRevokeKey) {
         await this.tryRevokeStoreApiKey(store, apiKey);
       }
       this.clearBuffer(apiKey);

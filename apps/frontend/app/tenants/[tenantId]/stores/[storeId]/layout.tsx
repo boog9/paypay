@@ -68,14 +68,18 @@ function buildStoreLink(host: string, storeId: string): string | null {
   }
 }
 
-export default async function StoreLayout({
-  children,
-  params
-}: {
+type StoreLayoutParams = {
+  tenantId: string;
+  storeId: string;
+};
+
+type StoreLayoutProps = {
   children: ReactNode;
-  params: { tenantId: string; storeId: string };
-}) {
-  const { tenantId, storeId } = params;
+  params: Promise<StoreLayoutParams>;
+};
+
+export default async function StoreLayout({ children, params }: StoreLayoutProps) {
+  const { tenantId, storeId } = await params;
   const store = await loadStoreSettings(tenantId, storeId);
   const sections = buildStoreSections(tenantId, storeId);
   const btcpayStoreUrl = buildStoreLink(store.btcpayHost, store.btcpayStoreId);

@@ -32,8 +32,12 @@ type StoresPageParams = {
   tenantId: string;
 };
 
-async function StoresPage({ params }: { params: StoresPageParams }): Promise<ReactElement> {
-  const { tenantId } = params;
+type StoresPageProps = {
+  params: Promise<StoresPageParams>;
+};
+
+async function StoresPage({ params }: StoresPageProps): Promise<ReactElement> {
+  const { tenantId } = await params;
   const stores = await fetchStores(tenantId);
 
   return (
@@ -124,7 +128,7 @@ async function StoresPage({ params }: { params: StoresPageParams }): Promise<Rea
   );
 }
 
-export default StoresPage as unknown as (props: { params: StoresPageParams }) => Promise<ReactElement>;
+export default StoresPage as unknown as (props: StoresPageProps) => Promise<ReactElement>;
 
 function formatWalletStatus(status: string): string {
   const normalized = status.trim().toLowerCase();

@@ -13,7 +13,11 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
-import { BTCPAY_INVOICE_WEBHOOK_EVENTS, BTCPAY_MINIMAL_PERMISSIONS } from './btcpay.constants';
+import {
+  BTCPAY_INVOICE_WEBHOOK_EVENTS,
+  BTCPAY_MINIMAL_PERMISSIONS,
+  BTCPAY_STORE_BOOTSTRAP_PERMISSION
+} from './btcpay.constants';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 
@@ -26,6 +30,7 @@ export interface CreateInvoiceRequest {
 interface ApiKeyResponse {
   apiKey: string;
   permissions: string[];
+  id?: string;
 }
 
 interface WebhookResponse {
@@ -137,19 +142,9 @@ export class BtcpayService {
   }
 
   async createUserApiKey(host: string | undefined, email: string, storeId: string): Promise<ApiKeyResponse> {
-    const permissions = this.buildStorePermissions(storeId);
-    const http = this.createHttp(host ?? this.config.baseUrl, {
-      Authorization: `token ${this.getAdminApiKey()}`
+    return this.issueUserApiKey(host, email, this.buildStorePermissions(storeId), {
+      label: `Store ${storeId} key`
     });
-    try {
-      const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
-        label: `Store ${storeId} key`,
-        permissions
-      });
-      return data;
-    } catch (error) {
-      return this.maskError(error);
-    }
   }
 
   async createUserApiKeyUnscoped(
@@ -158,15 +153,38 @@ export class BtcpayService {
     permissions: string[],
     label = 'Temporary key'
   ): Promise<ApiKeyResponse> {
+    return this.issueUserApiKey(host, email, permissions, { label });
+  }
+
+  async issueUserApiKey(
+    host: string | undefined,
+    email: string,
+    permissions: string[],
+    options?: { label?: string }
+  ): Promise<ApiKeyResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
-      const { data } = await http.post<ApiKeyResponse>(`/api/v1/users/${encodeURIComponent(email)}/api-keys`, {
-        label,
-        permissions
-      });
-      return data;
+      const response = await http.post<ApiKeyResponse & { label?: string; permissions?: unknown[] }>(
+        `/api/v1/users/${encodeURIComponent(email)}/api-keys`,
+        {
+          label: options?.label ?? 'PayPay managed key',
+          permissions
+        }
+      );
+      const data = response.data;
+      if (!data?.apiKey || typeof data.apiKey !== 'string') {
+        throw new InternalServerErrorException('BTCPay did not return an API key');
+      }
+      const grantedPermissions = Array.isArray(data.permissions)
+        ? (data.permissions ?? []).filter((permission): permission is string => typeof permission === 'string')
+        : [];
+      return {
+        apiKey: data.apiKey,
+        permissions: grantedPermissions,
+        id: typeof data.id === 'string' ? data.id : undefined
+      } satisfies ApiKeyResponse;
     } catch (error) {
       return this.maskError(error);
     }
@@ -216,11 +234,15 @@ export class BtcpayService {
   }
 
   async deleteApiKey(host: string | undefined, apiKey: string): Promise<void> {
+    await this.revokeUserApiKey(host, apiKey);
+  }
+
+  async revokeUserApiKey(host: string | undefined, keyIdOrValue: string): Promise<void> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
-      await http.delete(`/api/v1/api-keys/${encodeURIComponent(apiKey)}`);
+      await http.delete(`/api/v1/api-keys/${encodeURIComponent(keyIdOrValue)}`);
     } catch (error) {
       this.maskError(error);
     }
@@ -274,6 +296,17 @@ export class BtcpayService {
     });
     try {
       await http.delete(`/api/v1/stores/${storeId}`);
+    } catch (error) {
+      this.maskError(error);
+    }
+  }
+
+  async probeStoreInvoices(host: string | undefined, apiKey: string, storeId: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      await http.get(`/api/v1/stores/${storeId}/invoices`, { params: { limit: 1 } });
     } catch (error) {
       this.maskError(error);
     }
@@ -371,7 +404,11 @@ export class BtcpayService {
     return authorizeUrl.toString();
   }
 
-  private buildStorePermissions(storeId: string): string[] {
+  buildBootstrapPermissions(): string[] {
+    return [BTCPAY_STORE_BOOTSTRAP_PERMISSION];
+  }
+
+  buildStorePermissions(storeId: string): string[] {
     return BTCPAY_MINIMAL_PERMISSIONS.map((permission) => `${permission}:${storeId}`);
   }
 }

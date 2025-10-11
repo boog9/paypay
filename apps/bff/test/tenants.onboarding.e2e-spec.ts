@@ -13,14 +13,18 @@ describe('Tenants onboarding (e2e)', () => {
   const btcpayMock = {
     resolveBaseUrl: jest.fn((host?: string) => host ?? 'https://btcpay.example'),
     createUser: jest.fn().mockResolvedValue({ id: 'user-1', email: 'merchant@example.com' }),
-    createUserApiKeyUnscoped: jest.fn().mockResolvedValue({
-      apiKey: 'temp-key',
-      permissions: ['btcpay.store.canmodifystoresettings']
-    }),
+    issueUserApiKey: jest.fn().mockResolvedValue({ apiKey: 'temp-key', permissions: [] }),
+    revokeUserApiKey: jest.fn().mockResolvedValue(undefined),
     createStoreWithUserToken: jest.fn().mockResolvedValue({ id: 'greenfield-store-id' }),
-    deleteApiKey: jest.fn().mockResolvedValue(undefined),
-    createUserApiKey: jest.fn().mockResolvedValue({ apiKey: 'store-key-1234', permissions: [] }),
-    registerWebhook: jest.fn().mockResolvedValue({ id: 'webhook-id', secret: 'webhook-secret' })
+    registerWebhook: jest.fn().mockResolvedValue({ id: 'webhook-id', secret: 'webhook-secret' }),
+    buildStorePermissions: jest.fn().mockImplementation((storeId: string) => [
+      `btcpay.store.cancreateinvoice:${storeId}`,
+      `btcpay.store.canviewinvoices:${storeId}`,
+      `btcpay.store.canmodifyinvoices:${storeId}`,
+      `btcpay.store.canviewstoresettings:${storeId}`,
+      `btcpay.store.webhooks.canmodifywebhooks:${storeId}`
+    ]),
+    buildBootstrapPermissions: jest.fn().mockReturnValue(['btcpay.store.canmodifystoresettings'])
   } as unknown as jest.Mocked<BtcpayService>;
 
   beforeAll(async () => {
@@ -63,6 +67,10 @@ describe('Tenants onboarding (e2e)', () => {
   it('provisions a tenant and store through the Greenfield API mocks', async () => {
     const { token } = await fetchCsrf();
 
+    btcpayMock.issueUserApiKey
+      .mockResolvedValueOnce({ apiKey: 'bootstrap-key', permissions: ['btcpay.store.canmodifystoresettings'] })
+      .mockResolvedValueOnce({ apiKey: 'store-key-1234', permissions: [] });
+
     const response = await agent
       .post('/api/tenants')
       .set('X-CSRF-Token', token)
@@ -86,27 +94,33 @@ describe('Tenants onboarding (e2e)', () => {
       name: 'Merchant',
       sendInvitationEmail: true
     });
-    expect(btcpayMock.createUserApiKeyUnscoped).toHaveBeenCalledWith(
+    expect(btcpayMock.issueUserApiKey).toHaveBeenNthCalledWith(
+      1,
       'https://btcpay.example',
       'merchant@example.com',
       ['btcpay.store.canmodifystoresettings'],
-      'Temp store setup'
+      { label: 'PayPay store bootstrap' }
     );
     expect(btcpayMock.createStoreWithUserToken).toHaveBeenCalledWith(
       'https://btcpay.example',
-      'temp-key',
+      'bootstrap-key',
       expect.objectContaining({ name: 'Demo Store', website: 'https://merchant.example' })
     );
-    expect(btcpayMock.deleteApiKey).toHaveBeenCalledWith('https://btcpay.example', 'temp-key');
-    expect(btcpayMock.createUserApiKey).toHaveBeenCalledWith(
+    expect(btcpayMock.issueUserApiKey).toHaveBeenNthCalledWith(
+      2,
       'https://btcpay.example',
       'merchant@example.com',
-      'greenfield-store-id'
+      expect.arrayContaining([
+        'btcpay.store.cancreateinvoice:greenfield-store-id',
+        'btcpay.store.canviewstoresettings:greenfield-store-id'
+      ]),
+      { label: 'PayPay internal greenfield-store-id' }
     );
     expect(btcpayMock.registerWebhook).toHaveBeenCalledWith(
       'https://btcpay.example',
       'store-key-1234',
       'greenfield-store-id'
     );
+    expect(btcpayMock.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'bootstrap-key');
   });
 });

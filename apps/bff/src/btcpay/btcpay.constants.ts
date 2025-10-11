@@ -1,21 +1,12 @@
 export const BTCPAY_MINIMAL_PERMISSIONS = [
-  'btcpay.store.canmodifystoresettings',
-  'btcpay.store.webhooks.canmodifywebhooks',
-  'btcpay.store.canviewstoresettings',
-  'btcpay.store.canviewreports',
   'btcpay.store.cancreateinvoice',
   'btcpay.store.canviewinvoices',
   'btcpay.store.canmodifyinvoices',
-  'btcpay.store.canmodifypaymentrequests',
-  'btcpay.store.canviewpaymentrequests',
-  'btcpay.store.canviewpullpayments',
-  'btcpay.store.canmanagepullpayments',
-  'btcpay.store.canarchivepullpayments',
-  'btcpay.store.cancreatepullpayments',
-  'btcpay.store.cancreatenonapprovedpullpayments',
-  'btcpay.store.canmanagepayouts',
-  'btcpay.store.canviewpayouts'
+  'btcpay.store.canviewstoresettings',
+  'btcpay.store.webhooks.canmodifywebhooks'
 ];
+
+export const BTCPAY_STORE_BOOTSTRAP_PERMISSION = 'btcpay.store.canmodifystoresettings';
 
 export const BTCPAY_PORTAL_USER_PERMISSIONS = [
   'btcpay.store.canviewinvoices',

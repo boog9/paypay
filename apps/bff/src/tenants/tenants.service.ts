@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { TenantEntity } from './entities/tenant.entity';
 import { StoreEntity } from './entities/store.entity';
 import { AuditLogEntity } from './entities/audit-log.entity';
@@ -16,7 +18,6 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { BtcpayService } from '../btcpay/btcpay.service';
-import { BTCPAY_MINIMAL_PERMISSIONS } from '../btcpay/btcpay.constants';
 import { CreateTenantInvoiceDto } from './dto/create-invoice.dto';
 import { normalizeEmail } from '../auth/email.utils';
 
@@ -64,60 +65,84 @@ export class TenantsService {
     private readonly idempotencyRepository: Repository<IdempotencyKeyEntity>,
     private readonly encryptionService: EnvelopeEncryptionService,
     private readonly btcpayService: BtcpayService,
-    private readonly dataSource: DataSource
-  ) {}
+    private readonly dataSource: DataSource,
+    private readonly configService: ConfigService
+  ) {
+    const raw = this.configService.get<string>('REVOKE_BOOTSTRAP_AFTER_CREATE');
+    this.revokeBootstrapAfterCreate = raw ? this.isTruthy(raw) : true;
+  }
+
+  private readonly revokeBootstrapAfterCreate: boolean;
 
   async createTenant(dto: CreateTenantDto, actorId: string | null, ip: string | null): Promise<CreateTenantResult> {
     const baseUrl = this.btcpayService.resolveBaseUrl(dto.btcpayHost);
     const storeWebsite = this.sanitizeWebsite(dto.storeWebsite);
+    const storeName = this.sanitizeStoreName(dto.storeName);
     await this.btcpayService.createUser(baseUrl, {
       email: dto.email,
       name: dto.name,
       sendInvitationEmail: true
     });
 
-    const persistentKey = await this.btcpayService.createUserApiKeyUnscoped(
+    const bootstrapKey = await this.btcpayService.issueUserApiKey(
       baseUrl,
       dto.email,
-      BTCPAY_MINIMAL_PERMISSIONS,
-      'PayPay Portal access'
+      this.btcpayService.buildBootstrapPermissions(),
+      { label: 'PayPay store bootstrap' }
     );
 
-    let store: { id: string };
+    let store: { id: string } | null = null;
     try {
-      store = await this.btcpayService.createStoreWithUserToken(baseUrl, persistentKey.apiKey, {
-        name: dto.storeName,
+      store = await this.btcpayService.createStoreWithUserToken(baseUrl, bootstrapKey.apiKey, {
+        name: storeName,
         ...(storeWebsite ? { website: storeWebsite } : {})
       });
     } catch (error) {
-      this.clearBuffer(persistentKey.apiKey);
+      await this.safeRevokeKey(baseUrl, bootstrapKey.apiKey);
+      this.clearBuffer(bootstrapKey.apiKey);
       throw error;
     }
 
+    let internalKey: { apiKey: string; id?: string } | null = null;
     try {
-      const webhook = await this.btcpayService.registerWebhook(baseUrl, persistentKey.apiKey, store.id);
+      if (!store) {
+        throw new InternalServerErrorException('BTCPay store creation failed');
+      }
+      const createdStore = store;
+      internalKey = await this.btcpayService.issueUserApiKey(
+        baseUrl,
+        dto.email,
+        this.btcpayService.buildStorePermissions(createdStore.id),
+        { label: `PayPay internal ${createdStore.id}` }
+      );
+
+      const webhook = await this.btcpayService.registerWebhook(baseUrl, internalKey.apiKey, createdStore.id);
       if (!webhook.secret) {
         throw new InternalServerErrorException('BTCPay webhook secret was not returned');
       }
 
-      const lastFour = this.extractLastFour(persistentKey.apiKey);
-      const encryptedApiKey = this.encryptionService.encrypt(persistentKey.apiKey);
+      const lastFour = this.extractLastFour(internalKey.apiKey);
+      const encryptedApiKey = this.encryptionService.encrypt(internalKey.apiKey);
       const encryptedWebhook = this.encryptionService.encrypt(webhook.secret, encryptedApiKey.dekWrapped);
 
       this.clearBuffer(webhook.secret);
 
-      return this.dataSource.transaction(async (manager) => {
-        const tenant = manager.getRepository(TenantEntity).create({
+      const result = await this.dataSource.transaction(async (manager) => {
+        const tenantRepo = manager.getRepository(TenantEntity);
+        const storeRepo = manager.getRepository(StoreEntity);
+        const auditRepo = manager.getRepository(AuditLogEntity);
+
+        const tenant = tenantRepo.create({
           email: dto.email,
           name: dto.name
         });
-        await manager.getRepository(TenantEntity).save(tenant);
+        await tenantRepo.save(tenant);
 
-        const storeEntity = manager.getRepository(StoreEntity).create({
+        const storeEntity = storeRepo.create({
           tenantId: tenant.id,
           btcpayHost: baseUrl,
-          btcpayStoreId: store.id,
-          storeName: dto.storeName,
+          btcpayStoreId: createdStore.id,
+          storeName,
           storeWebsite: storeWebsite ?? null,
           storeKeyLastFour: lastFour,
           apiKeyCiphertext: encryptedApiKey.ciphertext,
@@ -128,89 +153,19 @@ export class TenantsService {
           walletSetupStatus: 'pending',
           apiKeyManagedByTenant: false
         });
-        await manager.getRepository(StoreEntity).save(storeEntity);
+        await storeRepo.save(storeEntity);
 
-        await manager.getRepository(AuditLogEntity).save({
+        await auditRepo.save({
           tenantId: tenant.id,
           actorId,
           action: 'tenant.created',
-          resource: storeEntity.id,
+          resource: tenant.id,
           result: 'success',
           ip
         });
 
-        return {
+        await auditRepo.save({
           tenantId: tenant.id,
-          storeId: storeEntity.id,
-          btcpayStoreId: store.id
-        } satisfies CreateTenantResult;
-      });
-    } catch (error) {
-      this.logger.error('Failed to onboard tenant', (error as Error).message);
-      throw error;
-    } finally {
-      this.clearBuffer(persistentKey.apiKey);
-    }
-  }
-
-  async createAdditionalStore(
-    tenantId: string,
-    dto: CreateStoreDto,
-    actorId: string | null,
-    ip: string | null,
-    requesterEmail: string | null
-  ) {
-    await this.requireTenantOwner(tenantId, requesterEmail);
-    const primaryStore = await this.storesRepository.findOne({ where: { tenantId }, order: { createdAt: 'ASC' } });
-    if (!primaryStore) {
-      throw new BadRequestException('Primary store is not available for this tenant.');
-    }
-
-    const baseUrl = this.btcpayService.resolveBaseUrl(primaryStore.btcpayHost);
-    const storeWebsite = this.sanitizeWebsite(dto.storeWebsite);
-
-    const normalizedCurrency = this.normalizeCurrency(dto.defaultCurrency);
-    const apiKey = this.encryptionService.decrypt(primaryStore.apiKeyCiphertext, primaryStore.apiKeyDekWrapped);
-
-    try {
-      const store = await this.btcpayService.createStoreWithUserToken(baseUrl, apiKey, {
-        name: dto.storeName,
-        ...(storeWebsite ? { website: storeWebsite } : {}),
-        defaultCurrency: normalizedCurrency,
-        preferredExchange: this.sanitizePreferredExchange(dto.preferredExchange)
-      });
-
-      const webhook = await this.btcpayService.registerWebhook(baseUrl, apiKey, store.id);
-      if (!webhook.secret) {
-        throw new InternalServerErrorException('BTCPay webhook secret was not returned');
-      }
-
-      const lastFour = this.extractLastFour(apiKey);
-      const encryptedApiKey = this.encryptionService.encrypt(apiKey);
-      const encryptedWebhook = this.encryptionService.encrypt(webhook.secret, encryptedApiKey.dekWrapped);
-
-      this.clearBuffer(webhook.secret);
-
-      return this.dataSource.transaction(async (manager) => {
-        const storeEntity = manager.getRepository(StoreEntity).create({
-          tenantId,
-          btcpayHost: baseUrl,
-          btcpayStoreId: store.id,
-          storeName: dto.storeName,
-          storeWebsite: storeWebsite ?? null,
-          storeKeyLastFour: lastFour,
-          apiKeyCiphertext: encryptedApiKey.ciphertext,
-          apiKeyDekWrapped: encryptedApiKey.dekWrapped,
-          webhookId: webhook.id,
-          webhookSecretCiphertext: encryptedWebhook.ciphertext,
-          webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
-          walletSetupStatus: 'pending',
-          apiKeyManagedByTenant: false
-        });
-        await manager.getRepository(StoreEntity).save(storeEntity);
-
-        await manager.getRepository(AuditLogEntity).save({
-          tenantId,
           actorId,
           action: 'tenant.store.created',
           resource: storeEntity.id,
@@ -219,12 +174,166 @@ export class TenantsService {
         });
 
         return {
+          tenantId: tenant.id,
           storeId: storeEntity.id,
-          btcpayStoreId: store.id
-        };
+          btcpayStoreId: createdStore.id
+        } satisfies CreateTenantResult;
       });
+
+      return result;
+    } catch (error) {
+      if (internalKey?.apiKey) {
+        await this.safeRevokeKey(baseUrl, internalKey.apiKey);
+      }
+      throw error;
     } finally {
-      this.clearBuffer(apiKey);
+      if (this.revokeBootstrapAfterCreate || !store) {
+        await this.safeRevokeKey(baseUrl, bootstrapKey.apiKey);
+      }
+      this.clearBuffer(bootstrapKey.apiKey);
+      if (internalKey?.apiKey) {
+        this.clearBuffer(internalKey.apiKey);
+      }
+    }
+  }
+
+  async createAdditionalStore(
+    tenantId: string,
+    dto: CreateStoreDto,
+    actorId: string | null,
+    ip: string | null,
+    requesterEmail: string | null,
+    idempotencyKey: string | null
+  ) {
+    const tenant = await this.requireTenantOwner(tenantId, requesterEmail);
+    const primaryStore = await this.storesRepository.findOne({ where: { tenantId }, order: { createdAt: 'ASC' } });
+    if (!primaryStore) {
+      throw new BadRequestException('Primary store is not available for this tenant.');
+    }
+
+    const baseUrl = this.btcpayService.resolveBaseUrl(primaryStore.btcpayHost);
+    const storeWebsite = this.sanitizeWebsite(dto.storeWebsite);
+    const storeName = this.sanitizeStoreName(dto.storeName);
+
+    const normalizedCurrency = this.normalizeCurrency(dto.defaultCurrency);
+
+    const idempotencyReservation = idempotencyKey
+      ? await this.reserveCreateStoreIdempotencyKey(idempotencyKey, tenantId)
+      : null;
+
+    if (idempotencyReservation && 'existing' in idempotencyReservation) {
+      return idempotencyReservation.existing;
+    }
+
+    const existingStore = await this.storesRepository.findOne({
+      where: { tenantId, storeName }
+    });
+    if (existingStore) {
+      if (idempotencyReservation && 'record' in idempotencyReservation) {
+        await this.cleanupIdempotencyRecord(idempotencyReservation.record);
+      }
+      throw new ConflictException('Store with this name already exists.');
+    }
+
+    const bootstrapKey = await this.btcpayService.issueUserApiKey(
+      baseUrl,
+      tenant.email,
+      this.btcpayService.buildBootstrapPermissions(),
+      { label: `PayPay store bootstrap` }
+    );
+
+    let store: { id: string } | null = null;
+    try {
+      store = await this.btcpayService.createStoreWithUserToken(baseUrl, bootstrapKey.apiKey, {
+        name: storeName,
+        ...(storeWebsite ? { website: storeWebsite } : {}),
+        defaultCurrency: normalizedCurrency,
+        preferredExchange: this.sanitizePreferredExchange(dto.preferredExchange)
+      });
+
+      let internalKey: { apiKey: string; id?: string } | null = null;
+      try {
+        if (!store) {
+          throw new InternalServerErrorException('BTCPay store creation failed');
+        }
+        const createdStore = store;
+        internalKey = await this.btcpayService.issueUserApiKey(
+          baseUrl,
+          tenant.email,
+          this.btcpayService.buildStorePermissions(createdStore.id),
+          { label: `PayPay internal ${createdStore.id}` }
+        );
+
+        const webhook = await this.btcpayService.registerWebhook(baseUrl, internalKey.apiKey, createdStore.id);
+        if (!webhook.secret) {
+          throw new InternalServerErrorException('BTCPay webhook secret was not returned');
+        }
+
+        const lastFour = this.extractLastFour(internalKey.apiKey);
+        const encryptedApiKey = this.encryptionService.encrypt(internalKey.apiKey);
+        const encryptedWebhook = this.encryptionService.encrypt(webhook.secret, encryptedApiKey.dekWrapped);
+
+        this.clearBuffer(webhook.secret);
+
+        const result = await this.dataSource.transaction(async (manager) => {
+          const storeEntity = manager.getRepository(StoreEntity).create({
+            tenantId,
+            btcpayHost: baseUrl,
+            btcpayStoreId: createdStore.id,
+            storeName,
+            storeWebsite: storeWebsite ?? null,
+            storeKeyLastFour: lastFour,
+            apiKeyCiphertext: encryptedApiKey.ciphertext,
+            apiKeyDekWrapped: encryptedApiKey.dekWrapped,
+            webhookId: webhook.id,
+            webhookSecretCiphertext: encryptedWebhook.ciphertext,
+            webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
+            walletSetupStatus: 'pending',
+            apiKeyManagedByTenant: false
+          });
+          await manager.getRepository(StoreEntity).save(storeEntity);
+
+          await manager.getRepository(AuditLogEntity).save({
+            tenantId,
+            actorId,
+            action: 'tenant.store.created',
+            resource: storeEntity.id,
+            result: 'success',
+            ip
+          });
+
+          const result = {
+            storeId: storeEntity.id,
+            btcpayStoreId: createdStore.id
+          };
+
+          if (idempotencyReservation && 'record' in idempotencyReservation) {
+            await manager.getRepository(IdempotencyKeyEntity).update(idempotencyReservation.record.key, {
+              resourceId: storeEntity.id
+            });
+            idempotencyReservation.record.resourceId = storeEntity.id;
+          }
+
+          return result;
+        });
+
+        this.clearBuffer(internalKey.apiKey);
+        return result;
+      } catch (error) {
+        if (internalKey?.apiKey) {
+          await this.safeRevokeKey(baseUrl, internalKey.apiKey);
+          this.clearBuffer(internalKey.apiKey);
+        }
+        throw error;
+      }
+    } finally {
+      if (this.revokeBootstrapAfterCreate || !store) {
+        await this.safeRevokeKey(baseUrl, bootstrapKey.apiKey);
+      }
+      this.clearBuffer(bootstrapKey.apiKey);
+      if (idempotencyReservation && 'record' in idempotencyReservation && !idempotencyReservation.record.resourceId) {
+        await this.cleanupIdempotencyRecord(idempotencyReservation.record);
+      }
     }
   }
 
@@ -344,6 +453,7 @@ export class TenantsService {
 
     const tenant = await this.requireTenantOwner(tenantId, requesterEmail);
 
+    const baseUrl = this.btcpayService.resolveBaseUrl(store.btcpayHost);
     const oldApiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
 
     let newApiKeyPlain: string | null = null;
@@ -372,40 +482,41 @@ export class TenantsService {
         storesSharingKey.push(store);
       }
 
-      const apiKey = await this.btcpayService.createUserApiKey(
-        store.btcpayHost,
+      const issuedKey = await this.btcpayService.issueUserApiKey(
+        baseUrl,
         tenant.email,
-        store.btcpayStoreId
+        this.btcpayService.buildStorePermissions(store.btcpayStoreId),
+        { label: `PayPay internal ${store.btcpayStoreId}` }
       );
-      newApiKeyPlain = apiKey.apiKey;
-      const lastFour = this.extractLastFour(newApiKeyPlain);
 
-      const nextApiKey = newApiKeyPlain;
-      if (!nextApiKey) {
-        throw new InternalServerErrorException('BTCPay API key rotation failed');
-      }
+      newApiKeyPlain = issuedKey.apiKey;
+      await this.btcpayService.probeStoreInvoices(baseUrl, newApiKeyPlain, store.btcpayStoreId);
+
+      const lastFour = this.extractLastFour(newApiKeyPlain);
 
       await Promise.all(
         storesSharingKey.map(async (candidate) => {
-          const encryptedApiKey = this.encryptionService.encrypt(nextApiKey);
-          const webhookSecret = this.encryptionService.decrypt(
-            candidate.webhookSecretCiphertext,
-            candidate.webhookSecretDekWrapped
+          const encryptedApiKey = this.encryptionService.encrypt(newApiKeyPlain!);
+          const webhook = await this.resolveStoreWebhookSecret(
+            baseUrl,
+            candidate,
+            newApiKeyPlain!
           );
           try {
             const encryptedWebhook = this.encryptionService.encrypt(
-              webhookSecret,
+              webhook.secret,
               encryptedApiKey.dekWrapped
             );
             await this.storesRepository.update(candidate.id, {
               apiKeyCiphertext: encryptedApiKey.ciphertext,
               apiKeyDekWrapped: encryptedApiKey.dekWrapped,
+              webhookId: webhook.webhookId,
               webhookSecretCiphertext: encryptedWebhook.ciphertext,
               webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
               storeKeyLastFour: lastFour
             });
           } finally {
-            this.clearBuffer(webhookSecret);
+            this.clearBuffer(webhook.secret);
           }
         })
       );
@@ -413,16 +524,21 @@ export class TenantsService {
       await this.auditRepository.save({
         tenantId,
         actorId,
-        action: 'tenant.store.apiKeyRotated',
+        action: 'tenant.store.key.rotated',
         resource: store.id,
         result: 'success',
         ip: null
       });
 
-      await this.btcpayService.deleteApiKey(store.btcpayHost, oldApiKey);
+      await this.safeRevokeKey(baseUrl, oldApiKey);
 
-      this.clearBuffer(apiKey.apiKey);
+      this.clearBuffer(issuedKey.apiKey);
       return { lastFour };
+    } catch (error) {
+      if (newApiKeyPlain) {
+        await this.safeRevokeKey(baseUrl, newApiKeyPlain);
+      }
+      throw error;
     } finally {
       this.clearBuffer(oldApiKey);
       this.clearBuffer(newApiKeyPlain);
@@ -436,42 +552,37 @@ export class TenantsService {
     ip: string | null,
     requesterEmail: string | null
   ): Promise<void> {
-    await this.requireTenantOwner(tenantId, requesterEmail);
+    const tenant = await this.requireTenantOwner(tenantId, requesterEmail);
     const store = await this.storesRepository.findOne({ where: { id: storeId, tenantId } });
     if (!store) {
       throw new NotFoundException('Store not found');
     }
 
-    const apiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
-    let shouldRevokeKey = !store.apiKeyManagedByTenant;
-    if (shouldRevokeKey) {
-      const siblingStores = await this.storesRepository.find({ where: { tenantId } });
-      for (const sibling of siblingStores) {
-        if (sibling.id === store.id || sibling.apiKeyManagedByTenant) {
-          continue;
-        }
-        const siblingKey = this.encryptionService.decrypt(
-          sibling.apiKeyCiphertext,
-          sibling.apiKeyDekWrapped
-        );
-        try {
-          if (siblingKey === apiKey) {
-            shouldRevokeKey = false;
-            break;
-          }
-        } finally {
-          this.clearBuffer(siblingKey);
-        }
-      }
-    }
+    const baseUrl = this.btcpayService.resolveBaseUrl(store.btcpayHost);
+    const internalKey = store.apiKeyManagedByTenant
+      ? null
+      : this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
+
+    const temporaryKey = await this.btcpayService.issueUserApiKey(
+      baseUrl,
+      tenant.email,
+      [
+        `btcpay.store.canmodifystoresettings:${store.btcpayStoreId}`,
+        `btcpay.store.webhooks.canmodifywebhooks:${store.btcpayStoreId}`
+      ],
+      { label: `PayPay temp ${store.btcpayStoreId} delete` }
+    );
+
     try {
-      await this.tryDeleteWebhook(store, apiKey);
-      await this.tryDeleteStore(store, apiKey);
+      await this.tryDeleteWebhook(baseUrl, store, internalKey ?? temporaryKey.apiKey);
+      await this.tryDeleteStore(baseUrl, temporaryKey.apiKey, store.btcpayStoreId);
     } finally {
-      if (shouldRevokeKey) {
-        await this.tryRevokeStoreApiKey(store, apiKey);
+      await this.safeRevokeKey(baseUrl, temporaryKey.apiKey);
+      if (!store.apiKeyManagedByTenant) {
+        await this.safeRevokeKey(baseUrl, internalKey);
       }
-      this.clearBuffer(apiKey);
+      this.clearBuffer(internalKey);
+      this.clearBuffer(temporaryKey.apiKey);
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -543,12 +654,39 @@ export class TenantsService {
     }
   }
 
+  private isTruthy(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  }
+
   private sanitizeWebsite(website?: string | null): string | undefined {
     if (!website) {
       return undefined;
     }
     const trimmed = website.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private async safeRevokeKey(baseUrl: string, key: string | null | undefined): Promise<void> {
+    if (!key) {
+      return;
+    }
+    try {
+      await this.btcpayService.revokeUserApiKey(baseUrl, key);
+    } catch (error) {
+      const suffix = this.extractLastFour(key);
+      this.logger.warn(
+        `Failed to revoke BTCPay API key${suffix ? ` ****${suffix}` : ''}: ${(error as Error).message}`
+      );
+    }
+  }
+
+  private sanitizeStoreName(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Store name is required.');
+    }
+    return trimmed;
   }
 
   private extractLastFour(value: string | null | undefined): string | null {
@@ -578,12 +716,12 @@ export class TenantsService {
     return tenant;
   }
 
-  private async tryDeleteWebhook(store: StoreEntity, apiKey: string): Promise<void> {
+  private async tryDeleteWebhook(baseUrl: string, store: StoreEntity, apiKey: string): Promise<void> {
     if (!store.webhookId) {
       return;
     }
     try {
-      await this.btcpayService.deleteWebhook(store.btcpayHost, apiKey, store.btcpayStoreId, store.webhookId);
+      await this.btcpayService.deleteWebhook(baseUrl, apiKey, store.btcpayStoreId, store.webhookId);
     } catch (error) {
       this.logger.warn(
         `Unable to delete webhook ${store.webhookId} for store ${store.btcpayStoreId}: ${(error as Error).message}`
@@ -591,28 +729,98 @@ export class TenantsService {
     }
   }
 
-  private async tryDeleteStore(store: StoreEntity, apiKey: string): Promise<void> {
-    try {
-      await this.btcpayService.deleteStore(store.btcpayHost, apiKey, store.btcpayStoreId);
-    } catch (error) {
-      this.logger.warn(
-        `Unable to delete BTCPay store ${store.btcpayStoreId}: ${(error as Error).message}`
-      );
-    }
-  }
-
-  private async tryRevokeStoreApiKey(store: StoreEntity, apiKey: string): Promise<void> {
-    try {
-      await this.btcpayService.deleteApiKey(store.btcpayHost, apiKey);
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        this.logger.warn(`BTCPay API key already revoked for store ${store.btcpayStoreId}`);
-        return;
+  private async resolveStoreWebhookSecret(
+    baseUrl: string,
+    store: StoreEntity,
+    apiKey: string
+  ): Promise<{ secret: string; webhookId: string }> {
+    if (store.webhookSecretCiphertext && store.webhookSecretDekWrapped) {
+      try {
+        const secret = this.encryptionService.decrypt(
+          store.webhookSecretCiphertext,
+          store.webhookSecretDekWrapped
+        );
+        if (secret.trim().length > 0 && store.webhookId) {
+          return { secret, webhookId: store.webhookId };
+        }
+        this.clearBuffer(secret);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to decrypt webhook secret for store ${store.id}, attempting re-registration: ${(error as Error).message}`
+        );
       }
+    }
+
+    await this.tryDeleteWebhook(baseUrl, store, apiKey);
+    const webhook = await this.btcpayService.registerWebhook(baseUrl, apiKey, store.btcpayStoreId);
+    if (!webhook.secret) {
+      throw new InternalServerErrorException('BTCPay webhook secret was not returned');
+    }
+    return { secret: webhook.secret, webhookId: webhook.id };
+  }
+
+  private async tryDeleteStore(baseUrl: string, apiKey: string, storeId: string): Promise<void> {
+    try {
+      await this.btcpayService.deleteStore(baseUrl, apiKey, storeId);
+    } catch (error) {
       this.logger.warn(
-        `Failed to revoke BTCPay API key for store ${store.btcpayStoreId}: ${(error as Error).message}`
+        `Unable to delete BTCPay store ${storeId}: ${(error as Error).message}`
       );
     }
   }
 
+  private async reserveCreateStoreIdempotencyKey(
+    key: string,
+    tenantId: string
+  ): Promise<
+    | { record: IdempotencyKeyEntity }
+    | { existing: { storeId: string; btcpayStoreId: string } }
+  > {
+    const source = 'tenant.store.create';
+    try {
+      const record = this.idempotencyRepository.create({
+        key,
+        tenantId,
+        source,
+        resourceId: null
+      });
+      await this.idempotencyRepository.insert(record);
+      return { record };
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') {
+        throw error;
+      }
+
+      const existing = await this.idempotencyRepository.findOne({ where: { key } });
+      if (!existing) {
+        throw new ConflictException('Idempotency key already used.');
+      }
+      if (existing.source !== source || existing.tenantId !== tenantId) {
+        throw new ConflictException('Idempotency key already used for another resource.');
+      }
+      if (!existing.resourceId) {
+        throw new ConflictException('Another request with this Idempotency-Key is still being processed.');
+      }
+      const store = await this.storesRepository.findOne({ where: { id: existing.resourceId, tenantId } });
+      if (!store) {
+        throw new ConflictException('Idempotency key result is unavailable.');
+      }
+      return {
+        existing: {
+          storeId: store.id,
+          btcpayStoreId: store.btcpayStoreId
+        }
+      };
+    }
+  }
+
+  private async cleanupIdempotencyRecord(record: IdempotencyKeyEntity): Promise<void> {
+    try {
+      await this.idempotencyRepository.delete(record.key);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to clean up idempotency key ${record.key}: ${(error as Error).message}`
+      );
+    }
+  }
 }

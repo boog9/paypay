@@ -6,22 +6,11 @@ import { Button } from "../../../../../components/ui/button";
 import { api, isApiError } from "../../../../../lib/api";
 
 const REQUIRED_PERMISSIONS = [
-  "btcpay.store.canmodifystoresettings",
-  "btcpay.store.webhooks.canmodifywebhooks",
-  "btcpay.store.canviewstoresettings",
-  "btcpay.store.canviewreports",
   "btcpay.store.cancreateinvoice",
   "btcpay.store.canviewinvoices",
   "btcpay.store.canmodifyinvoices",
-  "btcpay.store.canmodifypaymentrequests",
-  "btcpay.store.canviewpaymentrequests",
-  "btcpay.store.canviewpullpayments",
-  "btcpay.store.canmanagepullpayments",
-  "btcpay.store.canarchivepullpayments",
-  "btcpay.store.cancreatepullpayments",
-  "btcpay.store.cancreatenonapprovedpullpayments",
-  "btcpay.store.canmanagepayouts",
-  "btcpay.store.canviewpayouts"
+  "btcpay.store.canviewstoresettings",
+  "btcpay.store.webhooks.canmodifywebhooks"
 ];
 
 interface CreateStoreClientProps {
@@ -63,11 +52,14 @@ export default function CreateStoreClient({ tenantId }: CreateStoreClientProps) 
           storeWebsite: normalizeOptional(form.storeWebsite)
         };
 
+        const idempotencyKey = generateIdempotencyKey();
+
         const response = await api<CreateStoreResponse>(`/tenants/${tenantId}/stores`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Accept: "application/json"
+            Accept: "application/json",
+            "Idempotency-Key": idempotencyKey
           },
           body: JSON.stringify(payload)
         });
@@ -90,8 +82,9 @@ export default function CreateStoreClient({ tenantId }: CreateStoreClientProps) 
         <header className="mb-6 space-y-2">
           <h1 className="text-2xl font-semibold">Create BTCPay Store</h1>
           <p className="text-sm text-muted-foreground">
-            We will reuse the Greenfield API key that was provisioned for your account during signup to create the store and
-            register a webhook. Confirm the store details below and submit to finish.
+            The backend will create a temporary BTCPay API key to bootstrap the store, issue a new scoped credential that
+            remains managed by PayPay, and register the default webhook on your behalf. Confirm the store details below and
+            submit to finish provisioning.
           </p>
         </header>
         {error && (
@@ -177,8 +170,8 @@ export default function CreateStoreClient({ tenantId }: CreateStoreClientProps) 
       <section className="rounded-xl border bg-muted/30 p-6 text-sm shadow-sm">
         <h2 className="text-lg font-semibold">Required BTCPay permissions</h2>
         <p className="mt-2 text-muted-foreground">
-          The managed API key used by the portal includes at least the following permissions to support store setup, webhook
-          registration and payment operations:
+          Managed API keys created for each store include the following scoped permissions to support invoicing and webhook
+          management while keeping configuration changes gated behind temporary credentials:
         </p>
         <ul className="mt-4 grid gap-2 md:grid-cols-2">
           {REQUIRED_PERMISSIONS.map((permission) => (
@@ -202,6 +195,14 @@ export default function CreateStoreClient({ tenantId }: CreateStoreClientProps) 
       </section>
     </div>
   );
+}
+
+function generateIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const fallback = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `store-${fallback}`;
 }
 
 function normalizeOptional(value: string): string | undefined {

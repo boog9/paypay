@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -37,7 +38,8 @@ export class TenantsController {
     const actorId = this.resolveActorId(req);
     const ip = this.extractIp(req);
     const email = this.resolveUserEmail(req);
-    return this.tenantsService.createAdditionalStore(tenantId, dto, actorId, ip, email);
+    const idempotencyKey = this.resolveIdempotencyKey(req);
+    return this.tenantsService.createAdditionalStore(tenantId, dto, actorId, ip, email, idempotencyKey);
   }
 
   @Get(':tenantId/stores')
@@ -110,5 +112,20 @@ export class TenantsController {
 
   private extractIp(req: Request): string | null {
     return req.ip ?? null;
+  }
+
+  private resolveIdempotencyKey(req: Request): string | null {
+    const value = req.header('idempotency-key');
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (trimmed.length > 200) {
+      throw new BadRequestException('Idempotency-Key header exceeds maximum length of 200 characters.');
+    }
+    return trimmed;
   }
 }

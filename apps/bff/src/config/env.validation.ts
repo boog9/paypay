@@ -28,6 +28,7 @@ export const EnvSchema = z.object({
   BTCPAY_MASTER_KEY: base64Min32.optional(),
   BTCPAY_HEALTH_STORE_ID: z.string().optional(),
   BTCPAY_HEALTH_API_KEY: z.string().optional(),
+  REVOKE_BOOTSTRAP_AFTER_CREATE: z.coerce.boolean().default(true),
 
   DATABASE_URL: z.string().optional(),
   POSTGRES_HOST: z.string().min(1),

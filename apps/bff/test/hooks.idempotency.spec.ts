@@ -24,6 +24,8 @@ describe('HooksController idempotency handling', () => {
       insert: jest.fn().mockResolvedValue(undefined)
     } as any;
 
+    const config = { get: jest.fn().mockReturnValue('true') } as any;
+
     const tenantsService = new TenantsService(
       { findOne: jest.fn() } as any,
       { findOne: jest.fn() } as any,
@@ -31,7 +33,8 @@ describe('HooksController idempotency handling', () => {
       idempotencyRepository,
       encryption,
       {} as any,
-      { transaction: jest.fn() } as any
+      { transaction: jest.fn() } as any,
+      config
     );
 
     const service = new HooksService(storeRepo, encryption, tenantsService);

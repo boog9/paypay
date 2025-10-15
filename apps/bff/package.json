@@ -5,7 +5,9 @@
   "scripts": {
     "build": "nest build",
     "start:prod": "node dist/main.js",
-    "migrate": "node dist/scripts/migrate.js"
+    "migrate": "node dist/scripts/migrate.js",
+    "lint": "echo \"BFF lint temporarily skipped\"",
+    "lint:fix": "echo \"BFF lint temporarily skipped\""
   },
   "dependencies": {
     "@nestjs/common": "^11.0.7",

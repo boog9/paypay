@@ -1,13 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSecureHeaders } from "next-secure-headers";
+
 import { getBffOrigin } from "./lib/bff";
 
 const csrfProtectedRoutes = [/^\/login$/, /^\/signup$/, /^\/organizations\/[^/]+\/settings\/emails$/];
+const protectedRoutes = [/^\/dashboard(?:\/?|$)/, /^\/stores(?:\/?|$)/, /^\/tenants(?:\/?|$)/];
 
 export function middleware(request: NextRequest) {
+  const hasSession = true; // TODO: replace with real session detection
+
+  if (!hasSession && protectedRoutes.some((pattern) => pattern.test(request.nextUrl.pathname))) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
   const response = NextResponse.next();
-  const connectSrc = ["'self'"];
-  connectSrc.push(getBffOrigin());
+  const connectSrc = ["'self'", getBffOrigin()];
 
   const secureHeaders = createSecureHeaders({
     forceHTTPSRedirect: [true, { maxAge: 60 * 60 * 24 * 365, includeSubDomains: true }],
@@ -18,9 +25,9 @@ export function middleware(request: NextRequest) {
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
         connectSrc,
-        frameAncestors: ["'none'"]
-      }
-    }
+        frameAncestors: ["'none'"],
+      },
+    },
   });
 
   Object.entries(secureHeaders).forEach(([key, value]) => {
@@ -45,7 +52,7 @@ export function middleware(request: NextRequest) {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
-        path: "/"
+        path: "/",
       });
     }
   }
@@ -54,5 +61,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/:path*"]
+  matcher: ["/:path*"],
 };

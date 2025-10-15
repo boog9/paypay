@@ -18,7 +18,8 @@
     "jsx": "preserve",
     "incremental": true,
     "types": [
-      "node"
+      "node",
+      "vitest"
     ],
     "esModuleInterop": true,
     "plugins": [

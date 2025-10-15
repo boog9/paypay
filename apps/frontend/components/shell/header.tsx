@@ -1,14 +1,19 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
+import { UserMenu } from "../user-menu";
 
 type ShellHeaderProps = {
   mobileNavigationTrigger: ReactNode;
+  user: {
+    name: string;
+    email: string;
+  };
 };
 
-export function ShellHeader({ mobileNavigationTrigger }: ShellHeaderProps) {
+export function ShellHeader({ mobileNavigationTrigger, user }: ShellHeaderProps) {
   return (
     <header
       aria-label="Application top bar"
@@ -23,17 +28,7 @@ export function ShellHeader({ mobileNavigationTrigger }: ShellHeaderProps) {
           PayPay Portal
         </Link>
       </div>
-      <div className="flex items-center gap-3">
-        <Button
-          aria-haspopup="menu"
-          aria-label="Open account menu"
-          size="sm"
-          variant="outline"
-        >
-          Account
-        </Button>
-        <Badge variant="secondary">2FA Active</Badge>
-      </div>
+      <UserMenu name={user.name} email={user.email} />
     </header>
   );
 }

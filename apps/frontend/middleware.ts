@@ -7,7 +7,7 @@ const csrfProtectedRoutes = [/^\/login$/, /^\/signup$/, /^\/organizations\/[^/]+
 const protectedRoutes = [/^\/dashboard(?:\/?|$)/, /^\/stores(?:\/?|$)/, /^\/tenants(?:\/?|$)/];
 
 export function middleware(request: NextRequest) {
-  const hasSession = true; // TODO: replace with real session detection
+  const hasSession = Boolean(request.cookies.get("pp_session")?.value);
 
   if (!hasSession && protectedRoutes.some((pattern) => pattern.test(request.nextUrl.pathname))) {
     return NextResponse.redirect(new URL("/sign-in", request.url));

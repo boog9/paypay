@@ -1,6 +1,9 @@
-import Link from "next/link";
+"use client";
 
 import { cn } from "../../lib/utils";
+import type { StoreOption } from "../store-selector";
+import { StoreSelector } from "../store-selector";
+import { StoresNavList } from "../stores-nav-list";
 import { SidebarNav } from "./sidebar-nav";
 
 const NAV_ITEMS = [
@@ -11,9 +14,11 @@ const NAV_ITEMS = [
 type ShellSidebarProps = {
   variant: "desktop" | "mobile";
   onNavigate?: () => void;
+  stores: StoreOption[];
+  activeStoreId?: string;
 };
 
-export function ShellSidebar({ variant, onNavigate }: ShellSidebarProps) {
+export function ShellSidebar({ variant, onNavigate, stores, activeStoreId }: ShellSidebarProps) {
   return (
     <aside
       aria-label="Application navigation"
@@ -23,14 +28,17 @@ export function ShellSidebar({ variant, onNavigate }: ShellSidebarProps) {
         variant === "mobile" && "lg:hidden"
       )}
     >
-      <div className="flex h-16 items-center border-b px-6 text-base font-semibold text-foreground lg:h-20 lg:px-8">
-        <Link
-          href="/dashboard"
-          className="transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          PayPay Portal
-        </Link>
+      <div className="border-b px-4 pb-4 pt-5 lg:px-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stores</p>
+        <div className="mt-2">
+          <StoreSelector
+            stores={stores}
+            activeStoreId={activeStoreId}
+            onStoreNavigate={onNavigate}
+          />
+        </div>
       </div>
+      <StoresNavList stores={stores} activeStoreId={activeStoreId} onNavigate={onNavigate} />
       <SidebarNav items={NAV_ITEMS} onNavigate={onNavigate} />
     </aside>
   );

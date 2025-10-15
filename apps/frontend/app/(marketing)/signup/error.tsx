@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Button } from '../../components/ui/button';
+import { Button } from '../../../components/ui/button';
 
 export default function SignupError({ error, reset }: { error: Error; reset: () => void }) {
   useEffect(() => {

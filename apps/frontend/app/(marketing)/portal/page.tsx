@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { Button } from '../../components/ui/button';
+import { Button } from '../../../components/ui/button';
 import { PortalClient } from './portal-client';
 
 export const metadata: Metadata = {

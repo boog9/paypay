@@ -2,12 +2,12 @@
 
 import { FormEvent, useCallback, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginAction, type AuthFormState } from '../(auth)/client-actions';
-import { Button } from '../../components/ui/button';
+import { signupAction, type AuthFormState } from '../../(auth)/client-actions';
+import { Button } from '../../../components/ui/button';
 
 const initialState: AuthFormState = { status: 'idle' };
 
-export function LoginForm() {
+export function SignupForm() {
   const router = useRouter();
   const [state, setState] = useState<AuthFormState>(initialState);
   const [isPending, startTransition] = useTransition();
@@ -15,13 +15,21 @@ export function LoginForm() {
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const formData = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const formData = new FormData(formElement);
 
       setState(initialState);
       startTransition(async () => {
-        const result = await loginAction(formData);
+        const result = await signupAction(formData);
         if (result.status === 'success') {
           const nextPath = result.next ?? '/portal';
+          if (typeof window !== 'undefined' && result.apiKey) {
+            try {
+              sessionStorage.setItem('paypay.portal.apiKey', result.apiKey);
+            } catch {
+              // Ignore storage errors; the portal page will simply skip the banner.
+            }
+          }
           try {
             router.prefetch(nextPath);
           } catch {
@@ -55,10 +63,10 @@ export function LoginForm() {
           autoComplete="email"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-invalid={state.status === 'error' && Boolean(state.fieldErrors?.email)}
-          aria-describedby={state.fieldErrors?.email ? 'login-email-error' : undefined}
+          aria-describedby={state.fieldErrors?.email ? 'email-error' : undefined}
         />
         {state.fieldErrors?.email && (
-          <p id="login-email-error" className="whitespace-pre-line text-sm text-destructive">
+          <p id="email-error" className="whitespace-pre-line text-sm text-destructive">
             {state.fieldErrors.email.join('\n')}
           </p>
         )}
@@ -72,14 +80,15 @@ export function LoginForm() {
           name="password"
           type="password"
           required
-          autoComplete="current-password"
+          autoComplete="new-password"
           minLength={12}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-invalid={state.status === 'error' && Boolean(state.fieldErrors?.password)}
-          aria-describedby={state.fieldErrors?.password ? 'login-password-error' : undefined}
+          aria-describedby={state.fieldErrors?.password ? 'password-error' : undefined}
         />
+        <p className="text-xs text-muted-foreground">Minimum 12 characters; avoid reusing passwords.</p>
         {state.fieldErrors?.password && (
-          <p id="login-password-error" className="whitespace-pre-line text-sm text-destructive">
+          <p id="password-error" className="whitespace-pre-line text-sm text-destructive">
             {state.fieldErrors.password.join('\n')}
           </p>
         )}
@@ -90,7 +99,7 @@ export function LoginForm() {
         </p>
       )}
       <Button type="submit" disabled={isPending} className="w-full">
-        {isPending ? 'Signing in…' : 'Sign in'}
+        {isPending ? 'Creating…' : 'Create account'}
       </Button>
     </form>
   );

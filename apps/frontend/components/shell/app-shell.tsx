@@ -1,16 +1,43 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Menu } from "lucide-react";
+import { usePathname } from "next/navigation";
 
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet";
 import { ShellHeader } from "./header";
 import { ShellSidebar } from "./sidebar";
+import type { StoreOption } from "../store-selector";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const pathname = usePathname();
+
+  const stores = useMemo<StoreOption[]>(
+    () => [
+      { id: "espresso-bar", name: "Lightning Espresso", status: "connected", emoji: "⚡️" },
+      { id: "noir-bakery", name: "Noir Bakery", status: "pending", emoji: "🥐" },
+      { id: "sat-stackers", name: "Sat Stackers", status: "error", emoji: "🪙" },
+    ],
+    []
+  );
+
+  const activeStoreId = useMemo(() => {
+    if (!pathname) {
+      return stores[0]?.id;
+    }
+    const matchedStore = stores.find((store) =>
+      pathname.startsWith(`/tenants/${store.id}`) || pathname.startsWith(`/stores/${store.id}`)
+    );
+    return matchedStore?.id ?? stores[0]?.id;
+  }, [pathname, stores]);
+
+  const user = {
+    name: "Ada Merchant",
+    email: "ada.merchant@example.com",
+  };
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -21,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <div className="flex min-h-screen">
-        <ShellSidebar variant="desktop" />
+        <ShellSidebar stores={stores} activeStoreId={activeStoreId} variant="desktop" />
         <div className="flex min-h-screen flex-1 flex-col">
           <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
             <ShellHeader
@@ -37,6 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </Button>
                 </SheetTrigger>
               }
+              user={user}
             />
             <Separator className="lg:hidden" />
             <main id="main-content" className="flex-1 overflow-y-auto">
@@ -45,7 +73,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             </main>
             <SheetContent side="left" className="w-full max-w-xs border-r p-0">
-              <ShellSidebar onNavigate={() => setIsMobileNavOpen(false)} variant="mobile" />
+              <ShellSidebar
+                onNavigate={() => setIsMobileNavOpen(false)}
+                stores={stores}
+                activeStoreId={activeStoreId}
+                variant="mobile"
+              />
             </SheetContent>
           </Sheet>
         </div>

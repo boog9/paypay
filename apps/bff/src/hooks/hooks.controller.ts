@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Headers, Post, Req, Res } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import type { RawBodyRequest } from '../http/raw-body-request';
 import { HooksService } from './hooks.service';
 
 @Controller('hooks')
@@ -17,7 +18,7 @@ export class HooksController {
     @Body() payload: Record<string, unknown> = {},
     @Res({ passthrough: true }) res: Response
   ) {
-    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const rawBody = (req as RawBodyRequest).rawBody;
     const deliveryId = deliveryHeader || legacyDeliveryHeader;
     if (!deliveryId) {
       throw new BadRequestException('Missing delivery identifier');

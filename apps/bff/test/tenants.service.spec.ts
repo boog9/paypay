@@ -6,7 +6,6 @@ import { AuditLogEntity } from '../src/tenants/entities/audit-log.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
 import { ConfigService } from '@nestjs/config';
-import { BTCPAY_MINIMAL_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 
 describe('TenantsService onboarding flows', () => {
   function createService() {

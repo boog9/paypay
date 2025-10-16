@@ -358,7 +358,11 @@ export class TenantsService {
     }));
   }
 
-  async createInvoice(tenantId: string, dto: CreateTenantInvoiceDto, requesterEmail: string | null) {
+  async createInvoice(
+    tenantId: string,
+    dto: CreateTenantInvoiceDto,
+    requesterEmail: string | null
+  ): Promise<{ invoiceId: string; checkoutLink: string | null; status: string | null }> {
     await this.requireTenantOwner(tenantId, requesterEmail);
     const store = await this.storesRepository.findOne({ where: { id: dto.storeId, tenantId } });
     if (!store) {
@@ -379,8 +383,8 @@ export class TenantsService {
       });
       return {
         invoiceId: invoice.id,
-        checkoutLink: invoice.checkoutLink,
-        status: invoice.status
+        checkoutLink: invoice.checkoutLink ?? null,
+        status: invoice.status ?? null
       };
     } finally {
       this.clearBuffer(apiKey);
@@ -403,15 +407,12 @@ export class TenantsService {
     const apiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
     try {
       const remote = await this.btcpayService.getStore(store.btcpayHost, apiKey, store.btcpayStoreId);
-      if (remote && typeof remote === 'object') {
-        const remoteName = (remote as { name?: string }).name;
-        if (typeof remoteName === 'string' && remoteName.trim().length > 0) {
-          storeName = remoteName;
-        }
-        const remoteWebsite = this.sanitizeWebsite((remote as { website?: string }).website ?? undefined);
-        if (remoteWebsite) {
-          storeWebsite = remoteWebsite;
-        }
+      if (typeof remote.name === 'string' && remote.name.trim().length > 0) {
+        storeName = remote.name;
+      }
+      const remoteWebsite = this.sanitizeWebsite(remote.website ?? undefined);
+      if (remoteWebsite) {
+        storeWebsite = remoteWebsite;
       }
     } catch (error) {
       this.logger.warn(

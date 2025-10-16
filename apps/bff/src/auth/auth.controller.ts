@@ -224,7 +224,7 @@ export class AuthController {
       return false;
     }
 
-    const lowerHost = host.replace(/[\[\]]/g, '').toLowerCase();
+    const lowerHost = host.replace(/\[|\]/g, '').toLowerCase();
     const hostWithoutPort = this.stripPort(lowerHost);
 
     if (['localhost', '127.0.0.1', '::1'].includes(hostWithoutPort)) {

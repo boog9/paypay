@@ -41,6 +41,7 @@ interface WebhookResponse {
 interface StoreResponse {
   id: string;
   name?: string;
+  website?: string | null;
 }
 
 interface CurrentApiKeyResponse {
@@ -51,6 +52,12 @@ interface CurrentApiKeyResponse {
 interface ApiKeyDetails {
   label?: string;
   permissions: string[];
+}
+
+interface InvoiceResponse {
+  id: string;
+  checkoutLink?: string | null;
+  status?: string;
 }
 
 interface UserResponse {
@@ -317,7 +324,7 @@ export class BtcpayService {
     payload: CreateInvoiceRequest;
     apiKey?: string;
     host?: string;
-  }) {
+  }): Promise<InvoiceResponse> {
     const host = opts.host ?? this.config.baseUrl;
     if (!host) {
       throw new InternalServerErrorException('BTCPay host is not configured');
@@ -354,24 +361,29 @@ export class BtcpayService {
     }
   }
 
-  private async doCreateInvoice(host: string, apiKey: string, storeId: string, payload: CreateInvoiceRequest) {
+  private async doCreateInvoice(
+    host: string,
+    apiKey: string,
+    storeId: string,
+    payload: CreateInvoiceRequest
+  ): Promise<InvoiceResponse> {
     const http = this.createHttp(host, {
       Authorization: `token ${apiKey}`
     });
     try {
-      const { data } = await http.post(`/api/v1/stores/${storeId}/invoices`, payload);
+      const { data } = await http.post<InvoiceResponse>(`/api/v1/stores/${storeId}/invoices`, payload);
       return data;
     } catch (error) {
       return this.maskError(error);
     }
   }
 
-  async getStore(host: string | undefined, apiKey: string, storeId: string) {
+  async getStore(host: string | undefined, apiKey: string, storeId: string): Promise<StoreResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${apiKey}`
     });
     try {
-      const { data } = await http.get(`/api/v1/stores/${storeId}`);
+      const { data } = await http.get<StoreResponse>(`/api/v1/stores/${storeId}`);
       return data;
     } catch (error) {
       return this.maskError(error);

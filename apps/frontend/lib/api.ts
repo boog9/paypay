@@ -11,15 +11,15 @@ export class ApiError extends Error {
 }
 
 const rawBff = process.env.NEXT_PUBLIC_BFF_URL;
-if (!rawBff) {
-  throw new Error('NEXT_PUBLIC_BFF_URL must be defined');
-}
-const trimmedBff = rawBff.trim();
-if (!trimmedBff) {
-  throw new Error('NEXT_PUBLIC_BFF_URL cannot be empty');
+const trimmedBff = typeof rawBff === 'string' ? rawBff.trim() : '';
+
+if (!trimmedBff && process.env.NODE_ENV !== 'production') {
+  console.warn(
+    'NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.'
+  );
 }
 
-export const BFF = trimmedBff.replace(/\/$/, '');
+export const BFF = trimmedBff ? trimmedBff.replace(/\/$/, '') : '';
 export const API_PREFIX = '/api';
 
 function resolvePath(path: string): string {

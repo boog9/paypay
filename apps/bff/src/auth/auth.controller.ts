@@ -17,7 +17,15 @@ import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { AuthResult, AuthUserResponse, SignupResponse } from './dto/auth-response.dto';
+import {
+  AuthSessionDto,
+  AuthTokensDto,
+  AuthUserResponseDto,
+  LogoutResponseDto,
+  RegisterResponseDto,
+  SignupResponseDto,
+  SignupServiceResultDto
+} from './dto/auth-response.dto';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   ACCESS_TOKEN_COOKIE_PATH,
@@ -76,10 +84,11 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: RegisterDto,
     @Res({ passthrough: true }) res: Response
-  ) {
+  ): Promise<RegisterResponseDto> {
     const user = await this.authService.register(dto);
     this.csrfService.rotateToken(req, res);
-    return { id: user.id, email: user.email };
+    const response: RegisterResponseDto = { id: user.id, email: user.email };
+    return response;
   }
 
   @Post('signup')
@@ -88,11 +97,15 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: SignupDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<SignupResponse> {
-    const result = await this.authService.signup(dto);
+  ): Promise<SignupResponseDto> {
+    const result: SignupServiceResultDto = await this.authService.signup(dto);
     this.applyAuthCookies(res, result.auth);
     this.csrfService.rotateToken(req, res);
-    return result.apiKey ? { next: result.next, apiKey: result.apiKey } : { next: result.next };
+    const response: SignupResponseDto = { next: result.next };
+    if (result.apiKey) {
+      response.apiKey = result.apiKey;
+    }
+    return response;
   }
 
   @HttpCode(HttpStatus.OK)
@@ -102,11 +115,12 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<AuthUserResponse> {
-    const result = await this.authService.login(dto);
+  ): Promise<AuthUserResponseDto> {
+    const result: AuthSessionDto = await this.authService.login(dto);
     this.applyAuthCookies(res, result);
     this.csrfService.rotateToken(req, res);
-    return { user: result.user };
+    const response: AuthUserResponseDto = { user: result.user };
+    return response;
   }
 
   @HttpCode(HttpStatus.OK)
@@ -116,16 +130,17 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: RefreshTokenDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<AuthUserResponse> {
+  ): Promise<AuthUserResponseDto> {
     const refreshToken = this.resolveRefreshToken(req) ?? dto.refreshToken;
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
     }
 
-    const result = await this.authService.refresh({ refreshToken });
+    const result: AuthSessionDto = await this.authService.refresh({ refreshToken });
     this.applyAuthCookies(res, result);
     this.csrfService.rotateToken(req, res);
-    return { user: result.user };
+    const response: AuthUserResponseDto = { user: result.user };
+    return response;
   }
 
   @HttpCode(HttpStatus.OK)
@@ -135,21 +150,22 @@ export class AuthController {
     @Req() req: RequestWithCsrf,
     @Body() dto: LogoutDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<{ success: boolean }> {
+  ): Promise<LogoutResponseDto> {
     const refreshToken = this.resolveRefreshToken(req) ?? dto.refreshToken;
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
     }
 
-    const result = await this.authService.logout({ refreshToken });
+    const result: LogoutResponseDto = await this.authService.logout({ refreshToken });
     this.clearAuthCookies(res);
     this.csrfService.rotateToken(req, res);
-    return result;
+    const response: LogoutResponseDto = { success: result.success };
+    return response;
   }
 
-  private applyAuthCookies(res: Response, result: AuthResult): void {
-    res.cookie(ACCESS_TOKEN_COOKIE_NAME, result.accessToken, this.accessCookieOptions);
-    res.cookie(REFRESH_TOKEN_COOKIE_NAME, result.refreshToken, this.refreshCookieOptions);
+  private applyAuthCookies(res: Response, tokens: AuthTokensDto): void {
+    res.cookie(ACCESS_TOKEN_COOKIE_NAME, tokens.accessToken, this.accessCookieOptions);
+    res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, this.refreshCookieOptions);
   }
 
   private clearAuthCookies(res: Response): void {
@@ -158,7 +174,12 @@ export class AuthController {
   }
 
   private resolveRefreshToken(req: RequestWithCsrf): string | undefined {
-    return req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+    const cookies: unknown = req.cookies;
+    if (!cookies || typeof cookies !== 'object') {
+      return undefined;
+    }
+    const rawToken = (cookies as Record<string, unknown>)[REFRESH_TOKEN_COOKIE_NAME];
+    return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
   private resolveCookieDomain(): string {

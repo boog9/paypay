@@ -9,7 +9,7 @@ import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { AuthResult } from './dto/auth-response.dto';
+import { AuthSessionDto, LogoutResponseDto, SignupServiceResultDto } from './dto/auth-response.dto';
 import { ACCESS_TOKEN_ALGORITHM, ACCESS_TOKEN_AUDIENCE, ACCESS_TOKEN_ISSUER, REFRESH_TOKEN_TTL_MS } from './auth.constants';
 import { UserEntity } from './entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
@@ -21,12 +21,6 @@ interface RefreshTokenPayload {
   sub: string;
   email: string;
   jti: string;
-}
-
-interface SignupResult {
-  auth: AuthResult;
-  apiKey?: string;
-  next: string;
 }
 
 @Injectable()
@@ -66,7 +60,7 @@ export class AuthService {
     return this.usersRepository.save(user);
   }
 
-  async signup(dto: SignupDto): Promise<SignupResult> {
+  async signup(dto: SignupDto): Promise<SignupServiceResultDto> {
     const user = await this.register(dto);
 
     try {
@@ -91,7 +85,7 @@ export class AuthService {
     }
   }
 
-  async login(dto: LoginDto): Promise<AuthResult> {
+  async login(dto: LoginDto): Promise<AuthSessionDto> {
     const email = normalizeEmail(dto.email);
     const user = await this.usersRepository.findOne({ where: { email } });
     if (!user) {
@@ -106,7 +100,7 @@ export class AuthService {
     return this.issueTokens(user, true);
   }
 
-  async refresh(dto: RefreshTokenDto): Promise<AuthResult> {
+  async refresh(dto: RefreshTokenDto): Promise<AuthSessionDto> {
     const refreshToken = dto.refreshToken;
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
@@ -140,7 +134,7 @@ export class AuthService {
     return this.issueTokens(user, false);
   }
 
-  async logout(dto: LogoutDto): Promise<{ success: boolean }> {
+  async logout(dto: LogoutDto): Promise<LogoutResponseDto> {
     const refreshToken = dto.refreshToken;
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
@@ -161,7 +155,7 @@ export class AuthService {
     return { success: true };
   }
 
-  private async issueTokens(user: UserEntity, revokeExisting: boolean): Promise<AuthResult> {
+  private async issueTokens(user: UserEntity, revokeExisting: boolean): Promise<AuthSessionDto> {
     if (revokeExisting) {
       await this.refreshTokenRepository.update({ userId: user.id, revokedAt: IsNull() }, { revokedAt: new Date() });
     }

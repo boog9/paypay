@@ -13,16 +13,37 @@ import { randomUUID } from 'crypto';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from './btcpay.constants';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 
-type CreateUserResponse = {
+export class ProvisioningError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'ProvisioningError';
+  }
+}
+
+export function ensureError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
+  }
+}
+
+interface CreateUserResponse {
   id?: string;
   email: string;
-};
+}
 
-type CreateApiKeyResponse = {
+interface CreateApiKeyResponse {
   apiKey: string;
   label: string;
   permissions: string[];
-};
+}
 
 @Injectable()
 export class BtcpayProvisioningService {
@@ -94,8 +115,9 @@ export class BtcpayProvisioningService {
       }
       const url = new URL(trimmed, this.config.baseUrl);
       return url.toString();
-    } catch (error) {
-      this.logger.warn(`Invalid BTCPay invitation URL received: ${rawUrl}`);
+    } catch (error: unknown) {
+      const err = ensureError(error);
+      this.logger.warn(`Invalid BTCPay invitation URL received: ${rawUrl}. ${err.message}`);
       return undefined;
     }
   }
@@ -119,18 +141,23 @@ export class BtcpayProvisioningService {
           maxRedirects: 0,
           validateStatus: (status) => status >= 200 && status < 400
         });
-      } catch (error) {
-        if (axios.isAxiosError(error) && error.response && error.response.status >= 400 && error.response.status < 500) {
+      } catch (error: unknown) {
+        if (
+          axios.isAxiosError(error) &&
+          error.response &&
+          error.response.status >= 400 &&
+          error.response.status < 500
+        ) {
           this.logger.warn(
             `BTCPay invitation finalization returned status ${error.response.status} for user ${email}. Continuing without failing.`
           );
           return;
         }
-        throw error;
+        throw ensureError(error);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to finalize BTCPay invitation for ${email}: ${message}`);
+    } catch (error: unknown) {
+      const err = ensureError(error);
+      this.logger.warn(`Failed to finalize BTCPay invitation for ${email}: ${err.message}`);
     }
   }
 
@@ -164,12 +191,12 @@ export class BtcpayProvisioningService {
     const http = this.createHttp();
     const maxAttempts = 3;
     let attempt = 0;
-    let lastError: unknown;
+    let lastError: unknown = new Error('Unknown BTCPay provisioning error');
 
     while (attempt < maxAttempts) {
       try {
         return await handler(http);
-      } catch (error) {
+      } catch (error: unknown) {
         lastError = error;
         const recovered = recover?.(error);
         if (recovered !== undefined) {
@@ -182,11 +209,11 @@ export class BtcpayProvisioningService {
           attempt += 1;
           continue;
         }
-        throw this.toHttpException(error, code, operation);
+        this.raiseProvisioningError(error, code, operation);
       }
     }
 
-    throw this.toHttpException(lastError, code, operation);
+    this.raiseProvisioningError(lastError, code, operation);
   }
 
   private isRetryableError(error: unknown): boolean {
@@ -207,37 +234,66 @@ export class BtcpayProvisioningService {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private toHttpException(error: unknown, code: string, operation: string): never {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status ?? 502;
-      const message = this.extractErrorMessage(error, operation);
-      const payload = { code, message };
-      const cause = error as Error;
+  private raiseProvisioningError(
+    error: unknown,
+    code: `INTEGRATION_BTCPAY_${string}`,
+    operation: string
+  ): never {
+    const err = ensureError(error);
+    this.logger.error({ err, operation }, 'BTCPay provisioning failed');
+    const message = axios.isAxiosError(error)
+      ? this.extractErrorMessage(error, operation)
+      : `BTCPay integration failed: ${operation}`;
+    const provisioningError = new ProvisioningError(message, err);
+    this.toHttpException(provisioningError, code, operation);
+  }
+
+  private toHttpException(error: ProvisioningError, code: string, operation: string): never {
+    const cause = error.cause ? ensureError(error.cause) : error;
+    if (axios.isAxiosError(cause)) {
+      const status = cause.response?.status ?? 502;
+      const payload = { code, message: error.message };
       switch (status) {
         case 400:
-          throw new BadRequestException(payload, { cause });
+          throw new BadRequestException(payload, { cause: error });
         case 401:
-          throw new UnauthorizedException(payload, { cause });
+          throw new UnauthorizedException(payload, { cause: error });
         case 403:
-          throw new ForbiddenException(payload, { cause });
+          throw new ForbiddenException(payload, { cause: error });
         case 404:
-          throw new NotFoundException(payload, { cause });
+          throw new NotFoundException(payload, { cause: error });
         default:
-          throw new BadGatewayException(payload, { cause });
+          throw new BadGatewayException(payload, { cause: error });
       }
     }
 
     throw new BadGatewayException(
-      { code, message: `BTCPay integration failed: ${operation}` },
-      { cause: error instanceof Error ? error : undefined }
+      { code, message: error.message || `BTCPay integration failed: ${operation}` },
+      { cause: error }
     );
   }
 
-  private extractErrorMessage(error: AxiosError, operation: string): string {
-    const raw = error.response?.data as any;
-    const remoteMessage = typeof raw?.message === 'string' ? raw.message : undefined;
-    return remoteMessage?.trim() && remoteMessage.length <= 256
-      ? remoteMessage.trim()
-      : `BTCPay integration failed: ${operation}`;
+  private extractErrorMessage(error: AxiosError<unknown>, operation: string): string {
+    const data = error.response?.data;
+    if (typeof data === 'string') {
+      const trimmed = data.trim();
+      if (trimmed) {
+        return trimmed.slice(0, 256);
+      }
+    }
+    if (data && typeof data === 'object') {
+      const maybeMessage = (data as { message?: unknown }).message;
+      if (typeof maybeMessage === 'string') {
+        const trimmed = maybeMessage.trim();
+        if (trimmed) {
+          return trimmed.slice(0, 256);
+        }
+      }
+    }
+    const fallback = error.message?.trim();
+    if (fallback) {
+      return fallback.slice(0, 256);
+    }
+    return `BTCPay integration failed: ${operation}`;
   }
 }

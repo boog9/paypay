@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import nock from 'nock';
+import { createHash } from 'crypto';
 import { DataSource } from 'typeorm';
 import * as argon2 from 'argon2';
 import { AppModule } from '../src/app.module';
@@ -16,8 +17,12 @@ describe('Auth signup provisioning (e2e)', () => {
   let server: any;
   let agent: ReturnType<typeof request.agent>;
   let dataSource: DataSource;
+  let originalDomain: string | undefined;
 
   beforeAll(async () => {
+    originalDomain = process.env.PAYPAY_DOMAIN;
+    process.env.PAYPAY_DOMAIN = 'iddqd.in';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     }).compile();
@@ -44,6 +49,11 @@ describe('Auth signup provisioning (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+    if (originalDomain === undefined) {
+      delete process.env.PAYPAY_DOMAIN;
+    } else {
+      process.env.PAYPAY_DOMAIN = originalDomain;
+    }
   });
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
@@ -74,6 +84,9 @@ describe('Auth signup provisioning (e2e)', () => {
     const apiBasePath = btcpayUrl.pathname.replace(/\/$/, '');
 
     const invitationPath = '/invitations/accept?code=abc';
+    const expectedIdempotencyKey = createHash('sha256')
+      .update(`create-api-key:${email.toLowerCase()}`)
+      .digest('hex');
     const scope = nock(btcpayUrl.origin)
       .post(`${apiBasePath}/api/v1/users`, (body: any) => {
         expect(body).toEqual(
@@ -97,7 +110,7 @@ describe('Auth signup provisioning (e2e)', () => {
         return true;
       })
       .matchHeader('Authorization', `token ${adminToken}`)
-      .matchHeader('Idempotency-Key', /.+/)
+      .matchHeader('Idempotency-Key', expectedIdempotencyKey)
       .reply(200, {
         apiKey: 'btcpay-api-key',
         label: 'PayPay Portal',
@@ -119,7 +132,11 @@ describe('Auth signup provisioning (e2e)', () => {
     const cookieHeader = cookies.join(';');
     expect(cookieHeader).toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
     expect(cookieHeader).toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
-    expect(cookieHeader).toContain('Domain=.iddqd.in');
+    if (process.env.PAYPAY_DOMAIN) {
+      expect(cookieHeader).toContain(`Domain=.${process.env.PAYPAY_DOMAIN.replace(/^[.]+/, '')}`);
+    } else {
+      expect(cookieHeader).not.toMatch(/Domain=/i);
+    }
 
     const userRepository = dataSource.getRepository(UserEntity);
     const savedUser = await userRepository.findOneByOrFail({ email: email.toLowerCase() });

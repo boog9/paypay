@@ -65,20 +65,29 @@ export class AuthService {
 
     try {
       const btcpayUser = await this.btcpayProvisioning.createUserInBtcpay(user.email, dto.password);
-      const apiKey = await this.btcpayProvisioning.createUserApiKey(
-        user.email,
-        'PayPay Portal',
-        this.btcpayProvisioning.getDefaultPermissions()
-      );
-
       user.btcpayUserId = btcpayUser?.id ?? user.btcpayUserId ?? null;
-      user.btcpayApiKeyLabel = apiKey.label;
-      user.btcpayApiKeyPermissions = JSON.stringify([...apiKey.permissions].sort());
-      user.btcpayApiKeyHash = await argon2.hash(apiKey.apiKey, { type: argon2.argon2id });
+
+      let issuedApiKey: string | undefined;
+      if (!user.btcpayApiKeyHash) {
+        const apiKey = await this.btcpayProvisioning.createUserApiKey(
+          user.email,
+          'PayPay Portal',
+          this.btcpayProvisioning.getDefaultPermissions()
+        );
+        user.btcpayApiKeyLabel = apiKey.label;
+        user.btcpayApiKeyPermissions = JSON.stringify([...apiKey.permissions].sort());
+        user.btcpayApiKeyHash = await argon2.hash(apiKey.apiKey, { type: argon2.argon2id });
+        issuedApiKey = apiKey.apiKey;
+      }
+
       await this.usersRepository.save(user);
 
       const tokens = await this.issueTokens(user, true);
-      return { auth: tokens, apiKey: apiKey.apiKey, next: '/portal' };
+      const response: SignupServiceResultDto = { auth: tokens, next: '/portal' };
+      if (issuedApiKey) {
+        response.apiKey = issuedApiKey;
+      }
+      return response;
     } catch (error) {
       await this.usersRepository.delete(user.id);
       throw error;

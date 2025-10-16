@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import nock from 'nock';
+import { createHash } from 'crypto';
 import { AppModule } from '../src/app.module';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
@@ -103,6 +104,10 @@ describe('AuthModule (e2e)', () => {
     const signupPassword = 'averysecurepassword';
 
     const invitationPath = '/invitations/accept?code=xyz';
+    const expectedIdempotencyKey = createHash('sha256')
+      .update(`create-api-key:${signupEmail.toLowerCase()}`)
+      .digest('hex');
+
     const scope = nock(btcpayUrl.origin)
       .post(`${apiBasePath}/api/v1/users`, (body: any) => {
         expect(body).toEqual(
@@ -126,7 +131,7 @@ describe('AuthModule (e2e)', () => {
         return true;
       })
       .matchHeader('Authorization', `token ${adminToken}`)
-      .matchHeader('Idempotency-Key', /.+/)
+      .matchHeader('Idempotency-Key', expectedIdempotencyKey)
       .reply(200, {
         apiKey: 'btcpay-user-api-key',
         label: 'PayPay Portal',

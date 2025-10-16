@@ -9,7 +9,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from './btcpay.constants';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 
@@ -43,6 +43,10 @@ interface CreateApiKeyResponse {
   apiKey: string;
   label: string;
   permissions: string[];
+}
+
+function idempotencyForApiKey(email: string): string {
+  return createHash('sha256').update(`create-api-key:${email.toLowerCase()}`).digest('hex');
 }
 
 @Injectable()
@@ -91,7 +95,7 @@ export class BtcpayProvisioningService {
           requestPayload,
           {
             headers: {
-              'Idempotency-Key': randomUUID()
+              'Idempotency-Key': idempotencyForApiKey(email)
             }
           }
         );

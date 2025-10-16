@@ -86,7 +86,7 @@ async function bootstrap() {
     // Ensure IP forwarding works correctly when running behind a layer 7 proxy.
     expressInstance.set('trust proxy', effectiveTrustProxyValue);
 
-    const hooksPaths: readonly string[] = ['/hooks/btcpay', '/api/hooks/btcpay'];
+    const hooksPaths = ['/hooks/btcpay', '/api/hooks/btcpay'];
     const isBtcpayHookPath = (path: string) => hooksPaths.some((prefix) => path.startsWith(prefix));
 
     // 1) Keep BTCPay webhooks first with their dedicated parser so raw bodies remain intact.

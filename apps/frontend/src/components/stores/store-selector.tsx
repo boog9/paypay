@@ -1,28 +1,20 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Search } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { cn } from "../lib/utils";
-import { Input } from "./ui/input";
-
-export type StoreOption = {
-  id: string;
-  name: string;
-  status: "connected" | "pending" | "error";
-  emoji?: string;
-};
+import { cn } from "../../../lib/utils";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { Skeleton } from "../../../components/ui/skeleton";
+import { useStoresQuery } from "../../hooks/use-stores";
 
 type StoreSelectorProps = {
-  stores: StoreOption[];
-  activeStoreId?: string;
-  onStoreNavigate?: () => void;
+  onStoreSelected?: () => void;
 };
 
-export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreSelectorProps) {
-  const router = useRouter();
-  const pathname = usePathname();
+export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -30,29 +22,60 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const activeStore = useMemo(() => {
-    if (activeStoreId) {
-      return stores.find((store) => store.id === activeStoreId) ?? null;
+  const { data: stores = [], isLoading, isError } = useStoresQuery();
+
+  const normalizedStores = useMemo(() => stores, [stores]);
+
+  const currentStoreId = useMemo(() => {
+    const existing = searchParams.get("store");
+    if (existing && normalizedStores.some((store) => store.id === existing)) {
+      return existing;
     }
-    if (!pathname) {
-      return stores[0] ?? null;
+    return normalizedStores[0]?.id ?? null;
+  }, [normalizedStores, searchParams]);
+
+  useEffect(() => {
+    if (!normalizedStores.length || !pathname) {
+      return;
     }
-    return stores.find((store) => pathname.startsWith(`/tenants/${store.id}`) || pathname.startsWith(`/stores/${store.id}`)) ?? stores[0] ?? null;
-  }, [activeStoreId, pathname, stores]);
+    const existing = searchParams.get("store");
+    const fallback = normalizedStores[0]?.id;
+    if (!fallback) {
+      return;
+    }
+    if (!existing || !normalizedStores.some((store) => store.id === existing)) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("store", fallback);
+      const queryString = params.toString();
+      const target = queryString ? `${pathname}?${queryString}` : pathname;
+      router.replace(target, { scroll: false });
+    }
+  }, [normalizedStores, pathname, router, searchParams]);
 
   const filteredStores = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return stores;
+    if (!query.trim()) {
+      return normalizedStores;
     }
-    return stores.filter((store) => store.name.toLowerCase().includes(normalizedQuery));
-  }, [query, stores]);
+    const normalizedQuery = query.trim().toLowerCase();
+    return normalizedStores.filter((store) => store.name.toLowerCase().includes(normalizedQuery));
+  }, [normalizedStores, query]);
+
+  const activeStore = useMemo(() => {
+    if (!currentStoreId) {
+      return null;
+    }
+    return normalizedStores.find((store) => store.id === currentStoreId) ?? null;
+  }, [currentStoreId, normalizedStores]);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
+
     function handleClick(event: MouseEvent) {
       if (!panelRef.current || !buttonRef.current) {
         return;
@@ -62,6 +85,7 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
       }
       setIsOpen(false);
     }
+
     document.addEventListener("mousedown", handleClick);
     return () => {
       document.removeEventListener("mousedown", handleClick);
@@ -71,12 +95,12 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
   useEffect(() => {
     if (isOpen) {
       inputRef.current?.focus({ preventScroll: true });
-      const indexToHighlight = filteredStores.findIndex((store) => store.id === activeStore?.id);
+      const indexToHighlight = normalizedStores.findIndex((store) => store.id === currentStoreId);
       setHighlightedIndex(indexToHighlight >= 0 ? indexToHighlight : 0);
     } else {
       setQuery("");
     }
-  }, [isOpen, filteredStores, activeStore]);
+  }, [isOpen, normalizedStores, currentStoreId]);
 
   useEffect(() => {
     if (highlightedIndex >= filteredStores.length) {
@@ -85,18 +109,27 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
   }, [filteredStores.length, highlightedIndex]);
 
   const handleSelect = (storeId: string) => {
+    if (!pathname) {
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("store", storeId);
+    const queryString = params.toString();
+    const target = queryString ? `${pathname}?${queryString}` : pathname;
+    router.replace(target, { scroll: false });
     setIsOpen(false);
     setQuery("");
-    onStoreNavigate?.();
-    router.push(`/tenants/${storeId}`);
+    onStoreSelected?.();
   };
 
   const handleToggle = () => {
-    if (!stores.length) {
+    if (isLoading || isError) {
       return;
     }
     setIsOpen((previous) => !previous);
   };
+
+  const buttonLabel = isLoading ? "Loading stores…" : activeStore?.name ?? "No stores connected";
 
   return (
     <div className="relative">
@@ -105,45 +138,35 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
         type="button"
         className={cn(
           "flex w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          !stores.length && "cursor-not-allowed text-muted-foreground"
+          (isLoading || isError || !normalizedStores.length) && "cursor-default text-muted-foreground"
         )}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={listboxId}
         onClick={handleToggle}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            if (!isOpen) {
-              setIsOpen(true);
-            }
-          }
-        }}
-        disabled={!stores.length}
+        disabled={isLoading || isError || !normalizedStores.length}
       >
-        {activeStore ? (
-          <span className="flex items-center gap-2">
-            <span aria-hidden="true" className="text-base">
-              {activeStore.emoji ?? "🏬"}
-            </span>
-            <span className="flex flex-col text-left">
-              <span className="text-sm font-semibold leading-tight">{activeStore.name}</span>
-              <span className="text-xs font-medium text-muted-foreground">{statusLabel(activeStore.status)}</span>
-            </span>
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">No stores yet</span>
-        )}
-        <ChevronDown aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
+        <span className="truncate">{buttonLabel}</span>
+        <svg
+          aria-hidden="true"
+          className="h-4 w-4 text-muted-foreground"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M4.47018 6.52979C4.21083 6.27044 3.78872 6.27044 3.52937 6.52979C3.27003 6.78914 3.27003 7.21125 3.52937 7.4706L7.52937 11.4706C7.78872 11.73 8.21083 11.73 8.47018 11.4706L12.4702 7.4706C12.7295 7.21125 12.7295 6.78914 12.4702 6.52979C12.2108 6.27044 11.7887 6.27044 11.5294 6.52979L7.99977 10.0594L4.47018 6.52979Z"
+            fill="currentColor"
+          />
+        </svg>
       </button>
 
-      {isOpen && (
+      {isOpen ? (
         <div
           ref={panelRef}
           className="absolute z-50 mt-2 w-full rounded-xl border bg-popover p-2 shadow-xl"
         >
           <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
-            <Search aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
             <Input
               ref={inputRef}
               role="combobox"
@@ -209,24 +232,8 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
                       handleSelect(store.id);
                     }}
                   >
-                    <span className="flex items-center gap-3">
-                      <span aria-hidden="true" className="text-lg">
-                        {store.emoji ?? "🏬"}
-                      </span>
-                      <span className="flex flex-col text-left">
-                        <span>{store.name}</span>
-                        <span className="text-xs text-muted-foreground">{statusLabel(store.status)}</span>
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "h-2.5 w-2.5 rounded-full",
-                        store.status === "connected" && "bg-emerald-500",
-                        store.status === "pending" && "bg-amber-400",
-                        store.status === "error" && "bg-red-500"
-                      )}
-                      aria-hidden="true"
-                    />
+                    <span className="truncate">{store.name}</span>
+                    {isActive ? <span className="text-xs text-muted-foreground">Selected</span> : null}
                   </li>
                 );
               })
@@ -234,21 +241,23 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
               <li className="px-3 py-4 text-center text-sm text-muted-foreground">No stores found</li>
             )}
           </ul>
+          <div className="mt-2 flex justify-end">
+            <Button asChild size="sm" variant="ghost" className="justify-center">
+              <Link href="/stores/new">Create store</Link>
+            </Button>
+          </div>
         </div>
-      )}
+      ) : null}
+
+      {isLoading ? (
+        <div className="pointer-events-none absolute inset-0 rounded-lg bg-background/60">
+          <Skeleton className="h-full w-full rounded-lg" />
+        </div>
+      ) : null}
+
+      {isError && !normalizedStores.length ? (
+        <p className="mt-2 text-xs text-destructive">Failed to load stores.</p>
+      ) : null}
     </div>
   );
-}
-
-function statusLabel(status: StoreOption["status"]) {
-  switch (status) {
-    case "connected":
-      return "Connected";
-    case "pending":
-      return "Pending";
-    case "error":
-      return "Action required";
-    default:
-      return "Unknown";
-  }
 }

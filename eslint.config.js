@@ -79,11 +79,21 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/bff/**/*.{ts,tsx}", "apps/bff/*.ts"],
+    files: ["apps/bff/src/**/*.{ts,tsx}", "apps/bff/test/**/*.{ts,tsx}"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
-        project: "./apps/bff/tsconfig.json",
+        project: "./apps/bff/tsconfig.eslint.json",
+        tsconfigRootDir: __dirname,
+      },
+    },
+  },
+  {
+    files: ["apps/bff/jest.config.ts"],
+    languageOptions: {
+      parserOptions: {
+        project: null,
+        projectService: false,
         tsconfigRootDir: __dirname,
       },
     },

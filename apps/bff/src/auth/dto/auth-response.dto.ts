@@ -1,22 +1,37 @@
-export interface AuthUser {
+export interface AuthUserDto {
   id: string;
   email: string;
 }
 
-export interface AuthTokens {
+export interface AuthTokensDto {
   accessToken: string;
   refreshToken: string;
 }
 
-export interface AuthResult extends AuthTokens {
-  user: AuthUser;
+export interface AuthSessionDto extends AuthTokensDto {
+  user: AuthUserDto;
 }
 
-export interface AuthUserResponse {
-  user: AuthUser;
+export interface AuthUserResponseDto {
+  user: AuthUserDto;
 }
 
-export interface SignupResponse {
+export interface SignupServiceResultDto {
+  auth: AuthSessionDto;
   next: string;
   apiKey?: string;
+}
+
+export interface SignupResponseDto {
+  next: string;
+  apiKey?: string;
+}
+
+export interface RegisterResponseDto {
+  id: string;
+  email: string;
+}
+
+export interface LogoutResponseDto {
+  success: boolean;
 }

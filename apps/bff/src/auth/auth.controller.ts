@@ -12,6 +12,7 @@ import {
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { isIP } from 'net';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -39,31 +40,15 @@ import { RegisterDto } from './dto/register.dto';
 
 @Controller('auth')
 export class AuthController {
-  private readonly accessCookieOptions: CookieOptions;
-  private readonly refreshCookieOptions: CookieOptions;
+  private accessCookieOptions!: CookieOptions;
+  private refreshCookieOptions!: CookieOptions;
 
   constructor(
     private readonly authService: AuthService,
     private readonly csrfService: CsrfService,
     private readonly configService: ConfigService
   ) {
-    const domain = this.resolveCookieDomain();
-    this.accessCookieOptions = {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none' as const,
-      maxAge: ACCESS_TOKEN_TTL_S * 1000,
-      path: ACCESS_TOKEN_COOKIE_PATH,
-      domain
-    };
-    this.refreshCookieOptions = {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none' as const,
-      maxAge: REFRESH_TOKEN_TTL_MS,
-      path: REFRESH_TOKEN_COOKIE_PATH,
-      domain
-    };
+    this.makeCookieOptions();
   }
 
   @Get('csrf-token')
@@ -182,12 +167,127 @@ export class AuthController {
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
-  private resolveCookieDomain(): string {
-    const raw = this.configService.get<string>('PAYPAY_DOMAIN') ?? '.iddqd.in';
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      return '.iddqd.in';
+  private makeCookieOptions(): void {
+    const rawDomain = (this.configService.get<string>('PAYPAY_DOMAIN') ?? '').trim();
+    const normalizedHost = rawDomain.replace(/^[.]+/, '');
+    const domain = this.resolveCookieDomain();
+    const environment = (this.configService.get<string>('NODE_ENV') ?? '').toLowerCase();
+    const isDevEnvironment = environment === 'development';
+    const hostIsLocal = this.isLocalHostname(normalizedHost);
+    const isLocal = hostIsLocal || (isDevEnvironment && !domain);
+    const cookieDomain = isLocal ? undefined : domain;
+
+    this.accessCookieOptions = {
+      httpOnly: true,
+      secure: !isLocal,
+      sameSite: isLocal ? ('lax' as const) : ('none' as const),
+      maxAge: ACCESS_TOKEN_TTL_S * 1000,
+      path: ACCESS_TOKEN_COOKIE_PATH,
+      domain: cookieDomain
+    };
+    this.refreshCookieOptions = {
+      httpOnly: true,
+      secure: !isLocal,
+      sameSite: isLocal ? ('lax' as const) : ('none' as const),
+      maxAge: REFRESH_TOKEN_TTL_MS,
+      path: REFRESH_TOKEN_COOKIE_PATH,
+      domain: cookieDomain
+    };
+  }
+
+  private resolveCookieDomain(): string | undefined {
+    const raw = (this.configService.get<string>('PAYPAY_DOMAIN') ?? '').trim();
+    if (!raw) {
+      return undefined;
     }
-    return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
+
+    const normalized = raw.replace(/^[.]+/, '');
+    if (!normalized) {
+      return undefined;
+    }
+
+    const sanitized = this.stripPort(normalized);
+
+    if (!sanitized) {
+      return undefined;
+    }
+
+    if (this.isLocalHostname(sanitized)) {
+      return undefined;
+    }
+
+    return `.${sanitized}`;
+  }
+
+  private isLocalHostname(host: string): boolean {
+    if (!host) {
+      return false;
+    }
+
+    const lowerHost = host.replace(/[\[\]]/g, '').toLowerCase();
+    const hostWithoutPort = this.stripPort(lowerHost);
+
+    if (['localhost', '127.0.0.1', '::1'].includes(hostWithoutPort)) {
+      return true;
+    }
+
+    const ipType = isIP(hostWithoutPort);
+    if (ipType === 4) {
+      const segments = hostWithoutPort.split('.').map((segment) => Number.parseInt(segment, 10));
+      if (segments.length !== 4 || segments.some((segment) => Number.isNaN(segment))) {
+        return false;
+      }
+
+      if (segments[0] === 10) {
+        return true;
+      }
+      if (segments[0] === 127) {
+        return true;
+      }
+      if (segments[0] === 192 && segments[1] === 168) {
+        return true;
+      }
+      if (segments[0] === 172 && segments[1] >= 16 && segments[1] <= 31) {
+        return true;
+      }
+      if (segments[0] === 169 && segments[1] === 254) {
+        return true;
+      }
+      if (segments[0] === 0) {
+        return true;
+      }
+    } else if (ipType === 6) {
+      if (hostWithoutPort.startsWith('fd') || hostWithoutPort.startsWith('fc')) {
+        return true;
+      }
+      if (hostWithoutPort.startsWith('fe80')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private stripPort(host: string): string {
+    if (!host) {
+      return host;
+    }
+
+    const trimmed = host.trim();
+
+    if (trimmed.startsWith('[')) {
+      const closingBracketIndex = trimmed.indexOf(']');
+      if (closingBracketIndex !== -1) {
+        return trimmed.slice(1, closingBracketIndex);
+      }
+    }
+
+    const firstColon = trimmed.indexOf(':');
+    const lastColon = trimmed.lastIndexOf(':');
+    if (firstColon !== -1 && firstColon === lastColon) {
+      return trimmed.slice(0, firstColon);
+    }
+
+    return trimmed;
   }
 }

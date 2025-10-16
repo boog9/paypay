@@ -2,15 +2,45 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createSecureHeaders } from "next-secure-headers";
 
 import { getBffOrigin } from "./lib/bff";
+import { ACCESS_TOKEN_COOKIE_NAME } from "./lib/auth";
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/login",
+  "/sign-in",
+  "/signup",
+  "/health",
+  "/favicon.ico",
+  "/robots.txt",
+  "/sitemap.xml",
+]);
+const PUBLIC_PREFIXES = ["/_next/"];
 
-const csrfProtectedRoutes = [/^\/login$/, /^\/signup$/, /^\/organizations\/[^/]+\/settings\/emails$/];
-const protectedRoutes = [/^\/dashboard(?:\/?|$)/, /^\/stores(?:\/?|$)/, /^\/tenants(?:\/?|$)/];
+function isPublicRoute(pathname: string): boolean {
+  if (!pathname) {
+    return true;
+  }
+
+  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return true;
+  }
+
+  if (PUBLIC_PATHS.has(pathname)) {
+    return true;
+  }
+
+  return false;
+}
 
 export function middleware(request: NextRequest) {
-  const hasSession = Boolean(request.cookies.get("pp_session")?.value);
+  const pathname = request.nextUrl.pathname;
+  const hasAccessCookie = Boolean(request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)?.value);
 
-  if (!hasSession && protectedRoutes.some((pattern) => pattern.test(request.nextUrl.pathname))) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+  if (!hasAccessCookie && !isPublicRoute(pathname)) {
+    const loginUrl = new URL("/login", request.url);
+    const search = request.nextUrl.search ?? "";
+    const nextParam = `${pathname}${search}`;
+    loginUrl.searchParams.set("next", nextParam || "/");
+    return NextResponse.redirect(loginUrl);
   }
 
   const response = NextResponse.next();
@@ -41,21 +71,6 @@ export function middleware(request: NextRequest) {
         : String(value);
     response.headers.set(key, headerValue);
   });
-
-  if (csrfProtectedRoutes.some((pattern) => pattern.test(request.nextUrl.pathname))) {
-    const csrfToken = request.cookies.get("pp_csrf");
-    if (!csrfToken) {
-      const newToken = typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : Math.random().toString(36).slice(2);
-      response.cookies.set("pp_csrf", newToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-      });
-    }
-  }
 
   return response;
 }

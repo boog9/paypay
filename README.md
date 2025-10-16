@@ -117,11 +117,12 @@ All runtime configuration is delivered via environment variables loaded from `in
 #### BTCPay integration
 - `BTCPAY_SERVER_URL` — e.g. `https://pay.iddqd.in`
 - `BTCPAY_ADMIN_API_KEY` — admin API key used by BFF for store provisioning & health checks
-- `BTCPAY_WEBHOOK_URL` — public BFF endpoint for BTCPay webhooks, e.g. `https://api.paypay.iddqd.in/api/hooks/btcpay`
+- `BTCPAY_WEBHOOK_URL` — public BFF endpoint for BTCPay webhooks, e.g. `https://paypay.iddqd.in/api/hooks/btcpay`
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 
 #### Domains / Origins
 - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`
+  - **Production requirement:** set `FRONTEND_ORIGIN=https://paypay.iddqd.in` for live deployments or the BFF will refuse to start.
 
 #### Database & SMTP
 - Either `DATABASE_URL` or `POSTGRES_*` (host/user/password/db)

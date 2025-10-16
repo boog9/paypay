@@ -1,24 +1,34 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
+import type { JSX } from 'react';
 import { Button } from '../../../components/ui/button';
 
-export default function PortalError({ error, reset }: { error: Error; reset: () => void }) {
+type PortalErrorProps = {
+  error: Error & { digest?: string };
+  reset: () => void;
+};
+
+export default function PortalError({ error, reset }: PortalErrorProps): JSX.Element {
   useEffect(() => {
     console.error('Portal rendering error', error);
   }, [error]);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 rounded-xl border border-destructive/40 bg-destructive/10 p-6 text-sm text-destructive">
-      <div>
-        <h2 className="text-base font-semibold">Unable to load the portal</h2>
-        <p className="mt-2">
-          An unexpected error occurred while loading your dashboard. Please retry or contact support if the issue persists.
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4 rounded-xl border bg-card p-6 text-center shadow-sm">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold">Something went wrong</h1>
+        <p className="text-sm text-muted-foreground">
+          We could not load the portal right now. Please try again or head back to the dashboard.
         </p>
       </div>
-      <div>
-        <Button variant="outline" onClick={reset}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        <Button type="button" onClick={() => reset()}>
           Try again
+        </Button>
+        <Button asChild type="button" variant="outline">
+          <Link href="/">Go home</Link>
         </Button>
       </div>
     </div>

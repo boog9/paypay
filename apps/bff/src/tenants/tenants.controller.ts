@@ -95,17 +95,23 @@ export class TenantsController {
   }
 
   private resolveActorId(req: Request): string | null {
-    const user = (req as any).user;
-    if (user && typeof user.id === 'string') {
-      return user.id;
+    const user = (req as { user?: unknown }).user;
+    if (user && typeof user === 'object') {
+      const candidate = user as { id?: unknown };
+      if (typeof candidate.id === 'string') {
+        return candidate.id;
+      }
     }
     return null;
   }
 
   private resolveUserEmail(req: Request): string | null {
-    const user = (req as any).user;
-    if (user && typeof user.email === 'string') {
-      return user.email;
+    const user = (req as { user?: unknown }).user;
+    if (user && typeof user === 'object') {
+      const candidate = user as { email?: unknown };
+      if (typeof candidate.email === 'string') {
+        return candidate.email;
+      }
     }
     return null;
   }

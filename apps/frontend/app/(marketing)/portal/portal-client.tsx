@@ -33,17 +33,19 @@ export function PortalClient() {
     return null;
   }
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     if (!navigator?.clipboard?.writeText) {
       setCopied(false);
       return;
     }
-    try {
-      await navigator.clipboard.writeText(apiKey);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
+    void navigator.clipboard
+      .writeText(apiKey)
+      .then(() => {
+        setCopied(true);
+      })
+      .catch(() => {
+        setCopied(false);
+      });
   };
 
   return (

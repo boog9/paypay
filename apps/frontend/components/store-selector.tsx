@@ -150,7 +150,9 @@ export function StoreSelector({ stores, activeStoreId, onStoreNavigate }: StoreS
               aria-expanded={isOpen}
               aria-controls={listboxId}
               aria-activedescendant={
-                filteredStores[highlightedIndex] ? `${listboxId}-${filteredStores[highlightedIndex]!.id}` : undefined
+                filteredStores[highlightedIndex]?.id
+                  ? `${listboxId}-${filteredStores[highlightedIndex]?.id}`
+                  : undefined
               }
               placeholder="Search stores"
               value={query}

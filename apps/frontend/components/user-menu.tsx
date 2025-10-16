@@ -64,7 +64,7 @@ export function UserMenu({ name, email, onSignOut }: UserMenuProps) {
             className={cn(menuItemClass, "text-destructive focus:bg-destructive/20 focus:text-destructive")}
             onSelect={(event) => {
               event.preventDefault();
-              onSignOut?.();
+              void onSignOut?.();
             }}
             role="menuitem"
           >
@@ -85,7 +85,7 @@ function getInitials(source: string) {
   }
   const parts = trimmed.split(/\s+/);
   if (parts.length === 1) {
-    return parts[0]!.slice(0, 2).toUpperCase();
+    return parts[0]?.slice(0, 2).toUpperCase() ?? "U";
   }
   const first = parts[0]?.charAt(0) ?? "";
   const last = parts[parts.length - 1]?.charAt(0) ?? "";

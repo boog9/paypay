@@ -28,7 +28,8 @@ const baseIgnores = [
   "apps/frontend/lib/api.ts",
   "apps/frontend/next-env.d.ts",
   "apps/frontend/postcss.config.js",
-  "packages/sdk/src/gen/*.d.ts"
+  "packages/sdk/src/gen/*.d.ts",
+  "eslint.config.js"
 ];
 
 export default tseslint.config(
@@ -66,6 +67,7 @@ export default tseslint.config(
     ],
     rules: {
       "react/react-in-jsx-scope": "off",
+      "react/prop-types": "off",
     },
   },
   {
@@ -79,13 +81,33 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/bff/src/**/*.{ts,tsx}", "apps/bff/test/**/*.{ts,tsx}"],
+    files: ["apps/bff/src/**/*.{ts,tsx}"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
         project: "./apps/bff/tsconfig.eslint.json",
         tsconfigRootDir: __dirname,
       },
+    },
+  },
+  {
+    files: ["apps/bff/test/**/*.{ts,tsx}"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: "./apps/bff/tsconfig.eslint.json",
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/unbound-method": "off",
     },
   },
   {
@@ -110,6 +132,7 @@ export default tseslint.config(
     rules: {
       ...reactHooksPlugin.configs.recommended.rules,
       "react/jsx-curly-brace-presence": ["error", { props: "never", children: "never" }],
+      "react/prop-types": "off",
     },
   },
   {

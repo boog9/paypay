@@ -5,14 +5,16 @@ import { useContainer } from 'class-validator';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import csurf from 'csurf';
-import type { NextFunction, Request, Response } from 'express';
+import express, { type Application, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import * as express from 'express';
 import { CSRF_SECRET_COOKIE_NAME } from './auth/auth.constants';
 import { getEnv } from './config/env.validation';
+import type { RawBodyRequest } from './http/raw-body-request';
 
-function parseTrustProxy(v?: string | number | boolean): any {
+type TrustProxySetting = string | number | boolean;
+
+function parseTrustProxy(v?: string | number | boolean): TrustProxySetting {
   if (v === undefined) {
     return 'loopback';
   }
@@ -51,7 +53,9 @@ async function bootstrap() {
   })();
 
   const allowedOrigins =
-    env.NODE_ENV === 'production' ? ['https://paypay.iddqd.in'] : [env.FRONTEND_ORIGIN];
+    env.NODE_ENV === 'production'
+      ? ['https://paypay.iddqd.in']
+      : [env.FRONTEND_ORIGIN ?? 'http://localhost:3000'];
 
   app.use(helmet());
   app.enableCors({
@@ -66,27 +70,24 @@ async function bootstrap() {
 
   const httpAdapter = app.getHttpAdapter();
   const type = httpAdapter.getType();
-  const instance = httpAdapter.getInstance();
+  const instance: unknown = httpAdapter.getInstance();
   const trustProxyValue = parseTrustProxy(env.TRUST_PROXY);
 
   if (type === 'fastify') {
-    (instance as any).trustProxy = trustProxyValue ?? 'loopback';
+    const fastifyInstance = instance as { trustProxy?: TrustProxySetting };
+    fastifyInstance.trustProxy = trustProxyValue ?? 'loopback';
     // TODO: Provide a raw body hook for BTCPay webhooks if we migrate to the Fastify adapter.
   }
 
   if (type === 'express') {
-    const expressInstance = instance as unknown as {
-      use: (path: any, ...handlers: any[]) => void;
-      set: (setting: string, value: any) => void;
-    };
+    const expressInstance = instance as Application;
     const effectiveTrustProxyValue =
       trustProxyValue === undefined || trustProxyValue === null ? 'loopback' : trustProxyValue;
     // Ensure IP forwarding works correctly when running behind a layer 7 proxy.
     expressInstance.set('trust proxy', effectiveTrustProxyValue);
 
-    const hooksPaths = ['/hooks/btcpay', '/api/hooks/btcpay'];
-    const isBtcpayHookPath = (path: string) =>
-      hooksPaths.some((prefix) => path.startsWith(prefix));
+    const hooksPaths: readonly string[] = ['/hooks/btcpay', '/api/hooks/btcpay'];
+    const isBtcpayHookPath = (path: string) => hooksPaths.some((prefix) => path.startsWith(prefix));
 
     // 1) Keep BTCPay webhooks first with their dedicated parser so raw bodies remain intact.
     expressInstance.use(
@@ -94,29 +95,30 @@ async function bootstrap() {
       express.json({
         limit: '1mb',
         type: ['application/json', 'application/*+json'],
-        verify: (req: any, _res, buf: Buffer) => {
+        verify: (req: RawBodyRequest, _res, buf: Buffer) => {
           req.rawBody = Buffer.from(buf);
         }
       })
     );
 
-    const jsonParser = express.json({
+    const jsonParser: RequestHandler = express.json({
       limit: '1mb',
       type: ['application/json', 'application/*+json']
     });
-    const urlencodedParser = express.urlencoded({ extended: false, limit: '1mb' });
+    const urlencodedParser: RequestHandler = express.urlencoded({ extended: false, limit: '1mb' });
 
     // 2) Apply global parsers to every other route so CSRF receives parsed bodies.
-    expressInstance.use((req: Request, res: Response, next: NextFunction) => {
+    expressInstance.use((req: RawBodyRequest, res: Response, next: NextFunction) => {
       const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
       if (isBtcpayHookPath(path)) {
         return next();
       }
-      jsonParser(req, res, (jsonErr?: any) => {
+      jsonParser(req, res, (jsonErr?: unknown) => {
         if (jsonErr) {
-          return next(jsonErr);
+          next(jsonErr as Error);
+          return;
         }
-        return urlencodedParser(req, res, next);
+        urlencodedParser(req, res, next);
       });
     });
 
@@ -161,4 +163,4 @@ async function bootstrap() {
   logger.log(`🚀 BFF is running at http://0.0.0.0:${port}`);
 }
 
-bootstrap();
+void bootstrap();

@@ -37,7 +37,7 @@ vi.mock("../../../src/components/stores/store-selector", () => ({
 }));
 
 vi.mock("../../../src/hooks/use-stores", () => ({
-  useStoresQuery: (): StoresQueryMockResult => useStoresQueryMock() as StoresQueryMockResult,
+  useStoresQuery: useStoresQueryMock,
 }));
 
 describe("DashboardPage", () => {

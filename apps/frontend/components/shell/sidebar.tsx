@@ -4,7 +4,9 @@ import { Suspense } from "react";
 
 import { cn } from "../../lib/utils";
 import { StoreSelector } from "../../src/components/stores/store-selector";
+import { Separator } from "../ui/separator";
 import { UserMenu } from "../user-menu";
+import { SiteLogo } from "./site-logo";
 
 type ShellSidebarProps = {
   variant: "desktop" | "mobile";
@@ -26,7 +28,11 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
         variant === "mobile" && "h-full lg:hidden"
       )}
     >
-      <div className="px-4 pb-4 pt-5 lg:px-5">
+      <div className="px-3 pt-3 lg:px-4">
+        <SiteLogo />
+      </div>
+      <Separator className="my-3" />
+      <div className="px-4 pb-4 lg:px-5">
         <Suspense fallback={<div className="h-10 rounded-lg bg-muted" />}>
           <StoreSelector onStoreSelected={onNavigate} />
         </Suspense>

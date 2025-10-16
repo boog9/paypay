@@ -4,9 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 
 import { Button } from "../ui/button";
-import { Separator } from "../ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet";
-import { ShellHeader } from "./header";
 import { ShellSidebar } from "./sidebar";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -29,28 +27,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ShellSidebar user={user} variant="desktop" />
         <div className="flex min-h-screen flex-1 flex-col">
           <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
-            <ShellHeader
-              mobileNavigationTrigger={
-                <SheetTrigger asChild>
-                  <Button
-                    aria-label="Open navigation menu"
-                    className="lg:hidden"
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <Menu aria-hidden="true" className="h-5 w-5" />
-                  </Button>
-                </SheetTrigger>
-              }
-            />
-            <Separator className="lg:hidden" />
-            <main id="main-content" className="flex-1 overflow-y-auto px-6 py-6">
-              {children}
-            </main>
+            <SheetTrigger asChild>
+              <Button
+                aria-label="Open navigation"
+                className="fixed left-3 top-3 z-40 lg:hidden"
+                size="icon"
+                variant="ghost"
+              >
+                <Menu aria-hidden="true" className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
             <SheetContent side="left" className="h-full w-full max-w-xs border-r p-0">
               <ShellSidebar onNavigate={() => setIsMobileNavOpen(false)} user={user} variant="mobile" />
             </SheetContent>
           </Sheet>
+          <main
+            id="main-content"
+            className="flex-1 overflow-y-auto p-6 pt-14 lg:p-8 lg:pt-8"
+          >
+            {children}
+          </main>
         </div>
       </div>
     </div>

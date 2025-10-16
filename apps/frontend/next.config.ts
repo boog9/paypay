@@ -5,6 +5,15 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   eslint: {
     ignoreDuringBuilds: true
+  },
+  redirects() {
+    return Promise.resolve([
+      {
+        source: '/portal',
+        destination: '/dashboard',
+        permanent: true
+      }
+    ]);
   }
 };
 

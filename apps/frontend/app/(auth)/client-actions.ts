@@ -62,7 +62,7 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
 
     return {
       status: 'success',
-      next: typeof response?.next === 'string' ? response.next : '/portal',
+      next: typeof response?.next === 'string' ? response.next : '/dashboard',
       apiKey: typeof response?.apiKey === 'string' ? response.apiKey : undefined
     };
   } catch (error) {
@@ -90,7 +90,7 @@ export async function loginAction(formData: FormData): Promise<AuthActionResult>
   }
 
   try {
-    const response = await api<{ user: { id: string; email: string } }>('/auth/login', {
+    await api<void>('/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -101,12 +101,25 @@ export async function loginAction(formData: FormData): Promise<AuthActionResult>
       cache: 'no-store'
     });
 
-    if (!response?.user || typeof response.user.id !== 'string' || typeof response.user.email !== 'string') {
-      return { status: 'error', message: 'Invalid auth service response payload.' };
+    return { status: 'success', next: '/dashboard' };
+  } catch (error) {
+    if (isApiError(error)) {
+      if (error.status === 401) {
+        return { status: 'error', message: 'Невірні креденшали' };
+      }
+      if (error.status === 403) {
+        try {
+          await fetchCsrfToken();
+        } catch {
+          // Swallow fetch errors; the user will see the message below.
+        }
+        return {
+          status: 'error',
+          message: 'Сесія захисту не ініціалізована, перезавантажте сторінку'
+        };
+      }
     }
 
-    return { status: 'success', user: response.user, next: '/portal' };
-  } catch (error) {
     return normalizeApiError(error);
   }
 }

@@ -21,7 +21,7 @@ export function LoginForm() {
       startTransition(async () => {
         const result = await loginAction(formData);
         if (result.status === 'success') {
-          const nextPath = result.next ?? '/portal';
+          const nextPath = result.next ?? '/dashboard';
           try {
             router.prefetch(nextPath);
           } catch {

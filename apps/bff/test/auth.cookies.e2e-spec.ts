@@ -1,6 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import * as argon2 from 'argon2';
@@ -8,6 +7,8 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
 import { UserEntity } from '../src/auth/entities/user.entity';
+import { configureApp } from '../src/bootstrap/app-configuration';
+import { getEnv } from '../src/config/env.validation';
 
 describe('Auth cookies (development configuration)', () => {
   let app: INestApplication;
@@ -27,7 +28,7 @@ describe('Auth cookies (development configuration)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser(process.env.COOKIE_SECRET));
+    configureApp(app, getEnv());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -84,7 +85,7 @@ describe('Auth cookies (development configuration)', () => {
   }
 
   async function fetchCsrfToken(): Promise<string> {
-    const response = await agent.get('/api/auth/csrf-token').expect(200);
+    const response = await agent.get('/api/auth/csrf').expect(200);
     expect(response.body).toEqual(
       expect.objectContaining({
         csrfToken: expect.any(String)
@@ -99,7 +100,7 @@ describe('Auth cookies (development configuration)', () => {
       .post('/api/auth/login')
       .set('X-CSRF-Token', csrfToken)
       .send({ email: 'devcookies@example.com', password: 'averysecurepassword' })
-      .expect(200);
+      .expect(204);
 
     const cookies = getCookies(response);
     expect(cookies.length).toBeGreaterThan(0);

@@ -22,12 +22,12 @@ export function SignupForm() {
       startTransition(async () => {
         const result = await signupAction(formData);
         if (result.status === 'success') {
-          const nextPath = result.next ?? '/portal';
+          const nextPath = result.next ?? '/dashboard';
           if (typeof window !== 'undefined' && result.apiKey) {
             try {
               sessionStorage.setItem('paypay.portal.apiKey', result.apiKey);
             } catch {
-              // Ignore storage errors; the portal page will simply skip the banner.
+              // Ignore storage errors; the dashboard will simply skip the banner.
             }
           }
           try {

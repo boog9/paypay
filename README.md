@@ -257,4 +257,6 @@ If your edge or proxy strips the `/api` prefix before reaching the BFF, configur
 
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.
-- `curl -i https://api.paypay.iddqd.in/api/auth/csrf-token` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=None; Path=/`.
+- `curl -i https://api.paypay.iddqd.in/api/auth/csrf` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.
+- `curl -I https://paypay.iddqd.in/dashboard` returns **200** and serves the merchant portal shell.
+- `curl -I https://paypay.iddqd.in/portal` returns **308/301** with `Location: /dashboard` for legacy clients.

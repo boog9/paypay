@@ -15,13 +15,16 @@ pushd "$SCRIPT_DIR" >/dev/null
 echo "➡️ Checking frontend health..."
 docker compose --env-file "$ENV_FILE" exec frontend wget -qO- http://127.0.0.1:3000/health
 
-echo "➡️ Checking external portal routing..."
-curl -sI https://paypay.iddqd.in/portal | egrep 'HTTP/|content-type'
+echo "➡️ Checking external dashboard routing..."
+curl -sI https://paypay.iddqd.in/dashboard | egrep 'HTTP/|content-type'
+
+echo "➡️ Ensuring legacy /portal redirects to /dashboard..."
+curl -sI https://paypay.iddqd.in/portal | egrep 'HTTP/|location'
 
 echo "➡️ Checking CORS and cookies for login..."
-CSRF=$(curl -si https://paypay.iddqd.in/api/auth/csrf-token | awk -F': ' '/^x-csrf-token:/ {print $2}' | tr -d '\r')
+CSRF=$(curl -si https://paypay.iddqd.in/api/auth/csrf | awk -F': ' '/^x-csrf-token:/ {print $2}' | tr -d '\r')
 if [[ -z "$CSRF" ]]; then
-  CSRF=$(curl -s https://paypay.iddqd.in/api/auth/csrf-token | sed -n 's/.*"csrfToken":"\([^"]*\)".*/\1/p')
+  CSRF=$(curl -s https://paypay.iddqd.in/api/auth/csrf | sed -n 's/.*"csrfToken":"\([^"]*\)".*/\1/p')
 fi
 curl -si -X POST https://paypay.iddqd.in/api/auth/login \
   -H 'Origin: https://paypay.iddqd.in' \

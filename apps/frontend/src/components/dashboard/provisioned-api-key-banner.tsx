@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+
 import { Button } from '../../../components/ui/button';
 
 const STORAGE_KEY = 'paypay.portal.apiKey';
 
-export function PortalClient() {
+export function ProvisionedApiKeyBanner() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -17,7 +18,7 @@ export function PortalClient() {
         sessionStorage.removeItem(STORAGE_KEY);
       }
     } catch {
-      // Ignore storage errors; the API key banner will simply not render.
+      // Ignore storage errors; the dashboard banner will simply not render.
     }
   }, []);
 
@@ -49,7 +50,7 @@ export function PortalClient() {
   };
 
   return (
-    <div className="mt-4 rounded-lg border border-primary/40 bg-primary/10 p-4 text-sm">
+    <div className="rounded-lg border border-primary/40 bg-primary/10 p-4 text-sm">
       <h2 className="text-base font-semibold text-primary">BTCPay API key provisioned</h2>
       <p className="mt-2 text-muted-foreground">
         Copy and store this key securely. It is shown only once and will not be available later.

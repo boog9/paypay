@@ -1,6 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import nock from 'nock';
@@ -12,6 +11,8 @@ import {
   CSRF_SECRET_COOKIE_NAME
 } from '../src/auth/auth.constants';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
+import { configureApp } from '../src/bootstrap/app-configuration';
+import { getEnv } from '../src/config/env.validation';
 
 describe('AuthModule (e2e)', () => {
   let app: INestApplication;
@@ -24,7 +25,7 @@ describe('AuthModule (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser(process.env.COOKIE_SECRET));
+    configureApp(app, getEnv());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -47,7 +48,7 @@ describe('AuthModule (e2e)', () => {
   });
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
-    const response = await agent.get('/api/auth/csrf-token').expect(200);
+    const response = await agent.get('/api/auth/csrf').expect(200);
     expect(response.body).toEqual(
       expect.objectContaining({
         csrfToken: expect.any(String)
@@ -148,7 +149,7 @@ describe('AuthModule (e2e)', () => {
     expect(scope.isDone()).toBe(true);
     expect(signupResponse.body).toEqual(
       expect.objectContaining({
-        next: '/portal',
+        next: '/dashboard',
         apiKey: 'btcpay-user-api-key'
       })
     );
@@ -175,9 +176,10 @@ describe('AuthModule (e2e)', () => {
       .post('/api/auth/login')
       .set('X-CSRF-Token', loginCsrf)
       .send(credentials)
-      .expect(200);
+      .expect(204);
 
-    expect(loginResponse.body).toEqual(
+    const meResponse = await agent.get('/api/auth/me').expect(200);
+    expect(meResponse.body).toEqual(
       expect.objectContaining({
         user: expect.objectContaining({ email: credentials.email, id: expect.any(String) })
       })
@@ -223,7 +225,7 @@ describe('AuthModule (e2e)', () => {
       .post('/api/auth/logout')
       .set('X-CSRF-Token', logoutCsrf)
       .send({ refreshToken: latestRefreshToken })
-      .expect(200);
+      .expect(204);
 
     const { token: afterLogoutCsrf } = await fetchCsrfToken();
     await agent

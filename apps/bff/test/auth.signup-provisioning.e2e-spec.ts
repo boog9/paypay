@@ -1,6 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { Response } from 'supertest';
 import nock from 'nock';
@@ -11,6 +10,8 @@ import { AppModule } from '../src/app.module';
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 import { UserEntity } from '../src/auth/entities/user.entity';
+import { configureApp } from '../src/bootstrap/app-configuration';
+import { getEnv } from '../src/config/env.validation';
 
 describe('Auth signup provisioning (e2e)', () => {
   let app: INestApplication;
@@ -28,7 +29,7 @@ describe('Auth signup provisioning (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser(process.env.COOKIE_SECRET));
+    configureApp(app, getEnv());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -57,7 +58,7 @@ describe('Auth signup provisioning (e2e)', () => {
   });
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
-    const response = await agent.get('/api/auth/csrf-token').expect(200);
+    const response = await agent.get('/api/auth/csrf').expect(200);
     expect(response.body).toEqual(
       expect.objectContaining({
         csrfToken: expect.any(String)
@@ -125,7 +126,7 @@ describe('Auth signup provisioning (e2e)', () => {
       .expect(201);
 
     expect(scope.isDone()).toBe(true);
-    expect(response.body).toEqual({ next: '/portal', apiKey: 'btcpay-api-key' });
+    expect(response.body).toEqual({ next: '/dashboard', apiKey: 'btcpay-api-key' });
 
     const cookies = getCookies(response);
     expect(cookies.length).toBeGreaterThan(0);

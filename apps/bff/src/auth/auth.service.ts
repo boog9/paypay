@@ -83,7 +83,7 @@ export class AuthService {
       await this.usersRepository.save(user);
 
       const tokens = await this.issueTokens(user, true);
-      const response: SignupServiceResultDto = { auth: tokens, next: '/portal' };
+      const response: SignupServiceResultDto = { auth: tokens, next: '/dashboard' };
       if (issuedApiKey) {
         response.apiKey = issuedApiKey;
       }
@@ -227,5 +227,26 @@ export class AuthService {
   private async revokeToken(tokenEntity: RefreshTokenEntity): Promise<void> {
     tokenEntity.revokedAt = new Date();
     await this.refreshTokenRepository.save(tokenEntity);
+  }
+
+  async verifyAccessToken(token: string): Promise<{ id: string; email: string }> {
+    let payload: { sub: string; email: string };
+    try {
+      payload = await this.jwtService.verifyAsync<{ sub: string; email: string }>(token, {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_TOKEN_SECRET'),
+        issuer: ACCESS_TOKEN_ISSUER,
+        audience: ACCESS_TOKEN_AUDIENCE,
+        algorithms: [ACCESS_TOKEN_ALGORITHM]
+      });
+    } catch {
+      throw new UnauthorizedException('Access token is no longer valid.');
+    }
+
+    const user = await this.usersRepository.findOne({ where: { id: payload.sub } });
+    if (!user) {
+      throw new UnauthorizedException('Access token is no longer valid.');
+    }
+
+    return { id: user.id, email: user.email };
   }
 }

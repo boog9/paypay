@@ -1,9 +1,10 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
+import { configureApp } from '../src/bootstrap/app-configuration';
+import { getEnv } from '../src/config/env.validation';
 
 describe('Tenants onboarding (e2e)', () => {
   let app: INestApplication;
@@ -36,7 +37,7 @@ describe('Tenants onboarding (e2e)', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
-    app.use(cookieParser(process.env.COOKIE_SECRET));
+    configureApp(app, getEnv());
     app.use((req: any, _res, next) => {
       req.user = { id: 'user-123', email: 'merchant@example.com' };
       next();
@@ -59,7 +60,7 @@ describe('Tenants onboarding (e2e)', () => {
   });
 
   async function fetchCsrf(): Promise<{ token: string }> {
-    const response = await agent.get('/api/auth/csrf-token').expect(200);
+    const response = await agent.get('/api/auth/csrf').expect(200);
     expect(response.body).toEqual({ csrfToken: expect.any(String) });
     return { token: response.body.csrfToken };
   }

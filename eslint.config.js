@@ -23,7 +23,6 @@ const baseIgnores = [
   "**/test-results/**",
   "apps/frontend/app/(auth)/**",
   "apps/frontend/app/invoices/**",
-  "apps/frontend/app/portal/**",
   "apps/frontend/app/tenants/**",
   "apps/frontend/lib/api.ts",
   "apps/frontend/next-env.d.ts",

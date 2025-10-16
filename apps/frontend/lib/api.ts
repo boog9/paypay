@@ -22,7 +22,7 @@ if (!trimmedBff && process.env.NODE_ENV !== 'production') {
 export const BFF = trimmedBff ? trimmedBff.replace(/\/$/, '') : '';
 export const API_PREFIX = '/api';
 
-function resolvePath(path: string): string {
+function resolveApiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
@@ -38,10 +38,18 @@ export function isApiError(error: unknown): error is ApiError {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = resolvePath(path);
-  const response = await fetch(url, {
+  const url = resolveApiUrl(path);
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const target = new URL(url, origin);
+  const isCrossOrigin =
+    typeof window !== 'undefined' ? target.origin !== window.location.origin : false;
+  const credentials: RequestCredentials = isCrossOrigin
+    ? (init.credentials ?? 'include')
+    : (init.credentials ?? 'same-origin');
+
+  const response = await fetch(target.toString(), {
     ...init,
-    credentials: 'include'
+    credentials
   });
 
   const hasBody = ![204, 205, 304].includes(response.status);
@@ -70,7 +78,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function fetchCsrfToken(): Promise<string> {
-  const data = await api<{ csrfToken: string }>('/auth/csrf-token', {
+  const data = await api<{ csrfToken: string }>('/auth/csrf', {
     method: 'GET',
     headers: { Accept: 'application/json' },
     cache: 'no-store'

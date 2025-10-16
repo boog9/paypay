@@ -6,5 +6,5 @@ export const ACCESS_TOKEN_ALGORITHM = 'HS512';
 export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
 export const REFRESH_TOKEN_COOKIE_NAME = 'pp.refresh-token';
 export const ACCESS_TOKEN_COOKIE_PATH = '/';
-export const REFRESH_TOKEN_COOKIE_PATH = '/';
+export const REFRESH_TOKEN_COOKIE_PATH = '/api/auth';
 export const CSRF_SECRET_COOKIE_NAME = 'pp.csrf.secret';

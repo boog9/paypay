@@ -1,24 +1,16 @@
 "use client";
 
-import { cn } from "../../lib/utils";
-import type { StoreOption } from "../store-selector";
-import { StoreSelector } from "../store-selector";
-import { StoresNavList } from "../stores-nav-list";
-import { SidebarNav } from "./sidebar-nav";
+import { Suspense } from "react";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Stores", href: "/stores" },
-] as const;
+import { cn } from "../../lib/utils";
+import { StoreSelector } from "../../src/components/stores/store-selector";
 
 type ShellSidebarProps = {
   variant: "desktop" | "mobile";
   onNavigate?: () => void;
-  stores: StoreOption[];
-  activeStoreId?: string;
 };
 
-export function ShellSidebar({ variant, onNavigate, stores, activeStoreId }: ShellSidebarProps) {
+export function ShellSidebar({ variant, onNavigate }: ShellSidebarProps) {
   return (
     <aside
       aria-label="Application navigation"
@@ -28,18 +20,11 @@ export function ShellSidebar({ variant, onNavigate, stores, activeStoreId }: She
         variant === "mobile" && "lg:hidden"
       )}
     >
-      <div className="border-b px-4 pb-4 pt-5 lg:px-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stores</p>
-        <div className="mt-2">
-          <StoreSelector
-            stores={stores}
-            activeStoreId={activeStoreId}
-            onStoreNavigate={onNavigate}
-          />
-        </div>
+      <div className="px-4 pb-4 pt-5 lg:px-5">
+        <Suspense fallback={<div className="h-10 rounded-lg bg-muted" />}>
+          <StoreSelector onStoreSelected={onNavigate} />
+        </Suspense>
       </div>
-      <StoresNavList stores={stores} activeStoreId={activeStoreId} onNavigate={onNavigate} />
-      <SidebarNav items={NAV_ITEMS} onNavigate={onNavigate} />
     </aside>
   );
 }

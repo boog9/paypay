@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import type { StoreOption } from "../../../components/store-selector";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { cn } from "../../../lib/utils";
 
-const MOCK_STORES: Array<StoreOption & { description: string; updatedAt: string }> = [
+type MockStore = {
+  id: string;
+  name: string;
+  status: "connected" | "pending" | "error";
+  emoji?: string;
+  description: string;
+  updatedAt: string;
+};
+
+const MOCK_STORES: MockStore[] = [
   {
     id: "espresso-bar",
     name: "Lightning Espresso",
@@ -120,7 +128,7 @@ export default function StoresPage() {
   );
 }
 
-function getStatusMeta(status: StoreOption["status"]) {
+function getStatusMeta(status: MockStore["status"]) {
   switch (status) {
     case "connected":
       return { badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600", dot: "bg-emerald-500", label: "Connected" };

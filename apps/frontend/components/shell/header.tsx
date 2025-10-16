@@ -3,17 +3,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { UserMenu } from "../user-menu";
-
 type ShellHeaderProps = {
   mobileNavigationTrigger: ReactNode;
-  user: {
-    name: string;
-    email: string;
-  };
 };
 
-export function ShellHeader({ mobileNavigationTrigger, user }: ShellHeaderProps) {
+export function ShellHeader({ mobileNavigationTrigger }: ShellHeaderProps) {
   return (
     <header
       aria-label="Application top bar"
@@ -28,7 +22,6 @@ export function ShellHeader({ mobileNavigationTrigger, user }: ShellHeaderProps)
           PayPay Portal
         </Link>
       </div>
-      <UserMenu name={user.name} email={user.email} />
     </header>
   );
 }

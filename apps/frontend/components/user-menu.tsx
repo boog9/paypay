@@ -20,16 +20,17 @@ export function UserMenu({ name, email, onSignOut }: UserMenuProps) {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <Button
-          aria-label="Open user menu"
+          aria-label="Account"
+          data-testid="account-menu"
           variant="outline"
           size="sm"
-          className="inline-flex items-center gap-2 rounded-full border-input bg-background/80 px-3 py-1 text-sm font-medium"
+          className="inline-flex w-full items-center gap-2 rounded-full border-input bg-background/80 px-3 py-1 text-sm font-medium justify-start"
         >
           <AvatarPrimitive.Root className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold uppercase text-primary">
             <AvatarPrimitive.Image className="h-full w-full rounded-full object-cover" alt="" />
             <AvatarPrimitive.Fallback delayMs={0}>{initials}</AvatarPrimitive.Fallback>
           </AvatarPrimitive.Root>
-          <span className="hidden text-sm font-medium text-foreground sm:inline">{name}</span>
+          <span className="text-sm font-medium text-foreground">Account</span>
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>

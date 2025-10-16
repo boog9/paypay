@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         Skip to content
       </a>
       <div className="flex min-h-screen">
-        <ShellSidebar variant="desktop" />
+        <ShellSidebar user={user} variant="desktop" />
         <div className="flex min-h-screen flex-1 flex-col">
           <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
             <ShellHeader
@@ -42,14 +42,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </Button>
                 </SheetTrigger>
               }
-              user={user}
             />
             <Separator className="lg:hidden" />
             <main id="main-content" className="flex-1 overflow-y-auto px-6 py-6">
               {children}
             </main>
-            <SheetContent side="left" className="w-full max-w-xs border-r p-0">
-              <ShellSidebar onNavigate={() => setIsMobileNavOpen(false)} variant="mobile" />
+            <SheetContent side="left" className="h-full w-full max-w-xs border-r p-0">
+              <ShellSidebar onNavigate={() => setIsMobileNavOpen(false)} user={user} variant="mobile" />
             </SheetContent>
           </Sheet>
         </div>

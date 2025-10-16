@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { ACCESS_TOKEN_COOKIE_NAME } from '../../../lib/auth';
 import { Button } from '../../../components/ui/button';
 import { PortalClient } from './portal-client';
 
@@ -8,7 +11,13 @@ export const metadata: Metadata = {
   title: 'Portal'
 };
 
-export default function PortalPage() {
+export default async function PortalPage() {
+  const cookieStore = await cookies();
+  const hasAccessCookie = cookieStore.has(ACCESS_TOKEN_COOKIE_NAME);
+  if (!hasAccessCookie) {
+    redirect('/login?next=/portal');
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <section className="rounded-xl border bg-card p-6 shadow-sm">

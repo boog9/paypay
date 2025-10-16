@@ -11,6 +11,7 @@ import { AppModule } from './app.module';
 import { CSRF_SECRET_COOKIE_NAME } from './auth/auth.constants';
 import { getEnv } from './config/env.validation';
 import type { RawBodyRequest } from './http/raw-body-request';
+import { resolveCookieTarget } from './auth/cookie.utils';
 
 type TrustProxySetting = string | number | boolean;
 
@@ -38,28 +39,25 @@ function parseTrustProxy(v?: string | number | boolean): TrustProxySetting {
 
 async function bootstrap() {
   const env = getEnv();
+  if (env.NODE_ENV === 'production' && !env.FRONTEND_ORIGIN) {
+    throw new Error('FRONTEND_ORIGIN is required in production');
+  }
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const logger = app.get(Logger);
   app.useLogger(logger);
 
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
-  const cookieDomain = (() => {
-    const raw = env.PAYPAY_DOMAIN?.trim() ?? '.iddqd.in';
-    if (!raw) {
-      return '.iddqd.in';
-    }
-    return raw.startsWith('.') ? raw : `.${raw}`;
-  })();
+  const cookieTarget = resolveCookieTarget({
+    frontendOrigin: env.FRONTEND_ORIGIN,
+    fallbackDomain: env.PAYPAY_DOMAIN
+  });
 
-  const allowedOrigins =
-    env.NODE_ENV === 'production'
-      ? ['https://paypay.iddqd.in']
-      : [env.FRONTEND_ORIGIN ?? 'http://localhost:3000'];
+  const allowedOrigin = env.FRONTEND_ORIGIN;
 
   app.use(helmet());
   app.enableCors({
-    origin: allowedOrigins,
+    origin: allowedOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Accept'],
@@ -126,11 +124,11 @@ async function bootstrap() {
       cookie: {
         key: CSRF_SECRET_COOKIE_NAME,
         httpOnly: true,
-        sameSite: 'none',
-        secure: true,
+        sameSite: 'lax',
+        secure: !cookieTarget.isLocal,
         signed: true,
         path: '/',
-        domain: cookieDomain
+        // host-only cookie
       },
       ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
       value: (req: Request) => {

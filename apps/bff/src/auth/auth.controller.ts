@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Req,
   Res,
@@ -12,7 +13,6 @@ import {
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
-import { isIP } from 'net';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -37,9 +37,11 @@ import {
 } from './auth.constants';
 import { CsrfService, RequestWithCsrf } from './csrf.service';
 import { RegisterDto } from './dto/register.dto';
+import { resolveCookieTarget } from './cookie.utils';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name, { timestamp: false });
   private accessCookieOptions!: CookieOptions;
   private refreshCookieOptions!: CookieOptions;
 
@@ -101,11 +103,29 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response
   ): Promise<AuthUserResponseDto> {
-    const result: AuthSessionDto = await this.authService.login(dto);
-    this.applyAuthCookies(res, result);
-    this.csrfService.rotateToken(req, res);
-    const response: AuthUserResponseDto = { user: result.user };
-    return response;
+    const userAgent = req.get('user-agent') ?? '';
+    const clientIp = this.extractClientIp(req);
+    const normalizedIp = clientIp || 'unknown';
+    const normalizedUa = userAgent || 'unknown';
+
+    try {
+      const result: AuthSessionDto = await this.authService.login(dto);
+      this.applyAuthCookies(res, result);
+      this.csrfService.rotateToken(req, res);
+
+      const response: AuthUserResponseDto = { user: result.user };
+      this.logger.log({
+        event: 'auth.login',
+        userId: result.user.id,
+        ip: normalizedIp,
+        ua: normalizedUa,
+        result: 'success'
+      });
+      return response;
+    } catch (error) {
+      this.logger.warn({ event: 'auth.login', userId: null, ip: normalizedIp, ua: normalizedUa, result: 'fail' });
+      throw error;
+    }
   }
 
   @HttpCode(HttpStatus.OK)
@@ -168,126 +188,44 @@ export class AuthController {
   }
 
   private makeCookieOptions(): void {
-    const rawDomain = (this.configService.get<string>('PAYPAY_DOMAIN') ?? '').trim();
-    const normalizedHost = rawDomain.replace(/^[.]+/, '');
-    const domain = this.resolveCookieDomain();
-    const environment = (this.configService.get<string>('NODE_ENV') ?? '').toLowerCase();
-    const isDevEnvironment = environment === 'development';
-    const hostIsLocal = this.isLocalHostname(normalizedHost);
-    const isLocal = hostIsLocal || (isDevEnvironment && !domain);
-    const cookieDomain = isLocal ? undefined : domain;
+    const { isLocal } = resolveCookieTarget({
+      frontendOrigin: this.configService.get<string>('FRONTEND_ORIGIN'),
+      fallbackDomain: this.configService.get<string>('PAYPAY_DOMAIN')
+    });
 
     this.accessCookieOptions = {
       httpOnly: true,
       secure: !isLocal,
-      sameSite: isLocal ? ('lax' as const) : ('none' as const),
+      sameSite: 'lax',
       maxAge: ACCESS_TOKEN_TTL_S * 1000,
       path: ACCESS_TOKEN_COOKIE_PATH,
-      domain: cookieDomain
+      // host-only cookie
     };
     this.refreshCookieOptions = {
       httpOnly: true,
       secure: !isLocal,
-      sameSite: isLocal ? ('lax' as const) : ('none' as const),
+      sameSite: 'lax',
       maxAge: REFRESH_TOKEN_TTL_MS,
       path: REFRESH_TOKEN_COOKIE_PATH,
-      domain: cookieDomain
+      // host-only cookie
     };
   }
 
-  private resolveCookieDomain(): string | undefined {
-    const raw = (this.configService.get<string>('PAYPAY_DOMAIN') ?? '').trim();
-    if (!raw) {
-      return undefined;
+  private extractClientIp(req: RequestWithCsrf): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim().length > 0) {
+      return forwarded.split(',')[0]?.trim() ?? '';
     }
-
-    const normalized = raw.replace(/^[.]+/, '');
-    if (!normalized) {
-      return undefined;
+    if (Array.isArray(forwarded) && forwarded.length > 0) {
+      return forwarded[0]?.trim() ?? '';
     }
-
-    const sanitized = this.stripPort(normalized);
-
-    if (!sanitized) {
-      return undefined;
+    if (Array.isArray(req.ips) && req.ips.length > 0) {
+      return req.ips[0] ?? '';
     }
-
-    if (this.isLocalHostname(sanitized)) {
-      return undefined;
+    if (typeof req.ip === 'string' && req.ip.trim().length > 0) {
+      return req.ip;
     }
-
-    return `.${sanitized}`;
-  }
-
-  private isLocalHostname(host: string): boolean {
-    if (!host) {
-      return false;
-    }
-
-    const lowerHost = host.replace(/\[|\]/g, '').toLowerCase();
-    const hostWithoutPort = this.stripPort(lowerHost);
-
-    if (['localhost', '127.0.0.1', '::1'].includes(hostWithoutPort)) {
-      return true;
-    }
-
-    const ipType = isIP(hostWithoutPort);
-    if (ipType === 4) {
-      const segments = hostWithoutPort.split('.').map((segment) => Number.parseInt(segment, 10));
-      if (segments.length !== 4 || segments.some((segment) => Number.isNaN(segment))) {
-        return false;
-      }
-
-      if (segments[0] === 10) {
-        return true;
-      }
-      if (segments[0] === 127) {
-        return true;
-      }
-      if (segments[0] === 192 && segments[1] === 168) {
-        return true;
-      }
-      if (segments[0] === 172 && segments[1] >= 16 && segments[1] <= 31) {
-        return true;
-      }
-      if (segments[0] === 169 && segments[1] === 254) {
-        return true;
-      }
-      if (segments[0] === 0) {
-        return true;
-      }
-    } else if (ipType === 6) {
-      if (hostWithoutPort.startsWith('fd') || hostWithoutPort.startsWith('fc')) {
-        return true;
-      }
-      if (hostWithoutPort.startsWith('fe80')) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  private stripPort(host: string): string {
-    if (!host) {
-      return host;
-    }
-
-    const trimmed = host.trim();
-
-    if (trimmed.startsWith('[')) {
-      const closingBracketIndex = trimmed.indexOf(']');
-      if (closingBracketIndex !== -1) {
-        return trimmed.slice(1, closingBracketIndex);
-      }
-    }
-
-    const firstColon = trimmed.indexOf(':');
-    const lastColon = trimmed.lastIndexOf(':');
-    if (firstColon !== -1 && firstColon === lastColon) {
-      return trimmed.slice(0, firstColon);
-    }
-
-    return trimmed;
+    const socketIp = req.socket?.remoteAddress;
+    return typeof socketIp === 'string' ? socketIp : '';
   }
 }

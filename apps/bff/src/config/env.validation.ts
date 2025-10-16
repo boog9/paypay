@@ -9,40 +9,59 @@ const base64Min32 = z.string().refine((val) => {
   }
 }, 'must be Base64 of at least 32 bytes');
 
-export const EnvSchema = z.object({
-  NODE_ENV: z.string().default('production'),
-  PORT: z.coerce.number().default(3000),
-  TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('loopback'),
+export const EnvSchema = z
+  .object({
+    NODE_ENV: z.string().default('production'),
+    PORT: z.coerce.number().default(3000),
+    TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('loopback'),
 
-  COOKIE_SECRET: z.string().min(32, 'must be at least 32 chars or Base64'),
-  JWT_ACCESS_TOKEN_SECRET: z.string().min(32),
-  JWT_REFRESH_TOKEN_SECRET: z.string().min(32),
+    COOKIE_SECRET: z.string().min(32, 'must be at least 32 chars or Base64'),
+    JWT_ACCESS_TOKEN_SECRET: z.string().min(32),
+    JWT_REFRESH_TOKEN_SECRET: z.string().min(32),
 
-  FRONTEND_ORIGIN: z.string().url(),
-  PAYPAY_DOMAIN: z.string(),
-  PAYPAY_API_DOMAIN: z.string(),
+    FRONTEND_ORIGIN: z.string().url().default('http://localhost:3000'),
+    PAYPAY_DOMAIN: z.string(),
+    PAYPAY_API_DOMAIN: z.string(),
 
-  BTCPAY_SERVER_URL: z.string().url(),
-  BTCPAY_ADMIN_API_KEY: z.string().min(1),
-  BTCPAY_WEBHOOK_URL: z.string().url(),
-  BTCPAY_MASTER_KEY: base64Min32.optional(),
-  BTCPAY_HEALTH_STORE_ID: z.string().optional(),
-  BTCPAY_HEALTH_API_KEY: z.string().optional(),
-  REVOKE_BOOTSTRAP_AFTER_CREATE: z.coerce.boolean().default(true),
+    BTCPAY_SERVER_URL: z.string().url(),
+    BTCPAY_ADMIN_API_KEY: z.string().min(1),
+    BTCPAY_WEBHOOK_URL: z.string().url(),
+    BTCPAY_MASTER_KEY: base64Min32.optional(),
+    BTCPAY_HEALTH_STORE_ID: z.string().optional(),
+    BTCPAY_HEALTH_API_KEY: z.string().optional(),
+    REVOKE_BOOTSTRAP_AFTER_CREATE: z.coerce.boolean().default(true),
 
-  DATABASE_URL: z.string().optional(),
-  POSTGRES_HOST: z.string().min(1),
-  POSTGRES_PORT: z.coerce.number().default(5432),
-  POSTGRES_USER: z.string().min(1),
-  POSTGRES_PASSWORD: z.string().min(1),
-  POSTGRES_DB: z.string().min(1),
+    DATABASE_URL: z.string().optional(),
+    POSTGRES_HOST: z.string().min(1),
+    POSTGRES_PORT: z.coerce.number().default(5432),
+    POSTGRES_USER: z.string().min(1),
+    POSTGRES_PASSWORD: z.string().min(1),
+    POSTGRES_DB: z.string().min(1),
 
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().optional(),
-  SMTP_USERNAME: z.string().optional(),
-  SMTP_PASSWORD: z.string().optional(),
-  SMTP_FROM_EMAIL: z.string().optional(),
-});
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().optional(),
+    SMTP_USERNAME: z.string().optional(),
+    SMTP_PASSWORD: z.string().optional(),
+    SMTP_FROM_EMAIL: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.NODE_ENV === 'production') {
+      if (!process.env.FRONTEND_ORIGIN) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'FRONTEND_ORIGIN must be explicitly set in production environments.',
+          path: ['FRONTEND_ORIGIN']
+        });
+      }
+      if (val.FRONTEND_ORIGIN !== 'https://paypay.iddqd.in') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'FRONTEND_ORIGIN must be https://paypay.iddqd.in in production.',
+          path: ['FRONTEND_ORIGIN']
+        });
+      }
+    }
+  });
 
 export type Env = z.infer<typeof EnvSchema>;
 

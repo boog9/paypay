@@ -1,34 +1,12 @@
-{
-    email {env.CADDY_ADMIN_EMAIL}
-    # auto_https is enabled by default. Do not leave a standalone "auto_https" directive.
-    # If needed, you can explicitly disable it: auto_https off
-}
+paypay.iddqd.in, api.paypay.iddqd.in {
+  encode zstd gzip
 
-(paypay_common) {
-    encode zstd gzip
-    header {
-        Strict-Transport-Security "max-age=15552000; includeSubDomains"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "interest-cohort=()"
-    }
-    log
-}
-
-{$PAYPAY_DOMAIN} {
-    import paypay_common
-    @health path /health
-    handle @health {
-        respond 200
-    }
-    reverse_proxy frontend:3000
-}
-
-{$PAYPAY_API_DOMAIN} {
-    import paypay_common
+  @api path /api/* /health /readyz
+  handle @api {
     reverse_proxy bff:3000
-}
+  }
 
-:80 {
-    respond /healthz 200
+  handle {
+    reverse_proxy frontend:3000
+  }
 }

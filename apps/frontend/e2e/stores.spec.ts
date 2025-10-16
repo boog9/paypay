@@ -1,15 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-const sessionCookie = {
-  name: "pp_session",
-  value: "test-session",
-  domain: "localhost",
-  path: "/",
-};
+import { makeSessionCookie } from "./utils/cookies";
 
 test.describe("Stores", () => {
   test("lists stores with create action", async ({ page }) => {
-    await page.context().addCookies([sessionCookie]);
+    await page.context().addCookies([makeSessionCookie()]);
     await page.goto("/stores");
 
     await expect(page.getByRole("heading", { level: 1, name: "Stores" })).toBeVisible();

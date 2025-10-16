@@ -11,7 +11,7 @@ type StoresQueryMockResult = {
   isError: boolean;
 };
 
-const useStoresQueryMock = vi.fn<[], StoresQueryMockResult>();
+const useStoresQueryMock = vi.fn<() => StoresQueryMockResult>();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({

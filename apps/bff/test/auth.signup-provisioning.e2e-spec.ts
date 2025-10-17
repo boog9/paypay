@@ -10,7 +10,7 @@ import { AppModule } from '../src/app.module';
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 import { UserEntity } from '../src/auth/entities/user.entity';
-import { configureApp } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('Auth signup provisioning (e2e)', () => {
@@ -29,7 +29,10 @@ describe('Auth signup provisioning (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    configureApp(app, getEnv());
+    const env = getEnv();
+    configureApp(app, env);
+    configureCors(app, env);
+    configureCsrfProtection(app, env);
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

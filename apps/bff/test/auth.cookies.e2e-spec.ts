@@ -7,7 +7,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
 import { UserEntity } from '../src/auth/entities/user.entity';
-import { configureApp } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('Auth cookies (development configuration)', () => {
@@ -28,7 +28,10 @@ describe('Auth cookies (development configuration)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    configureApp(app, getEnv());
+    const env = getEnv();
+    configureApp(app, env);
+    configureCors(app, env);
+    configureCsrfProtection(app, env);
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

@@ -12,6 +12,7 @@ import helmet from 'helmet';
 import { CSRF_SECRET_COOKIE_NAME } from '../auth/auth.constants';
 import { resolveCookieTarget } from '../auth/cookie.utils';
 import type { RawBodyRequest } from '../http/raw-body-request';
+import { CORS_ALLOWED_HEADERS, CORS_ALLOWED_METHODS, CORS_EXPOSED_HEADERS } from '../config/cors.constants';
 import type { getEnv } from '../config/env.validation';
 
 type TrustProxySetting = string | number | boolean;
@@ -69,11 +70,7 @@ function shouldBypassCsrf(method: string, path: string): boolean {
 }
 
 export function configureApp(app: INestApplication, env: ReturnType<typeof getEnv>): void {
-  const cookieTarget = resolveCookieTarget({
-    frontendOrigin: env.FRONTEND_ORIGIN,
-    fallbackDomain: env.PAYPAY_DOMAIN
-  });
-
+  app.use(helmet());
   app.use(cookieParser(env.COOKIE_SECRET));
 
   const httpAdapter = app.getHttpAdapter();
@@ -129,42 +126,58 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
     app.use(jsonParser);
     app.use(urlencodedParser);
   }
+}
 
+export function configureCors(app: INestApplication, env: ReturnType<typeof getEnv>): void {
   app.enableCors({
     origin: env.FRONTEND_ORIGIN,
+    methods: CORS_ALLOWED_METHODS,
+    allowedHeaders: CORS_ALLOWED_HEADERS,
+    exposedHeaders: CORS_EXPOSED_HEADERS,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Accept', 'Authorization'],
-    methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+  });
+}
+
+export function configureCsrfProtection(
+  app: INestApplication,
+  env: ReturnType<typeof getEnv>
+): void {
+  const httpAdapter = app.getHttpAdapter();
+  if (httpAdapter.getType() !== 'express') {
+    return;
+  }
+
+  const expressInstance = httpAdapter.getInstance() as Application;
+  const cookieTarget = resolveCookieTarget({
+    frontendOrigin: env.FRONTEND_ORIGIN,
+    fallbackDomain: env.PAYPAY_DOMAIN
   });
 
-  app.use(helmet());
+  const csrfMiddleware = csurf({
+    cookie: {
+      key: CSRF_SECRET_COOKIE_NAME,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: !cookieTarget.isLocal,
+      path: '/',
+      ...(cookieTarget.domain ? { domain: cookieTarget.domain } : {})
+    },
+    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
+    value: (req: Request) =>
+      Array.isArray(req.headers['x-csrf-token'])
+        ? req.headers['x-csrf-token'][0]
+        : req.headers['x-csrf-token'] ?? ''
+  });
 
-  if (adapterType === 'express') {
-    const expressInstance = instance as Application;
-    const csrfMiddleware = csurf({
-      cookie: {
-        key: CSRF_SECRET_COOKIE_NAME,
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: !cookieTarget.isLocal,
-        path: '/',
-        ...(cookieTarget.domain ? { domain: cookieTarget.domain } : {})
-      },
-      ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
-      value: (req: Request) =>
-        Array.isArray(req.headers['x-csrf-token'])
-          ? req.headers['x-csrf-token'][0]
-          : req.headers['x-csrf-token'] ?? ''
-    });
+  expressInstance.use('/api/auth/csrf', csrfMiddleware);
 
-    expressInstance.use('/api/auth/csrf', csrfMiddleware);
-
-    expressInstance.use((req: Request, res: Response, next: NextFunction) => {
-      const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
-      if (shouldBypassCsrf(req.method, path)) {
-        return next();
-      }
-      return csrfMiddleware(req, res, next);
-    });
-  }
+  expressInstance.use((req: Request, res: Response, next: NextFunction) => {
+    const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
+    if (shouldBypassCsrf(req.method, path)) {
+      return next();
+    }
+    return csrfMiddleware(req, res, next);
+  });
 }

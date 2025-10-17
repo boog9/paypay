@@ -19,7 +19,7 @@ export const EnvSchema = z
     JWT_ACCESS_TOKEN_SECRET: z.string().min(32),
     JWT_REFRESH_TOKEN_SECRET: z.string().min(32),
 
-    FRONTEND_ORIGIN: z.string().url().default('http://localhost:3000'),
+    FRONTEND_ORIGIN: z.string().url(),
     PAYPAY_DOMAIN: z.string(),
     PAYPAY_API_DOMAIN: z.string(),
 

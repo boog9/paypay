@@ -37,7 +37,7 @@ export class StoresController {
       typeof candidate.bootstrapApiKey === 'string'
         ? candidate.bootstrapApiKey
         : typeof candidate.bootstrapKey === 'string'
-          ? (candidate.bootstrapKey as string)
+          ? candidate.bootstrapKey
           : null;
 
     return { email, bootstrapApiKey };

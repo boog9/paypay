@@ -87,62 +87,66 @@ export default function CreateStorePage() {
   }, []);
 
   const handleSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
+    (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (isSubmitting) {
         return;
       }
-      setIsSubmitting(true);
-      setFormError(null);
-      setFieldErrors({});
 
-      const rawData = { name, defaultCurrency };
-      const parsed = formSchema.safeParse(rawData);
-      if (!parsed.success) {
-        const issues = parsed.error.flatten();
-        const nextErrors: FieldErrors = {};
-        if (issues.fieldErrors.name?.length) {
-          nextErrors.name = issues.fieldErrors.name[0] ?? null;
-        }
-        if (issues.fieldErrors.defaultCurrency?.length) {
-          nextErrors.defaultCurrency = issues.fieldErrors.defaultCurrency[0] ?? null;
-        }
-        setFieldErrors(nextErrors);
-        setIsSubmitting(false);
-        return;
-      }
+      void (async () => {
+        setIsSubmitting(true);
+        setFormError(null);
+        setFieldErrors({});
 
-      try {
-        const csrfToken = await fetchCsrfToken();
-        const payload = parsed.data;
-        const response = await api<CreateStoreResponse>("/api/stores", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            "X-CSRF-Token": csrfToken,
-            "Idempotency-Key": generateIdempotencyKey(),
-          },
-          body: JSON.stringify(payload),
-        });
-
-        await queryClient.invalidateQueries({ queryKey: ["stores"] });
-        persistLastStoreId(response.id);
-        toast({ title: "Store successfully created", variant: "success" });
-        router.push(`/stores/${response.id}/dashboard`);
-      } catch (error) {
-        if (isApiError(error)) {
-          const message = error.message || "Failed to create store.";
-          setFormError(message);
-          toast({ title: "Failed to create store", description: message, variant: "destructive" });
-        } else {
-          const message = error instanceof Error ? error.message : "Unexpected error while creating store.";
-          setFormError(message);
-          toast({ title: "Unexpected error", description: message, variant: "destructive" });
+        const rawData = { name, defaultCurrency };
+        const parsed = formSchema.safeParse(rawData);
+        if (!parsed.success) {
+          const issues = parsed.error.flatten();
+          const nextErrors: FieldErrors = {};
+          if (issues.fieldErrors.name?.length) {
+            nextErrors.name = issues.fieldErrors.name[0] ?? null;
+          }
+          if (issues.fieldErrors.defaultCurrency?.length) {
+            nextErrors.defaultCurrency = issues.fieldErrors.defaultCurrency[0] ?? null;
+          }
+          setFieldErrors(nextErrors);
+          setIsSubmitting(false);
+          return;
         }
-      } finally {
-        setIsSubmitting(false);
-      }
+
+        try {
+          const csrfToken = await fetchCsrfToken();
+          const payload = parsed.data;
+          const response = await api<CreateStoreResponse>("/api/stores", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              "X-CSRF-Token": csrfToken,
+              "Idempotency-Key": generateIdempotencyKey(),
+            },
+            body: JSON.stringify(payload),
+          });
+
+          await queryClient.invalidateQueries({ queryKey: ["stores"] });
+          persistLastStoreId(response.id);
+          toast({ title: "Store successfully created", variant: "success" });
+          router.push(`/stores/${response.id}/dashboard`);
+        } catch (error) {
+          if (isApiError(error)) {
+            const message = error.message || "Failed to create store.";
+            setFormError(message);
+            toast({ title: "Failed to create store", description: message, variant: "destructive" });
+          } else {
+            const message =
+              error instanceof Error ? error.message : "Unexpected error while creating store.";
+            setFormError(message);
+            toast({ title: "Unexpected error", description: message, variant: "destructive" });
+          }
+        } finally {
+          setIsSubmitting(false);
+        }
+      })();
     },
     [defaultCurrency, isSubmitting, name, queryClient, router, toast]
   );

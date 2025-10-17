@@ -79,11 +79,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    const timersMap = timers.current;
     return () => {
-      timers.current.forEach((timeoutId) => {
+      timersMap.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
       });
-      timers.current.clear();
+      timersMap.clear();
     };
   }, []);
 

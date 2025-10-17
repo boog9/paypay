@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
-import { configureApp } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('Tenants onboarding (e2e)', () => {
@@ -37,7 +37,10 @@ describe('Tenants onboarding (e2e)', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
-    configureApp(app, getEnv());
+    const env = getEnv();
+    configureApp(app, env);
+    configureCors(app, env);
+    configureCsrfProtection(app, env);
     app.use((req: any, _res, next) => {
       req.user = { id: 'user-123', email: 'merchant@example.com' };
       next();

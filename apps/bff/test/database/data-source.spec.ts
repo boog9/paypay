@@ -6,6 +6,7 @@ import { TenantEntity } from '../../src/tenants/entities/tenant.entity';
 import { StoreEntity } from '../../src/tenants/entities/store.entity';
 import { AuditLogEntity } from '../../src/tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from '../../src/tenants/entities/idempotency-key.entity';
+import { ManagedStoreEntity } from '../../src/stores/entities/managed-store.entity';
 
 describe('Database schema', () => {
   it('initializes an in-memory sqlite DataSource without unsupported types', async () => {
@@ -18,7 +19,8 @@ describe('Database schema', () => {
         TenantEntity,
         StoreEntity,
         AuditLogEntity,
-        IdempotencyKeyEntity
+        IdempotencyKeyEntity,
+        ManagedStoreEntity
       ],
       synchronize: true,
       dropSchema: true,

@@ -14,9 +14,11 @@ import { TenantEntity } from './tenants/entities/tenant.entity';
 import { StoreEntity } from './tenants/entities/store.entity';
 import { AuditLogEntity } from './tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity';
+import { ManagedStoreEntity } from './stores/entities/managed-store.entity';
 import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
 import { HealthController } from './health.controller';
+import { StoresModule } from './stores/stores.module';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 @Module({
@@ -36,6 +38,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
             'req.headers.authorization',
             'req.headers.cookie',
             'req.headers["x-csrf-token"]',
+            'req.headers["idempotency-key"]',
             'res.headers["set-cookie"]',
             'req.body.password',
             'req.body.refreshToken',
@@ -88,7 +91,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
               TenantEntity,
               StoreEntity,
               AuditLogEntity,
-              IdempotencyKeyEntity
+              IdempotencyKeyEntity,
+              ManagedStoreEntity
             ],
             synchronize: true,
             dropSchema: true,
@@ -104,7 +108,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
             TenantEntity,
             StoreEntity,
             AuditLogEntity,
-            IdempotencyKeyEntity
+            IdempotencyKeyEntity,
+            ManagedStoreEntity
           ],
           synchronize: false,
           migrations: ['dist/migrations/*.js'],
@@ -142,7 +147,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
     AuthModule,
     BtcpayModule,
     TenantsModule,
-    HooksModule
+    HooksModule,
+    StoresModule
   ],
   controllers: [HealthController],
   providers: [

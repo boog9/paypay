@@ -9,6 +9,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { useStoresQuery } from "../../hooks/use-stores";
+import { persistLastStoreId } from "../../lib/store-preferences";
 
 type StoreSelectorProps = {
   onStoreSelected?: () => void;
@@ -120,6 +121,7 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
     setIsOpen(false);
     setQuery("");
     onStoreSelected?.();
+    persistLastStoreId(storeId);
   };
 
   const handleToggle = () => {
@@ -130,6 +132,12 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
   };
 
   const buttonLabel = isLoading ? "Loading stores…" : activeStore?.name ?? "No stores connected";
+
+  useEffect(() => {
+    if (currentStoreId) {
+      persistLastStoreId(currentStoreId);
+    }
+  }, [currentStoreId]);
 
   return (
     <div className="relative">

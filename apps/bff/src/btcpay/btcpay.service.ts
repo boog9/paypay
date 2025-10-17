@@ -106,7 +106,8 @@ export class BtcpayService {
       return payload.slice(0, 200);
     }
     if (Array.isArray(payload)) {
-      return payload.slice(0, 5).map((entry) => {
+      const entries = payload as unknown[];
+      return entries.slice(0, 5).map((entry) => {
         if (entry && typeof entry === 'object') {
           const item = entry as Record<string, unknown>;
           const result: Record<string, unknown> = {};
@@ -427,7 +428,7 @@ export class BtcpayService {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
-        const data = error.response?.data;
+        const data: unknown = error.response?.data;
         if (this.isMissingApiKeyError(status, data)) {
           const logPayload: Record<string, unknown> = {
             statusCode: status,

@@ -3,14 +3,15 @@ import cookieParser from 'cookie-parser';
 import csurf from 'csurf';
 import express, {
   type Application,
+  type CookieOptions,
   type NextFunction,
   type Request,
   type RequestHandler,
   type Response
 } from 'express';
 import helmet from 'helmet';
-import { CSRF_SECRET_COOKIE_NAME } from '../auth/auth.constants';
 import { resolveCookieTarget } from '../auth/cookie.utils';
+import { resolveCookieNames } from '../auth/cookie-names';
 import type { RawBodyRequest } from '../http/raw-body-request';
 import { CORS_ALLOWED_HEADERS, CORS_ALLOWED_METHODS, CORS_EXPOSED_HEADERS } from '../config/cors.constants';
 import type { getEnv } from '../config/env.validation';
@@ -154,15 +155,51 @@ export function configureCsrfProtection(
     frontendOrigin: env.FRONTEND_ORIGIN,
     fallbackDomain: env.PAYPAY_DOMAIN
   });
+  const names = resolveCookieNames();
+  const useHostPrefix = names.csrfSecret.startsWith('__Host-');
+  const sharedCookieConfig: CookieOptions = {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !cookieTarget.isLocal,
+    path: '/',
+    ...(useHostPrefix ? {} : cookieTarget.domain ? { domain: cookieTarget.domain } : {})
+  };
+
+  expressInstance.use((req: Request, _res: Response, next: NextFunction) => {
+    const cookies = req.cookies;
+    if (cookies && typeof cookies === 'object') {
+      const bag = cookies as Record<string, unknown>;
+      if (bag[names.csrfSecret] === undefined && typeof bag[names.legacyCsrfSecret] === 'string') {
+        bag[names.csrfSecret] = bag[names.legacyCsrfSecret];
+      }
+    }
+    next();
+  });
+
+  expressInstance.use((req: Request, res: Response, next: NextFunction) => {
+    const originalCookie = res.cookie.bind(res);
+    res.cookie = (name: string, value: unknown, options?: CookieOptions) => {
+      const appliedOptions: CookieOptions = options ?? sharedCookieConfig;
+      const result = originalCookie(name, value, appliedOptions);
+      if (name === names.csrfSecret) {
+        const legacyOptions: CookieOptions = {
+          ...sharedCookieConfig,
+          ...appliedOptions
+        };
+        if (useHostPrefix && 'domain' in legacyOptions) {
+          delete (legacyOptions as { domain?: string }).domain;
+        }
+        originalCookie(names.legacyCsrfSecret, value, legacyOptions);
+      }
+      return result;
+    };
+    next();
+  });
 
   const csrfMiddleware = csurf({
     cookie: {
-      key: CSRF_SECRET_COOKIE_NAME,
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: !cookieTarget.isLocal,
-      path: '/',
-      ...(cookieTarget.domain ? { domain: cookieTarget.domain } : {})
+      key: names.csrfSecret,
+      ...sharedCookieConfig
     },
     ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
     value: (req: Request) =>

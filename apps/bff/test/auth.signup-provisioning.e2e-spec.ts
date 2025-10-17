@@ -7,13 +7,14 @@ import { createHash } from 'crypto';
 import { DataSource } from 'typeorm';
 import * as argon2 from 'argon2';
 import { AppModule } from '../src/app.module';
-import { ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } from '../src/auth/auth.constants';
+import { resolveCookieNames } from '../src/auth/cookie-names';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 import { UserEntity } from '../src/auth/entities/user.entity';
 import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('Auth signup provisioning (e2e)', () => {
+  let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
   let server: any;
   let agent: ReturnType<typeof request.agent>;
@@ -30,6 +31,7 @@ describe('Auth signup provisioning (e2e)', () => {
 
     app = moduleRef.createNestApplication();
     const env = getEnv();
+    cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
     configureCsrfProtection(app, env);
@@ -134,13 +136,11 @@ describe('Auth signup provisioning (e2e)', () => {
     const cookies = getCookies(response);
     expect(cookies.length).toBeGreaterThan(0);
     const cookieHeader = cookies.join(';');
-    expect(cookieHeader).toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
-    expect(cookieHeader).toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
-    if (process.env.PAYPAY_DOMAIN) {
-      expect(cookieHeader).toContain(`Domain=.${process.env.PAYPAY_DOMAIN.replace(/^[.]+/, '')}`);
-    } else {
-      expect(cookieHeader).not.toMatch(/Domain=/i);
-    }
+    expect(cookieHeader).toContain(`${cookieNames.access}=`);
+    expect(cookieHeader).toContain(`${cookieNames.refresh}=`);
+    expect(cookieHeader).toContain(`${cookieNames.legacyAccess}=`);
+    expect(cookieHeader).toContain(`${cookieNames.legacyRefresh}=`);
+    expect(cookieHeader).not.toMatch(/Domain=/i);
 
     const userRepository = dataSource.getRepository(UserEntity);
     const savedUser = await userRepository.findOneByOrFail({ email: email.toLowerCase() });

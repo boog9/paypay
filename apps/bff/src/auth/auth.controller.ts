@@ -26,23 +26,20 @@ import {
   SignupResponseDto,
   SignupServiceResultDto
 } from './dto/auth-response.dto';
-import {
-  ACCESS_TOKEN_COOKIE_NAME,
-  ACCESS_TOKEN_COOKIE_PATH,
-  ACCESS_TOKEN_TTL_S,
-  REFRESH_TOKEN_COOKIE_NAME,
-  REFRESH_TOKEN_COOKIE_PATH,
-  REFRESH_TOKEN_TTL_MS
-} from './auth.constants';
+import { ACCESS_TOKEN_TTL_S, REFRESH_TOKEN_TTL_MS } from './auth.constants';
 import { CsrfService, RequestWithCsrf } from './csrf.service';
 import { RegisterDto } from './dto/register.dto';
 import { resolveCookieTarget } from './cookie.utils';
+import { resolveCookieNames } from './cookie-names';
 
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name, { timestamp: false });
-  private accessCookieOptions!: CookieOptions;
-  private refreshCookieOptions!: CookieOptions;
+  private readonly cookieNames = resolveCookieNames();
+  private accessCookieBase!: CookieOptions;
+  private refreshCookieBase!: CookieOptions;
+  private legacyAccessCookieBase!: CookieOptions;
+  private legacyRefreshCookieBase!: CookieOptions;
 
   constructor(
     private readonly authService: AuthService,
@@ -192,13 +189,33 @@ export class AuthController {
   }
 
   private applyAuthCookies(res: Response, tokens: AuthTokensDto): void {
-    res.cookie(ACCESS_TOKEN_COOKIE_NAME, tokens.accessToken, this.accessCookieOptions);
-    res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, this.refreshCookieOptions);
+    const accessOptions = { ...this.accessCookieBase, maxAge: ACCESS_TOKEN_TTL_S * 1000 } satisfies CookieOptions;
+    const refreshOptions = { ...this.refreshCookieBase, maxAge: REFRESH_TOKEN_TTL_MS } satisfies CookieOptions;
+    const legacyAccessOptions = {
+      ...this.legacyAccessCookieBase,
+      maxAge: ACCESS_TOKEN_TTL_S * 1000
+    } satisfies CookieOptions;
+    const legacyRefreshOptions = {
+      ...this.legacyRefreshCookieBase,
+      maxAge: REFRESH_TOKEN_TTL_MS
+    } satisfies CookieOptions;
+
+    res.cookie(this.cookieNames.access, tokens.accessToken, accessOptions);
+    res.cookie(this.cookieNames.refresh, tokens.refreshToken, refreshOptions);
+    res.cookie(this.cookieNames.legacyAccess, tokens.accessToken, legacyAccessOptions);
+    res.cookie(this.cookieNames.legacyRefresh, tokens.refreshToken, legacyRefreshOptions);
   }
 
   private clearAuthCookies(res: Response): void {
-    res.cookie(ACCESS_TOKEN_COOKIE_NAME, '', { ...this.accessCookieOptions, maxAge: 0 });
-    res.cookie(REFRESH_TOKEN_COOKIE_NAME, '', { ...this.refreshCookieOptions, maxAge: 0 });
+    const accessOptions = { ...this.accessCookieBase, maxAge: 0 } satisfies CookieOptions;
+    const refreshOptions = { ...this.refreshCookieBase, maxAge: 0 } satisfies CookieOptions;
+    const legacyAccessOptions = { ...this.legacyAccessCookieBase, maxAge: 0 } satisfies CookieOptions;
+    const legacyRefreshOptions = { ...this.legacyRefreshCookieBase, maxAge: 0 } satisfies CookieOptions;
+
+    res.cookie(this.cookieNames.access, '', accessOptions);
+    res.cookie(this.cookieNames.refresh, '', refreshOptions);
+    res.cookie(this.cookieNames.legacyAccess, '', legacyAccessOptions);
+    res.cookie(this.cookieNames.legacyRefresh, '', legacyRefreshOptions);
   }
 
   private resolveRefreshToken(req: RequestWithCsrf): string | undefined {
@@ -206,7 +223,9 @@ export class AuthController {
     if (!cookies || typeof cookies !== 'object') {
       return undefined;
     }
-    const rawToken = (cookies as Record<string, unknown>)[REFRESH_TOKEN_COOKIE_NAME];
+    const allCookies = cookies as Record<string, unknown>;
+    const rawToken =
+      allCookies[this.cookieNames.refresh] ?? allCookies[this.cookieNames.legacyRefresh];
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
@@ -215,7 +234,8 @@ export class AuthController {
     if (!cookies || typeof cookies !== 'object') {
       return undefined;
     }
-    const rawToken = (cookies as Record<string, unknown>)[ACCESS_TOKEN_COOKIE_NAME];
+    const allCookies = cookies as Record<string, unknown>;
+    const rawToken = allCookies[this.cookieNames.access] ?? allCookies[this.cookieNames.legacyAccess];
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
@@ -225,22 +245,23 @@ export class AuthController {
       fallbackDomain: this.configService.get<string>('PAYPAY_DOMAIN')
     });
 
-    this.accessCookieOptions = {
+    const useHostPrefix = this.cookieNames.access.startsWith('__Host-');
+    const effectiveDomain = useHostPrefix ? undefined : domain;
+    const base: CookieOptions = {
       httpOnly: true,
       secure: !isLocal,
       sameSite: 'lax',
-      maxAge: ACCESS_TOKEN_TTL_S * 1000,
-      path: ACCESS_TOKEN_COOKIE_PATH,
-      ...(domain ? { domain } : {})
+      path: '/',
+      ...(effectiveDomain ? { domain: effectiveDomain } : {})
     };
-    this.refreshCookieOptions = {
-      httpOnly: true,
-      secure: !isLocal,
-      sameSite: 'lax',
-      maxAge: REFRESH_TOKEN_TTL_MS,
-      path: REFRESH_TOKEN_COOKIE_PATH,
-      ...(domain ? { domain } : {})
-    };
+
+    this.accessCookieBase = { ...base };
+    this.refreshCookieBase = { ...base };
+
+    const legacyBase: CookieOptions = { ...base };
+
+    this.legacyAccessCookieBase = { ...legacyBase };
+    this.legacyRefreshCookieBase = { ...legacyBase };
   }
 
   private extractClientIp(req: RequestWithCsrf): string {

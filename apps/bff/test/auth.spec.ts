@@ -5,17 +5,14 @@ import type { Response } from 'supertest';
 import * as argon2 from 'argon2';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import {
-  ACCESS_TOKEN_COOKIE_NAME,
-  REFRESH_TOKEN_COOKIE_NAME,
-  CSRF_SECRET_COOKIE_NAME
-} from '../src/auth/auth.constants';
+import { resolveCookieNames } from '../src/auth/cookie-names';
 import { UserEntity } from '../src/auth/entities/user.entity';
 import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 import { randomBytes } from 'crypto';
 
 describe('Auth session hardening', () => {
+  let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
   let server: any;
   let dataSource: DataSource;
@@ -36,6 +33,7 @@ describe('Auth session hardening', () => {
 
     app = moduleRef.createNestApplication();
     const env = getEnv();
+    cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
     configureCsrfProtection(app, env);
@@ -108,9 +106,13 @@ describe('Auth session hardening', () => {
   it('issues a CSRF cookie and token', async () => {
     const agent = createAgent();
     const { cookies } = await fetchCsrf(agent);
-    const secret = cookies.find((cookie) => cookie.startsWith(`${CSRF_SECRET_COOKIE_NAME}=`));
-    expect(secret).toBeDefined();
-    expect(secret).toContain('SameSite=Lax');
+    const secret = cookies.find((cookie) => cookie.startsWith(`${cookieNames.csrfSecret}=`));
+    const legacySecret = cookies.find((cookie) => cookie.startsWith(`${cookieNames.legacyCsrfSecret}=`));
+    const candidate = secret ?? legacySecret;
+    expect(candidate).toBeDefined();
+    if (candidate) {
+      expect(candidate).toContain('SameSite=Lax');
+    }
   });
 
   it('rejects login attempts without CSRF tokens', async () => {
@@ -134,8 +136,10 @@ describe('Auth session hardening', () => {
       .expect(204);
 
     const cookies = getCookies(loginResponse);
-    expect(cookies.some((cookie) => cookie.startsWith(`${ACCESS_TOKEN_COOKIE_NAME}=`))).toBe(true);
-    expect(cookies.some((cookie) => cookie.startsWith(`${REFRESH_TOKEN_COOKIE_NAME}=`))).toBe(true);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.access}=`))).toBe(true);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.refresh}=`))).toBe(true);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyAccess}=`))).toBe(true);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyRefresh}=`))).toBe(true);
 
     addCookies(cookieJar, cookies);
 
@@ -164,8 +168,10 @@ describe('Auth session hardening', () => {
       .expect(401);
 
     const cookies = getCookies(response);
-    expect(cookies.some((cookie) => cookie.startsWith(`${ACCESS_TOKEN_COOKIE_NAME}=`))).toBe(false);
-    expect(cookies.some((cookie) => cookie.startsWith(`${REFRESH_TOKEN_COOKIE_NAME}=`))).toBe(false);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.access}=`))).toBe(false);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.refresh}=`))).toBe(false);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyAccess}=`))).toBe(false);
+    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyRefresh}=`))).toBe(false);
   });
 
   it('requires an access cookie to resolve the current user', async () => {

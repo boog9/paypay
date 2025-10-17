@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -66,6 +67,16 @@ interface UserResponse {
   email: string;
 }
 
+interface BtcpayRequestContext {
+  action?: string;
+  correlationId?: string;
+}
+
+export interface IssueUserApiKeyOptions {
+  label?: string;
+  correlationId?: string;
+}
+
 @Injectable()
 export class BtcpayService {
   private readonly logger = new Logger(BtcpayService.name, { timestamp: false });
@@ -75,6 +86,99 @@ export class BtcpayService {
     @InjectRepository(StoreEntity) private readonly storesRepository: Repository<StoreEntity>,
     private readonly encryptionService: EnvelopeEncryptionService
   ) {}
+
+  private redactToken(value: string | null | undefined): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
+  }
+
+  private summariseErrorPayload(payload: unknown): unknown {
+    if (!payload) {
+      return undefined;
+    }
+    if (typeof payload === 'string') {
+      return payload.slice(0, 200);
+    }
+    if (Array.isArray(payload)) {
+      return payload.slice(0, 5).map((entry) => {
+        if (entry && typeof entry === 'object') {
+          const item = entry as Record<string, unknown>;
+          const result: Record<string, unknown> = {};
+          if (typeof item.path === 'string') {
+            result.path = item.path;
+          }
+          if (typeof item.message === 'string') {
+            result.message = item.message;
+          }
+          if (typeof item.code === 'string') {
+            result.code = item.code;
+          }
+          return result;
+        }
+        return entry;
+      });
+    }
+    if (typeof payload === 'object') {
+      const source = payload as Record<string, unknown>;
+      const allowedKeys = ['code', 'error', 'message', 'errors', 'detail'];
+      const filtered = allowedKeys.reduce<Record<string, unknown>>((acc, key) => {
+        if (key in source) {
+          acc[key] = source[key];
+        }
+        return acc;
+      }, {});
+      return Object.keys(filtered).length > 0 ? filtered : undefined;
+    }
+    return undefined;
+  }
+
+  private isUsernameTakenError(error: AxiosError<unknown>): boolean {
+    if (error.response?.status !== 422) {
+      return false;
+    }
+    const data = error.response?.data;
+    if (!Array.isArray(data)) {
+      return false;
+    }
+    return data.some((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return false;
+      }
+      const record = entry as Record<string, unknown>;
+      const path = typeof record.path === 'string' ? record.path : '';
+      const message = typeof record.message === 'string' ? record.message : '';
+      return path.toLowerCase() === 'email' && /already taken/i.test(message);
+    });
+  }
+
+  private isMissingApiKeyError(status: number | undefined, payload: unknown): boolean {
+    if (!status || (status !== 400 && status !== 404)) {
+      return false;
+    }
+    if (!payload) {
+      return false;
+    }
+    const text =
+      typeof payload === 'string'
+        ? payload
+        : (() => {
+            try {
+              return JSON.stringify(payload);
+            } catch {
+              return '';
+            }
+          })();
+    if (!text) {
+      return false;
+    }
+    return /apikey/i.test(text) && /does not exist/i.test(text);
+  }
 
   private normaliseBaseUrl(url: string): string {
     return url.endsWith('/') ? url.slice(0, -1) : url;
@@ -103,13 +207,25 @@ export class BtcpayService {
     });
   }
 
-  private maskError(error: unknown): never {
+  private maskError(error: unknown, context?: BtcpayRequestContext): never {
     if (axios.isAxiosError(error)) {
       const err = error as AxiosError<{ message?: string; errors?: unknown }>;
       const code = err.response?.status ?? 500;
       const body = err.response?.data as { message?: string } | undefined;
-      const message = body?.message && typeof body.message === 'string' ? body.message : 'BTCPay request failed';
-      this.logger.error({ statusCode: code, message }, 'BTCPay request failed');
+      const message =
+        body?.message && typeof body.message === 'string' ? body.message : 'BTCPay request failed';
+      const logPayload: Record<string, unknown> = {
+        statusCode: code,
+        message,
+      };
+      if (context?.correlationId) {
+        logPayload.correlationId = context.correlationId;
+      }
+      const summary = this.summariseErrorPayload(err.response?.data);
+      if (summary) {
+        logPayload.error = summary;
+      }
+      this.logger.error(logPayload, context?.action ?? 'BTCPay request failed');
       switch (code) {
         case 400:
           throw new BadRequestException(message, { cause: error as Error });
@@ -119,6 +235,8 @@ export class BtcpayService {
           throw new ForbiddenException(message, { cause: error as Error });
         case 404:
           throw new NotFoundException(message, { cause: error as Error });
+        case 409:
+          throw new ConflictException(message, { cause: error as Error });
         default:
           throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
       }
@@ -128,7 +246,13 @@ export class BtcpayService {
 
   async createUser(
     host: string | undefined,
-    payload: { email: string; password?: string; name?: string; sendInvitationEmail?: boolean }
+    payload: {
+      email: string;
+      password?: string;
+      name?: string;
+      sendInvitationEmail?: boolean;
+      correlationId?: string;
+    }
   ): Promise<UserResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
@@ -145,13 +269,22 @@ export class BtcpayService {
       const { data } = await http.post<UserResponse>('/api/v1/users', body);
       return data;
     } catch (error) {
-      return this.maskError(error);
+      if (axios.isAxiosError(error) && this.isUsernameTakenError(error)) {
+        throw new ConflictException('BTCPay user already exists', { cause: error as Error });
+      }
+      return this.maskError(error, { action: 'createUser', correlationId: payload.correlationId });
     }
   }
 
-  async createUserApiKey(host: string | undefined, email: string, storeId: string): Promise<ApiKeyResponse> {
+  async createUserApiKey(
+    host: string | undefined,
+    email: string,
+    storeId: string,
+    options?: { correlationId?: string }
+  ): Promise<ApiKeyResponse> {
     return this.issueUserApiKey(host, email, this.buildStorePermissions(storeId), {
-      label: `Store ${storeId} key`
+      label: `Store ${storeId} key`,
+      correlationId: options?.correlationId,
     });
   }
 
@@ -159,16 +292,19 @@ export class BtcpayService {
     host: string | undefined,
     email: string,
     permissions: string[],
-    label = 'Temporary key'
+    options?: { label?: string; correlationId?: string }
   ): Promise<ApiKeyResponse> {
-    return this.issueUserApiKey(host, email, permissions, { label });
+    return this.issueUserApiKey(host, email, permissions, {
+      label: options?.label ?? 'Temporary key',
+      correlationId: options?.correlationId,
+    });
   }
 
   async issueUserApiKey(
     host: string | undefined,
     email: string,
     permissions: string[],
-    options?: { label?: string }
+    options?: IssueUserApiKeyOptions
   ): Promise<ApiKeyResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
@@ -194,14 +330,18 @@ export class BtcpayService {
         id: typeof data.id === 'string' ? data.id : undefined
       } satisfies ApiKeyResponse;
     } catch (error) {
-      return this.maskError(error);
+      return this.maskError(error, {
+        action: 'issueUserApiKey',
+        correlationId: options?.correlationId,
+      });
     }
   }
 
   async createStoreWithUserToken(
     host: string | undefined,
     apiKey: string,
-    payload: { name: string; website?: string; defaultCurrency?: string; preferredExchange?: string }
+    payload: { name: string; website?: string; defaultCurrency?: string; preferredExchange?: string },
+    context?: BtcpayRequestContext
   ): Promise<StoreResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${apiKey}`
@@ -220,7 +360,7 @@ export class BtcpayService {
       const { data } = await http.post<StoreResponse>('/api/v1/stores', body);
       return data;
     } catch (error) {
-      return this.maskError(error);
+      return this.maskError(error, { action: 'createStoreWithUserToken', ...context });
     }
   }
 
@@ -274,14 +414,39 @@ export class BtcpayService {
     await this.revokeUserApiKey(host, apiKey);
   }
 
-  async revokeUserApiKey(host: string | undefined, keyIdOrValue: string): Promise<void> {
+  async revokeUserApiKey(
+    host: string | undefined,
+    keyIdOrValue: string,
+    context?: BtcpayRequestContext
+  ): Promise<void> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`
     });
     try {
       await http.delete(`/api/v1/api-keys/${encodeURIComponent(keyIdOrValue)}`);
     } catch (error) {
-      this.maskError(error);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        if (this.isMissingApiKeyError(status, data)) {
+          const logPayload: Record<string, unknown> = {
+            statusCode: status,
+            key: this.redactToken(keyIdOrValue),
+          };
+          if (context?.correlationId) {
+            logPayload.correlationId = context.correlationId;
+          }
+          if (data) {
+            const summary = this.summariseErrorPayload(data);
+            if (summary) {
+              logPayload.error = summary;
+            }
+          }
+          this.logger.warn(logPayload, 'revokeUserApiKey');
+          return;
+        }
+      }
+      this.maskError(error, { action: 'revokeUserApiKey', ...context });
     }
   }
 
@@ -296,7 +461,12 @@ export class BtcpayService {
     }
   }
 
-  async registerWebhook(host: string | undefined, apiKey: string, storeId: string): Promise<WebhookResponse> {
+  async registerWebhook(
+    host: string | undefined,
+    apiKey: string,
+    storeId: string,
+    context?: BtcpayRequestContext
+  ): Promise<WebhookResponse> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${apiKey}`
     });
@@ -312,7 +482,7 @@ export class BtcpayService {
       });
       return data;
     } catch (error) {
-      return this.maskError(error);
+      return this.maskError(error, { action: 'registerWebhook', ...context });
     }
   }
 

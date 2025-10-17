@@ -11,6 +11,7 @@ const rawStoreSchema = z.object({
   name: z.string().min(1).optional(),
   storeId: z.string().min(1).optional(),
   storeName: z.string().min(1).optional(),
+  defaultCurrency: z.string().min(1).optional(),
 });
 
 const responseSchema = z.array(rawStoreSchema);
@@ -18,6 +19,7 @@ const responseSchema = z.array(rawStoreSchema);
 export type StoreSummary = {
   id: string;
   name: string;
+  defaultCurrency: string | null;
 };
 
 function normalizeStore(record: z.infer<typeof rawStoreSchema>): StoreSummary | null {
@@ -31,6 +33,7 @@ function normalizeStore(record: z.infer<typeof rawStoreSchema>): StoreSummary | 
   return {
     id: idCandidate,
     name: nameCandidate,
+    defaultCurrency: record.defaultCurrency ? record.defaultCurrency.trim().toUpperCase() : null,
   };
 }
 

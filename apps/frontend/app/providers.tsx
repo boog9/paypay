@@ -3,6 +3,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactNode, useState } from "react";
 
+import { ToastProvider } from "../components/ui/toast";
+
 const DEFAULT_QUERY_OPTIONS = {
   staleTime: 60_000,
   gcTime: 5 * 60_000,
@@ -21,5 +23,9 @@ export function Providers({ children }: { children: ReactNode }) {
     })
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>{children}</ToastProvider>
+    </QueryClientProvider>
+  );
 }

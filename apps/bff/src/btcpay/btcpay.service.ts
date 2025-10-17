@@ -42,6 +42,7 @@ interface StoreResponse {
   id: string;
   name?: string;
   website?: string | null;
+  defaultCurrency?: string | null;
 }
 
 interface CurrentApiKeyResponse {
@@ -217,6 +218,35 @@ export class BtcpayService {
         body.preferredExchange = payload.preferredExchange;
       }
       const { data } = await http.post<StoreResponse>('/api/v1/stores', body);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async setCoinGeckoAsDefaultRateSource(host: string | undefined, apiKey: string, storeId: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      await http.put(`/api/v1/stores/${storeId}/rates/configuration`, {
+        preferredSource: 'CoinGecko',
+        rateSource: 'CoinGecko'
+      });
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async listStores(host: string | undefined, apiKey: string): Promise<StoreResponse[]> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+    try {
+      const { data } = await http.get<StoreResponse[]>('/api/v1/stores');
+      if (!Array.isArray(data)) {
+        return [];
+      }
       return data;
     } catch (error) {
       return this.maskError(error);

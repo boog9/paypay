@@ -5,16 +5,13 @@ import type { Response } from 'supertest';
 import nock from 'nock';
 import { createHash } from 'crypto';
 import { AppModule } from '../src/app.module';
-import {
-  ACCESS_TOKEN_COOKIE_NAME,
-  REFRESH_TOKEN_COOKIE_NAME,
-  CSRF_SECRET_COOKIE_NAME
-} from '../src/auth/auth.constants';
+import { resolveCookieNames } from '../src/auth/cookie-names';
 import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
 import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('AuthModule (e2e)', () => {
+  let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
   let server: any;
   let agent: ReturnType<typeof request.agent>;
@@ -26,6 +23,7 @@ describe('AuthModule (e2e)', () => {
 
     app = moduleRef.createNestApplication();
     const env = getEnv();
+    cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
     configureCsrfProtection(app, env);
@@ -61,11 +59,15 @@ describe('AuthModule (e2e)', () => {
     return { token: response.body.csrfToken, cookies };
   }
 
-  function extractCookieValue(cookies: string[] | undefined, name: string): string | undefined {
+  function extractCookieValue(cookies: string[] | undefined, ...names: string[]): string | undefined {
     if (!cookies) return undefined;
-    const target = cookies.find((cookie) => cookie.startsWith(`${name}=`));
-    if (!target) return undefined;
-    return target.split(';')[0].split('=').slice(1).join('=');
+    for (const name of names) {
+      const target = cookies.find((cookie) => cookie.startsWith(`${name}=`));
+      if (target) {
+        return target.split(';')[0].split('=').slice(1).join('=');
+      }
+    }
+    return undefined;
   }
 
   function getCookies(response: Response): string[] {
@@ -90,8 +92,10 @@ describe('AuthModule (e2e)', () => {
       expect.objectContaining({ id: expect.any(String), email: credentials.email })
     );
     const registerCookies = getCookies(registerResponse);
-    expect(registerCookies.join(';')).not.toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
-    expect(registerCookies.join(';')).not.toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
+    expect(registerCookies.join(';')).not.toContain(`${cookieNames.access}=`);
+    expect(registerCookies.join(';')).not.toContain(`${cookieNames.refresh}=`);
+    expect(registerCookies.join(';')).not.toContain(`${cookieNames.legacyAccess}=`);
+    expect(registerCookies.join(';')).not.toContain(`${cookieNames.legacyRefresh}=`);
 
     const { token: duplicateRegisterCsrf } = await fetchCsrfToken();
     await agent
@@ -157,8 +161,10 @@ describe('AuthModule (e2e)', () => {
       })
     );
     const signupCookies = getCookies(signupResponse);
-    expect(signupCookies.join(';')).toContain(`${ACCESS_TOKEN_COOKIE_NAME}=`);
-    expect(signupCookies.join(';')).toContain(`${REFRESH_TOKEN_COOKIE_NAME}=`);
+    expect(signupCookies.join(';')).toContain(`${cookieNames.access}=`);
+    expect(signupCookies.join(';')).toContain(`${cookieNames.refresh}=`);
+    expect(signupCookies.join(';')).toContain(`${cookieNames.legacyAccess}=`);
+    expect(signupCookies.join(';')).toContain(`${cookieNames.legacyRefresh}=`);
 
     const { token: duplicateSignupCsrf } = await fetchCsrfToken();
     await agent
@@ -189,7 +195,11 @@ describe('AuthModule (e2e)', () => {
     );
 
     const loginCookies = getCookies(loginResponse);
-    const firstRefreshToken = extractCookieValue(loginCookies, REFRESH_TOKEN_COOKIE_NAME);
+    const firstRefreshToken = extractCookieValue(
+      loginCookies,
+      cookieNames.refresh,
+      cookieNames.legacyRefresh
+    );
     expect(firstRefreshToken).toBeDefined();
 
     const { token: refreshCsrf } = await fetchCsrfToken();
@@ -206,19 +216,27 @@ describe('AuthModule (e2e)', () => {
     );
 
     const refreshCookies = getCookies(refreshedResponse);
-    const latestRefreshToken = extractCookieValue(refreshCookies, REFRESH_TOKEN_COOKIE_NAME);
+    const latestRefreshToken = extractCookieValue(
+      refreshCookies,
+      cookieNames.refresh,
+      cookieNames.legacyRefresh
+    );
     expect(latestRefreshToken).toBeDefined();
     expect(latestRefreshToken).not.toEqual(firstRefreshToken);
 
     const reuseCsrf = await fetchCsrfToken();
-    const reuseCsrfSecret = extractCookieValue(reuseCsrf.cookies, CSRF_SECRET_COOKIE_NAME);
+    const reuseCsrfSecret = extractCookieValue(
+      reuseCsrf.cookies,
+      cookieNames.csrfSecret,
+      cookieNames.legacyCsrfSecret
+    );
     expect(reuseCsrfSecret).toBeDefined();
     await request(server)
       .post('/api/auth/refresh')
       .set('X-CSRF-Token', reuseCsrf.token)
       .set('Cookie', [
-        `${REFRESH_TOKEN_COOKIE_NAME}=${firstRefreshToken}`,
-        `${CSRF_SECRET_COOKIE_NAME}=${reuseCsrfSecret}`
+        `${cookieNames.refresh}=${firstRefreshToken}`,
+        `${cookieNames.csrfSecret}=${reuseCsrfSecret}`
       ])
       .send({ refreshToken: firstRefreshToken })
       .expect(401);

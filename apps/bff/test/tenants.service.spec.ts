@@ -3,6 +3,7 @@ import { TenantsService } from '../src/tenants/tenants.service';
 import { TenantEntity } from '../src/tenants/entities/tenant.entity';
 import { StoreEntity } from '../src/tenants/entities/store.entity';
 import { AuditLogEntity } from '../src/tenants/entities/audit-log.entity';
+import { IdempotencyKeyEntity } from '../src/tenants/entities/idempotency-key.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
 import { ConfigService } from '@nestjs/config';
@@ -21,7 +22,12 @@ describe('TenantsService onboarding flows', () => {
     const auditRepository = {
       save: jest.fn()
     } as unknown as jest.Mocked<any>;
-    const idempotencyRepository = {} as unknown as jest.Mocked<any>;
+    const idempotencyRepository = {
+      create: jest.fn((payload) => ({ ...payload })),
+      insert: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined)
+    } as unknown as jest.Mocked<any>;
 
     const encryptionService = {
       encrypt: jest.fn(),
@@ -66,6 +72,9 @@ describe('TenantsService onboarding flows', () => {
     const auditRepoInTx = {
       save: jest.fn().mockResolvedValue(undefined)
     };
+    const idempotencyRepoInTx = {
+      update: jest.fn().mockResolvedValue(undefined)
+    };
 
     type TestEntityManager = {
       getRepository: jest.Mock;
@@ -76,6 +85,7 @@ describe('TenantsService onboarding flows', () => {
         if (entity === TenantEntity) return tenantRepoInTx;
         if (entity === StoreEntity) return storeRepoInTx;
         if (entity === AuditLogEntity) return auditRepoInTx;
+        if (entity === IdempotencyKeyEntity) return idempotencyRepoInTx;
         throw new Error('Unexpected repository request');
       })
     };
@@ -106,7 +116,9 @@ describe('TenantsService onboarding flows', () => {
       tenantRepoInTx,
       storeRepoInTx,
       auditRepoInTx,
-      configService
+      configService,
+      idempotencyRepository,
+      idempotencyRepoInTx
     };
   }
 
@@ -259,7 +271,11 @@ describe('TenantsService onboarding flows', () => {
       { label: 'PayPay internal btcpay-store-id' }
     );
     expect(btcpayService.registerWebhook).toHaveBeenCalledWith('https://btcpay.test', 'store-key-9876', 'btcpay-store-id');
-    expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.test', 'bootstrap-key');
+    expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith(
+      'https://btcpay.test',
+      'bootstrap-key',
+      expect.objectContaining({ action: 'createAdditionalStore.cleanup.bootstrap' })
+    );
 
     expect(encryptionService.encrypt).toHaveBeenNthCalledWith(1, 'store-key-9876');
     expect(encryptionService.encrypt).toHaveBeenNthCalledWith(2, 'webhook-secret', 'api-dek');
@@ -273,6 +289,60 @@ describe('TenantsService onboarding flows', () => {
     );
 
     expect(result).toEqual({ storeId: 'store-entity-id', btcpayStoreId: 'btcpay-store-id' });
+  });
+
+  it('propagates the idempotency key as correlation id when revoking bootstrap credentials', async () => {
+    const {
+      service,
+      tenantsRepository,
+      storesRepository,
+      encryptionService,
+      btcpayService,
+      dataSource,
+      storeRepoInTx,
+      auditRepoInTx
+    } = createService();
+
+    tenantsRepository.findOne.mockResolvedValue({ id: 'tenant-entity-id', email: 'merchant@example.com' });
+    storesRepository.findOne
+      .mockResolvedValueOnce({
+        btcpayHost: 'https://btcpay.test'
+      })
+      .mockResolvedValueOnce(null);
+
+    (btcpayService.issueUserApiKey as jest.Mock)
+      .mockResolvedValueOnce({ apiKey: 'bootstrap-key', permissions: ['btcpay.store.canmodifystoresettings'] })
+      .mockResolvedValueOnce({ apiKey: 'store-key-1234', permissions: [] });
+
+    (btcpayService.registerWebhook as jest.Mock).mockResolvedValue({ id: 'webhook-id', secret: 'webhook-secret' });
+    (encryptionService.encrypt as jest.Mock)
+      .mockReturnValueOnce({ ciphertext: 'api-cipher', dekWrapped: 'api-dek' })
+      .mockReturnValueOnce({ ciphertext: 'webhook-cipher', dekWrapped: 'webhook-dek' });
+
+    await service.createAdditionalStore(
+      'tenant-entity-id',
+      {
+        storeName: 'Second Store',
+        defaultCurrency: 'USD'
+      },
+      'actor-2',
+      '127.0.0.1',
+      'merchant@example.com',
+      'IDEMP-123'
+    );
+
+    expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith(
+      'https://btcpay.test',
+      'bootstrap-key',
+      expect.objectContaining({
+        correlationId: 'IDEMP-123',
+        action: 'createAdditionalStore.cleanup.bootstrap'
+      })
+    );
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(storeRepoInTx.create).toHaveBeenCalled();
+    expect(auditRepoInTx.save).toHaveBeenCalled();
   });
 
   it('rotates store API keys by issuing a new scoped credential and revoking the previous one', async () => {

@@ -17,7 +17,7 @@ import { IdempotencyKeyEntity } from './entities/idempotency-key.entity';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
-import { BtcpayService } from '../btcpay/btcpay.service';
+import { BtcpayService, type IssueUserApiKeyOptions } from '../btcpay/btcpay.service';
 import { CreateTenantInvoiceDto } from './dto/create-invoice.dto';
 import { normalizeEmail } from '../auth/email.utils';
 
@@ -221,6 +221,9 @@ export class TenantsService {
       ? await this.reserveCreateStoreIdempotencyKey(idempotencyKey, tenantId)
       : null;
 
+    const correlationId = idempotencyKey ?? null;
+    const correlationContext = correlationId ? { correlationId } : undefined;
+
     if (idempotencyReservation && 'existing' in idempotencyReservation) {
       return idempotencyReservation.existing;
     }
@@ -235,21 +238,36 @@ export class TenantsService {
       throw new ConflictException('Store with this name already exists.');
     }
 
+    const bootstrapOptions: IssueUserApiKeyOptions = {
+      label: 'PayPay store bootstrap'
+    };
+    if (correlationContext?.correlationId) {
+      bootstrapOptions.correlationId = correlationContext.correlationId;
+    }
+
     const bootstrapKey = await this.btcpayService.issueUserApiKey(
       baseUrl,
       tenant.email,
       this.btcpayService.buildBootstrapPermissions(),
-      { label: `PayPay store bootstrap` }
+      bootstrapOptions
     );
 
     let store: { id: string } | null = null;
     try {
-      store = await this.btcpayService.createStoreWithUserToken(baseUrl, bootstrapKey.apiKey, {
+      const storePayload = {
         name: storeName,
         ...(storeWebsite ? { website: storeWebsite } : {}),
         defaultCurrency: normalizedCurrency,
         preferredExchange: this.sanitizePreferredExchange(dto.preferredExchange)
-      });
+      };
+      store = correlationContext
+        ? await this.btcpayService.createStoreWithUserToken(
+            baseUrl,
+            bootstrapKey.apiKey,
+            storePayload,
+            correlationContext
+          )
+        : await this.btcpayService.createStoreWithUserToken(baseUrl, bootstrapKey.apiKey, storePayload);
 
       let internalKey: { apiKey: string; id?: string } | null = null;
       try {
@@ -257,14 +275,28 @@ export class TenantsService {
           throw new InternalServerErrorException('BTCPay store creation failed');
         }
         const createdStore = store;
+        const internalOptions: IssueUserApiKeyOptions = {
+          label: `PayPay internal ${createdStore.id}`
+        };
+        if (correlationContext?.correlationId) {
+          internalOptions.correlationId = correlationContext.correlationId;
+        }
+
         internalKey = await this.btcpayService.issueUserApiKey(
           baseUrl,
           tenant.email,
           this.btcpayService.buildStorePermissions(createdStore.id),
-          { label: `PayPay internal ${createdStore.id}` }
+          internalOptions
         );
 
-        const webhook = await this.btcpayService.registerWebhook(baseUrl, internalKey.apiKey, createdStore.id);
+        const webhook = correlationContext
+          ? await this.btcpayService.registerWebhook(
+              baseUrl,
+              internalKey.apiKey,
+              createdStore.id,
+              correlationContext
+            )
+          : await this.btcpayService.registerWebhook(baseUrl, internalKey.apiKey, createdStore.id);
         if (!webhook.secret) {
           throw new InternalServerErrorException('BTCPay webhook secret was not returned');
         }
@@ -321,14 +353,20 @@ export class TenantsService {
         return result;
       } catch (error) {
         if (internalKey?.apiKey) {
-          await this.safeRevokeKey(baseUrl, internalKey.apiKey);
+          await this.safeRevokeKey(baseUrl, internalKey.apiKey, {
+            correlationId,
+            reason: 'createAdditionalStore.cleanup.internalKey'
+          });
           this.clearBuffer(internalKey.apiKey);
         }
         throw error;
       }
     } finally {
       if (this.revokeBootstrapAfterCreate || !store) {
-        await this.safeRevokeKey(baseUrl, bootstrapKey.apiKey);
+        await this.safeRevokeKey(baseUrl, bootstrapKey.apiKey, {
+          correlationId,
+          reason: 'createAdditionalStore.cleanup.bootstrap'
+        });
       }
       this.clearBuffer(bootstrapKey.apiKey);
       if (idempotencyReservation && 'record' in idempotencyReservation && !idempotencyReservation.record.resourceId) {
@@ -668,17 +706,37 @@ export class TenantsService {
     return trimmed.length > 0 ? trimmed : undefined;
   }
 
-  private async safeRevokeKey(baseUrl: string, key: string | null | undefined): Promise<void> {
+  private async safeRevokeKey(
+    baseUrl: string,
+    key: string | null | undefined,
+    context?: { correlationId?: string | null; reason?: string }
+  ): Promise<void> {
     if (!key) {
       return;
     }
     try {
-      await this.btcpayService.revokeUserApiKey(baseUrl, key);
+      const correlationId = context?.correlationId ?? undefined;
+      const reason = context?.reason;
+      const revokeContext = reason || correlationId ? { action: reason, correlationId } : undefined;
+      if (revokeContext) {
+        await this.btcpayService.revokeUserApiKey(baseUrl, key, revokeContext);
+      } else {
+        await this.btcpayService.revokeUserApiKey(baseUrl, key);
+      }
     } catch (error) {
       const suffix = this.extractLastFour(key);
-      this.logger.warn(
-        `Failed to revoke BTCPay API key${suffix ? ` ****${suffix}` : ''}: ${(error as Error).message}`
-      );
+      const payload: Record<string, unknown> = {
+        message: 'Failed to revoke BTCPay API key',
+        key: suffix ? `****${suffix}` : '****',
+        error: (error as Error).message,
+      };
+      if (context?.correlationId) {
+        payload.correlationId = context.correlationId;
+      }
+      if (context?.reason) {
+        payload.reason = context.reason;
+      }
+      this.logger.warn(payload, 'safeRevokeKey');
     }
   }
 

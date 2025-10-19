@@ -11,6 +11,21 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 2. `corepack prepare pnpm@9 --activate`
 3. `pnpm install`
 
+### Troubleshooting: ERR_PNPM_OUTDATED_LOCKFILE
+This error means `pnpm-lock.yaml` is out of sync with one of the workspace manifests (for example, `apps/frontend/package.json`).
+
+Fix:
+1. Update the relevant `package.json` (add or remove `@paypay/sdk`, etc.).
+2. From the monorepo root run:
+   ```bash
+   corepack enable
+   corepack prepare pnpm@9 --activate
+   pnpm -r install
+   ```
+3. Commit the refreshed `pnpm-lock.yaml`.
+
+`--frozen-lockfile` is mandatory in Docker and CI. Do not disable it.
+
 ## Build
 - `pnpm -r build`
 

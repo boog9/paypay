@@ -46,7 +46,7 @@ export function StoreCard({ tenantId, store }: StoreCardProps) {
     startRotate(async () => {
       try {
         const payload = await api<RotateResponse>(
-          `/tenants/${tenantId}/apikey/rotate?storeId=${store.storeId}`,
+          `/api/tenants/${tenantId}/apikey/rotate?storeId=${store.storeId}`,
           {
             method: "POST",
             headers: {
@@ -79,7 +79,7 @@ export function StoreCard({ tenantId, store }: StoreCardProps) {
 
     startDelete(async () => {
       try {
-        await api(`/tenants/${tenantId}/stores/${store.storeId}`, {
+        await api(`/api/tenants/${tenantId}/stores/${store.storeId}`, {
           method: "DELETE",
           headers: { Accept: "application/json" }
         });

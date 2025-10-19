@@ -50,7 +50,7 @@ export default function StoreSettingsClient({
     startRotate(async () => {
       try {
         const payload = await api<RotateResponse>(
-          `/tenants/${tenantId}/apikey/rotate?storeId=${storeId}`,
+          `/api/tenants/${tenantId}/apikey/rotate?storeId=${storeId}`,
           {
             method: "POST",
             headers: {
@@ -84,7 +84,7 @@ export default function StoreSettingsClient({
 
     startDelete(async () => {
       try {
-        await api(`/tenants/${tenantId}/stores/${storeId}`, {
+        await api(`/api/tenants/${tenantId}/stores/${storeId}`, {
           method: "DELETE",
           headers: {
             Accept: "application/json"

@@ -49,7 +49,7 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
   }
 
   try {
-    const response = await api<{ next: string; apiKey?: string }>('/auth/signup', {
+    const response = await api<{ next: string; apiKey?: string }>('/api/auth/signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -90,7 +90,7 @@ export async function loginAction(formData: FormData): Promise<AuthActionResult>
   }
 
   try {
-    await api<void>('/auth/login', {
+    await api<void>('/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

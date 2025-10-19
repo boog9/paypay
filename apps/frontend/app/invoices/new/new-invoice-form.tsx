@@ -47,7 +47,7 @@ export function NewInvoiceForm() {
 
       const csrfToken = await fetchCsrfToken();
 
-      const invoice = await api<{ id?: string }>('/invoices', {
+      const invoice = await api<{ id?: string }>('/api/invoices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

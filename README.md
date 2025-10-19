@@ -230,6 +230,17 @@ docker compose exec bff curl -sS http://localhost:3000/health
 
 ## Troubleshooting
 
+### Troubleshooting: `Module not found: Can't resolve 'axios'` during frontend build
+This indicates that `apps/frontend` imports `@paypay/sdk`, which depends on `axios`, but the monorepo dependencies were not installed before the build.
+
+Resolution:
+1. Ensure that `packages/sdk/package.json` lists `"axios"` under `dependencies`.
+2. Install dependencies for the entire monorepo before building:
+   ```bash
+   pnpm -r install --frozen-lockfile
+   ```
+3. For Docker builds, run `pnpm -r install` in the build stage instead of filtering only `apps/frontend`.
+
 - Requests to `https://api.<domain>/auth/*` are not supported; use `https://api.<domain>/api/auth/*` instead so the request reachs the BFF.
 - Error: `parsing caddyfile tokens for 'email'`
   - Cause: `CADDY_ADMIN_EMAIL` is missing, empty, or not passed through Docker Compose to the Caddy container.

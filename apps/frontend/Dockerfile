@@ -2,7 +2,7 @@
 FROM node:22.14.0-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /workspace
 
 FROM base AS deps
@@ -12,13 +12,13 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY apps/bff/package.json apps/bff/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --filter ./apps/frontend...
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --recursive
 
 FROM deps AS build
 ARG NEXT_PUBLIC_BFF_URL
 ENV NEXT_PUBLIC_BFF_URL=$NEXT_PUBLIC_BFF_URL
 COPY . .
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm install --offline --frozen-lockfile --filter ./apps/frontend...
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm -r install --frozen-lockfile
 RUN pnpm --filter ./apps/frontend... build
 
 FROM node:22.14.0-alpine AS runner

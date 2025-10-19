@@ -130,7 +130,7 @@ services:
     networks:
       - paynet
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider http://localhost/healthz || exit 1']
+      test: ["CMD-SHELL", "wget -qO- https://api.paypay.iddqd.in/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

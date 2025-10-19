@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DashboardContent } from "../../../src/components/dashboard/dashboard-content";
-import { API_PREFIX, BFF } from "../../../lib/api";
+import { API_PREFIX, BFF, apiFetch } from "../../../lib/api";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -21,9 +21,6 @@ async function ensureAuthenticated(): Promise<void> {
   const forwardedHost = headerList.get("x-forwarded-host");
   const host = forwardedHost ?? headerList.get("host");
   const fallbackOrigin = host ? `${proto}://${host}` : "http://localhost";
-  const baseOrigin = BFF || fallbackOrigin;
-  const target = new URL(`${API_PREFIX}/auth/me`, baseOrigin);
-
   const serializedCookies = headerList.get("cookie") ?? "";
 
   const requestHeaders = new Headers({ Accept: "application/json" });
@@ -31,10 +28,11 @@ async function ensureAuthenticated(): Promise<void> {
     requestHeaders.set("cookie", serializedCookies);
   }
 
-  const response = await fetch(target.toString(), {
+  const response: Response = await apiFetch(`${API_PREFIX}/auth/me`, {
     method: "GET",
     headers: requestHeaders,
-    cache: "no-store"
+    cache: "no-store",
+    baseUrl: BFF || fallbackOrigin
   });
 
   if (response.status === 401) {
@@ -46,11 +44,6 @@ async function ensureAuthenticated(): Promise<void> {
   }
 
   if (response.status !== 204) {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      await response.json().catch(() => undefined);
-    } else {
-      await response.arrayBuffer().catch(() => undefined);
-    }
+    await response.text().catch(() => undefined);
   }
 }

@@ -1,3 +1,5 @@
+import { apiBaseUrl as sdkApiBaseUrl, apiFetch as sdkApiFetch, type ApiFetchInit } from '@paypay/sdk';
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -10,47 +12,37 @@ export class ApiError extends Error {
   }
 }
 
-const rawBff = process.env.NEXT_PUBLIC_BFF_URL;
-const trimmedBff = typeof rawBff === 'string' ? rawBff.trim() : '';
+export const API_PREFIX = '/api';
+export const BFF: string = sdkApiBaseUrl();
+export const apiBaseUrl = sdkApiBaseUrl;
+export const apiFetch = sdkApiFetch;
 
-if (!trimmedBff && process.env.NODE_ENV !== 'production') {
-  console.warn(
-    'NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.'
-  );
+if (!BFF && process.env.NODE_ENV !== 'production') {
+  console.warn('NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.');
 }
 
-export const BFF = trimmedBff ? trimmedBff.replace(/\/$/, '') : '';
-export const API_PREFIX = '/api';
-
-function resolveApiUrl(path: string): string {
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return path;
+function ensureApiPath(path: string): string {
+  if (!path) {
+    throw new Error('API path must be provided.');
   }
   const normalized = path.startsWith('/') ? path : `/${path}`;
   if (normalized === API_PREFIX || normalized.startsWith(`${API_PREFIX}/`)) {
-    return `${BFF}${normalized}`;
+    return normalized;
   }
-  return `${BFF}${API_PREFIX}${normalized}`;
+  throw new Error(`API requests must use the ${API_PREFIX} prefix. Received: ${path}`);
 }
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = resolveApiUrl(path);
-  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
-  const target = new URL(url, origin);
-  const isCrossOrigin =
-    typeof window !== 'undefined' ? target.origin !== window.location.origin : false;
-  const credentials: RequestCredentials = isCrossOrigin
-    ? (init.credentials ?? 'include')
-    : (init.credentials ?? 'same-origin');
-
-  const response = await fetch(target.toString(), {
-    ...init,
-    credentials
-  });
+export async function api<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
+  const normalizedPath = ensureApiPath(path);
+  const headers = new Headers(init.headers ?? {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+  const response = await sdkApiFetch(normalizedPath, { ...init, headers });
 
   const hasBody = ![204, 205, 304].includes(response.status);
   const contentType = response.headers.get('content-type') ?? '';
@@ -78,9 +70,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export async function fetchCsrfToken(): Promise<string> {
-  const data = await api<{ csrfToken: string }>('/auth/csrf', {
+  const data = await api<{ csrfToken: string }>('/api/auth/csrf', {
     method: 'GET',
-    headers: { Accept: 'application/json' },
     cache: 'no-store'
   });
   if (typeof data?.csrfToken !== 'string' || data.csrfToken.trim().length === 0) {

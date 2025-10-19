@@ -1,12 +1,17 @@
-paypay.iddqd.in, api.paypay.iddqd.in {
-  encode zstd gzip
+api.paypay.iddqd.in {
+  encode gzip
 
-  @api path /api/* /health /readyz
-  handle @api {
+  @bff path /api/* /health /readyz
+  handle @bff {
     reverse_proxy bff:3000
   }
 
   handle {
-    reverse_proxy frontend:3000
+    respond 404
   }
+}
+
+paypay.iddqd.in {
+  encode gzip
+  reverse_proxy frontend:3000
 }

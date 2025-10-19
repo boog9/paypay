@@ -19,6 +19,32 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 - `pnpm --filter bff build && pnpm --filter bff start:prod` – compile and launch the NestJS gateway locally.
 - `pnpm --filter frontend dev` – run only the Next.js UI if you need a focused session.
 
+All public BFF routes are served from the `/api` prefix. For example, `https://api.paypay.iddqd.in/api/auth/csrf` issues a CSRF token, while `https://api.paypay.iddqd.in/auth/csrf` is intentionally rejected with a `404`.
+
+### Verify the public API
+
+Use the live HTTPS endpoints to validate the authentication flow end-to-end:
+
+```bash
+# CSRF
+curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  "https://api.paypay.iddqd.in/api/auth/csrf"
+
+# Login (204 + Set-Cookie)
+curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <paste-from-response>" \
+  -X POST "https://api.paypay.iddqd.in/api/auth/login" \
+  --data '{"email":"<email>","password":"<pass>"}'
+
+# Me (200)
+curl -i -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  "https://api.paypay.iddqd.in/api/auth/me"
+```
+
 ## Auth flow (CSRF + Cookie)
 The BFF exposes a double-submit CSRF flow so browsers and CLI clients can safely reuse the same cookie jar across requests:
 
@@ -204,6 +230,7 @@ docker compose exec bff curl -sS http://localhost:3000/health
 
 ## Troubleshooting
 
+- Requests to `https://api.<domain>/auth/*` are not supported; use `https://api.<domain>/api/auth/*` instead so the request reachs the BFF.
 - Error: `parsing caddyfile tokens for 'email'`
   - Cause: `CADDY_ADMIN_EMAIL` is missing, empty, or not passed through Docker Compose to the Caddy container.
   - Fix: populate `infra/env/.env`, ensure the `caddy` service lists it under `env_file`, and launch via `docker compose --env-file ../../infra/env/.env up -d --build`.
@@ -274,7 +301,8 @@ If your edge or proxy strips the `/api` prefix before reaching the BFF, configur
 - Tenant-facing API keys are generated per store with the minimal permissions listed in the BTCPay eCommerce Integration Guide. Keys and webhook secrets are envelope encrypted and never exposed to the frontend.
 
 ## Operational Checklist
-- `curl -I https://api.paypay.iddqd.in/healthz` returns **200**.
+- `curl -I https://api.paypay.iddqd.in/health` returns **200**.
+- `curl -I https://api.paypay.iddqd.in/auth/me` returns **404** (only `/api/*` is routed to the BFF).
 - `curl -i https://api.paypay.iddqd.in/api/auth/csrf` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.
 - `curl -I https://paypay.iddqd.in/dashboard` returns **200** and serves the merchant portal shell.
 - `curl -I https://paypay.iddqd.in/portal` returns **308/301** with `Location: /dashboard` for legacy clients.

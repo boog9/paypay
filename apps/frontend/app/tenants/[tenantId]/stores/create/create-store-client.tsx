@@ -54,7 +54,7 @@ export default function CreateStoreClient({ tenantId }: CreateStoreClientProps) 
 
         const idempotencyKey = generateIdempotencyKey();
 
-        const response = await api<CreateStoreResponse>(`/tenants/${tenantId}/stores`, {
+        const response = await api<CreateStoreResponse>(`/api/tenants/${tenantId}/stores`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

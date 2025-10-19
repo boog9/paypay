@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+  UnprocessableEntityException
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -61,6 +66,7 @@ export class AuthService {
   }
 
   async signup(dto: SignupDto): Promise<SignupServiceResultDto> {
+    this.ensurePasswordMeetsPolicy(dto.email, dto.password);
     const user = await this.register(dto);
 
     try {
@@ -123,7 +129,7 @@ export class AuthService {
 
     if (tokenEntity.expiresAt.getTime() <= Date.now()) {
       await this.revokeToken(tokenEntity);
-      throw new UnauthorizedException('Refresh token expired.');
+      throw new UnauthorizedException('Refresh token is no longer valid.');
     }
 
     const matches = await argon2.verify(tokenEntity.tokenHash, refreshToken);
@@ -177,6 +183,37 @@ export class AuthService {
       accessToken,
       refreshToken
     };
+  }
+
+  private ensurePasswordMeetsPolicy(email: string, password: string): void {
+    const checks: string[] = [];
+    if (password.length < 12) {
+      checks.push('be at least 12 characters long');
+    }
+    if (!/[A-Z]/.test(password)) {
+      checks.push('include an uppercase letter');
+    }
+    if (!/[a-z]/.test(password)) {
+      checks.push('include a lowercase letter');
+    }
+    if (!/\d/.test(password)) {
+      checks.push('include a number');
+    }
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      checks.push('include a special character');
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail && password.toLowerCase().includes(normalizedEmail)) {
+      checks.push('avoid containing your email address');
+    }
+
+    if (checks.length > 0) {
+      const detail = checks.join(', ');
+      throw new UnprocessableEntityException(
+        `Password does not meet BTCPay requirements: please ${detail}.`
+      );
+    }
   }
 
   private async createRefreshToken(user: UserEntity): Promise<string> {

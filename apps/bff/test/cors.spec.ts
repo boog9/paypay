@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('CORS preflight', () => {
@@ -37,7 +37,6 @@ describe('CORS preflight', () => {
     app = moduleRef.createNestApplication();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     await app.init();
 
     const server = app.getHttpServer();

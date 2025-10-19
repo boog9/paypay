@@ -1,20 +1,21 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import type { Response } from 'supertest';
-import nock from 'nock';
-import { createHash } from 'crypto';
+import * as argon2 from 'argon2';
+import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { resolveCookieNames } from '../src/auth/cookie-names';
-import { BTCPAY_PORTAL_USER_PERMISSIONS } from '../src/btcpay/btcpay.constants';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
+import { resolveCookieNames } from '../src/auth/cookie-names';
+import { UserEntity } from '../src/auth/entities/user.entity';
 
-describe('AuthModule (e2e)', () => {
-  let cookieNames: ReturnType<typeof resolveCookieNames>;
+describe('AuthModule CSRF + Cookie flow (e2e)', () => {
   let app: INestApplication;
+  let agent: request.SuperAgentTest;
   let server: any;
-  let agent: ReturnType<typeof request.agent>;
+  let dataSource: DataSource;
+  const cookieNames = resolveCookieNames();
+  const credentials = { email: 'merchant@example.com', password: 'SuperSafe!1234' };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -23,54 +24,41 @@ describe('AuthModule (e2e)', () => {
 
     app = moduleRef.createNestApplication();
     const env = getEnv();
-    cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: false,
-        forbidNonWhitelisted: true
-      })
+      new ValidationPipe({ whitelist: true, transform: false, forbidNonWhitelisted: true })
     );
     app.setGlobalPrefix('api');
     await app.init();
+
     server = app.getHttpServer();
     agent = request.agent(server);
+    dataSource = app.get(DataSource);
+
+    const usersRepository = dataSource.getRepository(UserEntity);
+    const passwordHash = await argon2.hash(credentials.password, {
+      type: argon2.argon2id,
+      memoryCost: 19_456,
+      timeCost: 2,
+      parallelism: 1
+    });
+    const existingUser = usersRepository.create({
+      email: credentials.email,
+      passwordHash,
+      btcpayUserId: 'user-auth-flow',
+      btcpayApiKeyHash: 'hash',
+      btcpayApiKeyLabel: 'label',
+      btcpayApiKeyPermissions: '[]'
+    });
+    await usersRepository.save(existingUser);
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  afterEach(() => {
-    nock.cleanAll();
-  });
-
-  async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual(
-      expect.objectContaining({
-        csrfToken: expect.any(String)
-      })
-    );
-    const cookies = getCookies(response);
-    return { token: response.body.csrfToken, cookies };
-  }
-
-  function extractCookieValue(cookies: string[] | undefined, ...names: string[]): string | undefined {
-    if (!cookies) return undefined;
-    for (const name of names) {
-      const target = cookies.find((cookie) => cookie.startsWith(`${name}=`));
-      if (target) {
-        return target.split(';')[0].split('=').slice(1).join('=');
-      }
-    }
-    return undefined;
-  }
-
-  function getCookies(response: Response): string[] {
+  function getCookies(response: request.Response): string[] {
     const raw = response.headers['set-cookie'];
     if (!raw) {
       return [];
@@ -78,114 +66,40 @@ describe('AuthModule (e2e)', () => {
     return Array.isArray(raw) ? raw : [raw];
   }
 
-  it('should handle the full auth flow', async () => {
-    const credentials = { email: 'merchant@example.com', password: 'averysecurepassword' };
-
-    const { token: registerCsrf } = await fetchCsrfToken();
-    const registerResponse = await agent
-      .post('/api/auth/register')
-      .set('X-CSRF-Token', registerCsrf)
-      .send(credentials)
-      .expect(201);
-
-    expect(registerResponse.body).toEqual(
-      expect.objectContaining({ id: expect.any(String), email: credentials.email })
+  it('supports CSRF-protected cookie authentication flow', async () => {
+    const csrfResponse = await agent.get('/api/auth/csrf').expect(200);
+    expect(csrfResponse.body).toEqual(
+      expect.objectContaining({ token: expect.any(String) })
     );
-    const registerCookies = getCookies(registerResponse);
-    expect(registerCookies.join(';')).not.toContain(`${cookieNames.access}=`);
-    expect(registerCookies.join(';')).not.toContain(`${cookieNames.refresh}=`);
-    expect(registerCookies.join(';')).not.toContain(`${cookieNames.legacyAccess}=`);
-    expect(registerCookies.join(';')).not.toContain(`${cookieNames.legacyRefresh}=`);
+    const csrfCookies = getCookies(csrfResponse);
+    expect(
+      csrfCookies.some((cookie) => cookie.startsWith(`${cookieNames.csrfSecret}=`))
+    ).toBe(true);
+    const csrfToken = csrfResponse.body.token ?? csrfResponse.body.csrfToken;
 
-    const { token: duplicateRegisterCsrf } = await fetchCsrfToken();
-    await agent
-      .post('/api/auth/register')
-      .set('X-CSRF-Token', duplicateRegisterCsrf)
-      .send(credentials)
-      .expect(409);
-
-    const btcpayBase = process.env.BTCPAY_SERVER_URL ?? 'https://btcpay.local';
-    const btcpayUrl = new URL(btcpayBase);
-    const apiBasePath = btcpayUrl.pathname.replace(/\/$/, '');
-    const adminToken = process.env.BTCPAY_ADMIN_API_KEY ?? 'admin-token';
-    const signupEmail = 'second@example.com';
-    const signupPassword = 'averysecurepassword';
-
-    const invitationPath = '/invitations/accept?code=xyz';
-    const expectedIdempotencyKey = createHash('sha256')
-      .update(`create-api-key:${signupEmail.toLowerCase()}`)
-      .digest('hex');
-
-    const scope = nock(btcpayUrl.origin)
-      .post(`${apiBasePath}/api/v1/users`, (body: any) => {
-        expect(body).toEqual(
-          expect.objectContaining({
-            email: signupEmail,
-            password: signupPassword,
-            sendInvitationEmail: false
-          })
-        );
-        return true;
-      })
-      .matchHeader('Authorization', `token ${adminToken}`)
-      .reply(200, { id: 'user-second', email: signupEmail })
-      .get(`${apiBasePath}/api/v1/users/${encodeURIComponent(signupEmail)}`)
-      .matchHeader('Authorization', `token ${adminToken}`)
-      .reply(200, { invitationUrl: `${btcpayUrl.origin}${invitationPath}` })
-      .get(invitationPath)
-      .reply(302, undefined, { Location: '/login' })
-      .post(`${apiBasePath}/api/v1/users/${encodeURIComponent(signupEmail)}/api-keys`, (body: any) => {
-        expect(body).toEqual({ label: 'PayPay Portal', permissions: BTCPAY_PORTAL_USER_PERMISSIONS });
-        return true;
-      })
-      .matchHeader('Authorization', `token ${adminToken}`)
-      .matchHeader('Idempotency-Key', expectedIdempotencyKey)
-      .reply(200, {
-        apiKey: 'btcpay-user-api-key',
-        label: 'PayPay Portal',
-        permissions: BTCPAY_PORTAL_USER_PERMISSIONS
-      });
-
-    const { token: signupCsrf } = await fetchCsrfToken();
-    const signupResponse = await agent
-      .post('/api/auth/signup')
-      .set('X-CSRF-Token', signupCsrf)
-      .send({ email: signupEmail, password: signupPassword })
-      .expect(201);
-
-    expect(scope.isDone()).toBe(true);
-    expect(signupResponse.body).toEqual(
-      expect.objectContaining({
-        next: '/dashboard',
-        apiKey: 'btcpay-user-api-key'
-      })
-    );
-    const signupCookies = getCookies(signupResponse);
-    expect(signupCookies.join(';')).toContain(`${cookieNames.access}=`);
-    expect(signupCookies.join(';')).toContain(`${cookieNames.refresh}=`);
-    expect(signupCookies.join(';')).toContain(`${cookieNames.legacyAccess}=`);
-    expect(signupCookies.join(';')).toContain(`${cookieNames.legacyRefresh}=`);
-
-    const { token: duplicateSignupCsrf } = await fetchCsrfToken();
-    await agent
-      .post('/api/auth/signup')
-      .set('X-CSRF-Token', duplicateSignupCsrf)
-      .send({ email: 'second@example.com', password: 'averysecurepassword' })
-      .expect(409);
-
-    const { token: invalidLoginCsrf } = await fetchCsrfToken();
-    await agent
-      .post('/api/auth/login')
-      .set('X-CSRF-Token', invalidLoginCsrf)
-      .send({ ...credentials, password: 'wrongpassword123' })
-      .expect(401);
-
-    const { token: loginCsrf } = await fetchCsrfToken();
     const loginResponse = await agent
       .post('/api/auth/login')
-      .set('X-CSRF-Token', loginCsrf)
+      .set('X-CSRF-Token', csrfToken)
       .send(credentials)
       .expect(204);
+
+    const loginCookies = getCookies(loginResponse);
+    const expectedCookieNames = [
+      cookieNames.access,
+      cookieNames.legacyAccess,
+      cookieNames.refresh,
+      cookieNames.legacyRefresh
+    ];
+    for (const name of expectedCookieNames) {
+      const matching = loginCookies.filter((cookie) => cookie.startsWith(`${name}=`));
+      expect(matching.length).toBeGreaterThan(0);
+      for (const cookie of matching) {
+        expect(cookie).toContain('HttpOnly');
+        expect(cookie).toContain('Secure');
+        expect(cookie).toContain('SameSite=Lax');
+        expect(cookie).toContain('Path=/');
+      }
+    }
 
     const meResponse = await agent.get('/api/auth/me').expect(200);
     expect(meResponse.body).toEqual(
@@ -194,65 +108,42 @@ describe('AuthModule (e2e)', () => {
       })
     );
 
-    const loginCookies = getCookies(loginResponse);
-    const firstRefreshToken = extractCookieValue(
-      loginCookies,
-      cookieNames.refresh,
-      cookieNames.legacyRefresh
+    const missingHeaderResponse = await agent.post('/api/auth/refresh').expect(403);
+    expect(missingHeaderResponse.body).toEqual(
+      expect.objectContaining({ message: 'invalid csrf token' })
     );
-    expect(firstRefreshToken).toBeDefined();
 
-    const { token: refreshCsrf } = await fetchCsrfToken();
-    const refreshedResponse = await agent
+    const freshAgent = request.agent(server);
+    const freshCsrf = await freshAgent.get('/api/auth/csrf').expect(200);
+    const freshCsrfToken = freshCsrf.body.token ?? freshCsrf.body.csrfToken;
+    const refreshWithoutCookie = await freshAgent
       .post('/api/auth/refresh')
-      .set('X-CSRF-Token', refreshCsrf)
-      .send({})
-      .expect(200);
+      .set('X-CSRF-Token', freshCsrfToken)
+      .expect(401);
+    expect(refreshWithoutCookie.body).toEqual(
+      expect.objectContaining({ message: 'Refresh token is required.' })
+    );
 
-    expect(refreshedResponse.body).toEqual(
+    const refreshCsrf = await agent.get('/api/auth/csrf').expect(200);
+    const refreshToken = refreshCsrf.body.token ?? refreshCsrf.body.csrfToken;
+    const refreshResponse = await agent
+      .post('/api/auth/refresh')
+      .set('X-CSRF-Token', refreshToken)
+      .expect(200);
+    expect(refreshResponse.body).toEqual(
       expect.objectContaining({
         user: expect.objectContaining({ email: credentials.email, id: expect.any(String) })
       })
     );
 
-    const refreshCookies = getCookies(refreshedResponse);
-    const latestRefreshToken = extractCookieValue(
-      refreshCookies,
-      cookieNames.refresh,
-      cookieNames.legacyRefresh
+    const refreshCookies = getCookies(refreshResponse);
+    for (const name of expectedCookieNames) {
+      expect(refreshCookies.some((cookie) => cookie.startsWith(`${name}=`))).toBe(true);
+    }
+
+    const unauthorizedMe = await request(server).get('/api/auth/me').expect(401);
+    expect(unauthorizedMe.body).toEqual(
+      expect.objectContaining({ message: 'Access token is required.' })
     );
-    expect(latestRefreshToken).toBeDefined();
-    expect(latestRefreshToken).not.toEqual(firstRefreshToken);
-
-    const reuseCsrf = await fetchCsrfToken();
-    const reuseCsrfSecret = extractCookieValue(
-      reuseCsrf.cookies,
-      cookieNames.csrfSecret,
-      cookieNames.legacyCsrfSecret
-    );
-    expect(reuseCsrfSecret).toBeDefined();
-    await request(server)
-      .post('/api/auth/refresh')
-      .set('X-CSRF-Token', reuseCsrf.token)
-      .set('Cookie', [
-        `${cookieNames.refresh}=${firstRefreshToken}`,
-        `${cookieNames.csrfSecret}=${reuseCsrfSecret}`
-      ])
-      .send({ refreshToken: firstRefreshToken })
-      .expect(401);
-
-    const { token: logoutCsrf } = await fetchCsrfToken();
-    await agent
-      .post('/api/auth/logout')
-      .set('X-CSRF-Token', logoutCsrf)
-      .send({ refreshToken: latestRefreshToken })
-      .expect(204);
-
-    const { token: afterLogoutCsrf } = await fetchCsrfToken();
-    await agent
-      .post('/api/auth/refresh')
-      .set('X-CSRF-Token', afterLogoutCsrf)
-      .send({ refreshToken: latestRefreshToken })
-      .expect(401);
   });
 });

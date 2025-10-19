@@ -7,7 +7,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { resolveCookieNames } from '../src/auth/cookie-names';
 import { UserEntity } from '../src/auth/entities/user.entity';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 import { randomBytes } from 'crypto';
 
@@ -36,7 +36,6 @@ describe('Auth session hardening', () => {
     cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: false, forbidNonWhitelisted: true })
     );
@@ -99,8 +98,11 @@ describe('Auth session hardening', () => {
     agent: ReturnType<typeof request.agent>
   ): Promise<{ token: string; cookies: string[] }> {
     const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual({ csrfToken: expect.any(String) });
-    return { token: response.body.csrfToken, cookies: getCookies(response) };
+    expect(response.body).toEqual(
+      expect.objectContaining({ token: expect.any(String) })
+    );
+    const token = response.body.token ?? response.body.csrfToken;
+    return { token, cookies: getCookies(response) };
   }
 
   it('issues a CSRF cookie and token', async () => {
@@ -112,6 +114,7 @@ describe('Auth session hardening', () => {
     expect(candidate).toBeDefined();
     if (candidate) {
       expect(candidate).toContain('SameSite=Lax');
+      expect(candidate).toContain('Secure');
     }
   });
 

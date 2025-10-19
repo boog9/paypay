@@ -7,7 +7,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { resolveCookieNames } from '../src/auth/cookie-names';
 import { UserEntity } from '../src/auth/entities/user.entity';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 import { StoresService } from '../src/stores/stores.service';
 
@@ -34,7 +34,6 @@ describe('Auth cookies (development configuration)', () => {
     cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -100,7 +99,7 @@ describe('Auth cookies (development configuration)', () => {
     return response.body.csrfToken;
   }
 
-  it('sets lax, non-secure cookies without a domain on localhost', async () => {
+  it('sets secure, lax cookies without a domain on localhost', async () => {
     const csrfToken = await fetchCsrfToken();
     const response = await agent
       .post('/api/auth/login')
@@ -126,7 +125,7 @@ describe('Auth cookies (development configuration)', () => {
     for (const cookie of [accessCookie, legacyAccessCookie, refreshCookie, legacyRefreshCookie]) {
       if (!cookie) continue;
       expect(cookie).toContain('SameSite=Lax');
-      expect(cookie).not.toContain('Secure');
+      expect(cookie).toContain('Secure');
       expect(cookie).not.toMatch(/Domain=/i);
     }
   });
@@ -168,7 +167,6 @@ describe('Auth cookies compatibility (production-like)', () => {
     cookieNames = resolveCookieNames();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: false, forbidNonWhitelisted: true })
     );

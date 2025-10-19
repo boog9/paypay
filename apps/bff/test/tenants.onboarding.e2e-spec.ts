@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
 describe('Tenants onboarding (e2e)', () => {
@@ -40,7 +40,6 @@ describe('Tenants onboarding (e2e)', () => {
     const env = getEnv();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.use((req: any, _res, next) => {
       req.user = { id: 'user-123', email: 'merchant@example.com' };
       next();
@@ -64,8 +63,9 @@ describe('Tenants onboarding (e2e)', () => {
 
   async function fetchCsrf(): Promise<{ token: string }> {
     const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual({ csrfToken: expect.any(String) });
-    return { token: response.body.csrfToken };
+    expect(response.body).toEqual(expect.objectContaining({ csrfToken: expect.any(String) }));
+    const token = response.body.token ?? response.body.csrfToken;
+    return { token };
   }
 
   it('provisions a tenant and store through the Greenfield API mocks', async () => {

@@ -13,7 +13,7 @@ import {
   ACCESS_TOKEN_TTL_S
 } from './auth.constants';
 import { CsrfService } from './csrf.service';
-import { CsrfGuard } from './csrf.guard';
+import { CsrfGuard } from './guards/csrf.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { BtcpayModule } from '../btcpay/btcpay.module';
 

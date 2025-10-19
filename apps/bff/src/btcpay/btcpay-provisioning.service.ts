@@ -6,7 +6,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  UnauthorizedException
+  UnauthorizedException,
+  UnprocessableEntityException
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { createHash } from 'crypto';
@@ -202,6 +203,9 @@ export class BtcpayProvisioningService {
         return await handler(http);
       } catch (error: unknown) {
         lastError = error;
+        if (axios.isAxiosError(error) && error.response?.status === 422) {
+          this.handleUnprocessableError(error, code, operation);
+        }
         const recovered = recover?.(error);
         if (recovered !== undefined) {
           return recovered;
@@ -236,6 +240,86 @@ export class BtcpayProvisioningService {
 
   private async delay(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private handleUnprocessableError(
+    error: AxiosError<unknown>,
+    code: `INTEGRATION_BTCPAY_${string}`,
+    operation: string
+  ): never {
+    const sanitizedMessage = this.buildPasswordPolicyMessage(error, operation);
+    this.logger.warn({ operation, status: 422 }, 'BTCPay request rejected with 422');
+    throw new UnprocessableEntityException({ code, message: sanitizedMessage }, { cause: error });
+  }
+
+  private buildPasswordPolicyMessage(error: AxiosError<unknown>, operation: string): string {
+    if (operation === 'create-user') {
+      const reason = this.extractPasswordPolicyReason(error);
+      if (reason) {
+        return `Password does not meet BTCPay requirements: ${reason}`;
+      }
+      return 'Password does not meet BTCPay requirements.';
+    }
+    return this.extractErrorMessage(error, operation);
+  }
+
+  private extractPasswordPolicyReason(error: AxiosError<unknown>): string | undefined {
+    const data = error.response?.data;
+    const messages: string[] = [];
+
+    if (!data) {
+      return undefined;
+    }
+
+    if (typeof data === 'string') {
+      const trimmed = this.sanitizeMessage(data);
+      if (trimmed) {
+        messages.push(trimmed);
+      }
+    }
+
+    if (typeof data === 'object') {
+      const payload = data as { message?: unknown; errors?: unknown };
+      const maybeMessage = payload.message;
+      if (typeof maybeMessage === 'string') {
+        const trimmed = this.sanitizeMessage(maybeMessage);
+        if (trimmed) {
+          messages.push(trimmed);
+        }
+      }
+
+      const maybeErrors = payload.errors;
+      if (maybeErrors && typeof maybeErrors === 'object') {
+        for (const value of Object.values(maybeErrors as Record<string, unknown>)) {
+          if (Array.isArray(value)) {
+            for (const entry of value) {
+              if (typeof entry === 'string') {
+                const trimmed = this.sanitizeMessage(entry);
+                if (trimmed) {
+                  messages.push(trimmed);
+                }
+              }
+            }
+          } else if (typeof value === 'string') {
+            const trimmed = this.sanitizeMessage(value);
+            if (trimmed) {
+              messages.push(trimmed);
+            }
+          }
+        }
+      }
+    }
+
+    if (messages.length === 0) {
+      return undefined;
+    }
+
+    const unique = Array.from(new Set(messages));
+    return unique.join('; ').slice(0, 256);
+  }
+
+  private sanitizeMessage(message: string): string {
+    return message.replace(/\s+/g, ' ').trim().slice(0, 256);
   }
 
   private raiseProvisioningError(

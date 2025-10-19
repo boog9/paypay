@@ -4,7 +4,7 @@ import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { configureApp, configureCors, configureCsrfProtection } from '../src/bootstrap/app-configuration';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
 import { UserEntity } from '../src/auth/entities/user.entity';
@@ -50,7 +50,6 @@ describe('Stores onboarding (e2e)', () => {
     const env = getEnv();
     configureApp(app, env);
     configureCors(app, env);
-    configureCsrfProtection(app, env);
     app.use((req: any, _res: any, next: () => void) => {
       const disableBootstrap = req.headers['x-test-no-bootstrap'];
       req.user = {

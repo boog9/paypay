@@ -2,7 +2,8 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../../components/ui/button';
-import { api, fetchCsrfToken, isApiError } from '../../../lib/api';
+import { api, isApiError } from '../../../lib/api';
+import { getCsrfToken } from '../../../lib/auth';
 
 type RequestState =
   | { status: 'idle' }
@@ -45,7 +46,7 @@ export function NewInvoiceForm() {
         payload.metadata = parsed;
       }
 
-      const csrfToken = await fetchCsrfToken();
+      const csrfToken = await getCsrfToken();
 
       const invoice = await api<{ id?: string }>('/api/invoices', {
         method: 'POST',

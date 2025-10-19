@@ -1,7 +1,8 @@
 'use client';
 
 import { z } from 'zod';
-import { api, fetchCsrfToken, isApiError } from '../../lib/api';
+import { api, isApiError } from '../../lib/api';
+import { getCsrfToken } from '../../lib/auth';
 
 export type AuthFormStateBase = {
   fieldErrors?: Record<string, string[]>;
@@ -22,12 +23,10 @@ export type AuthActionResult =
     }
   | ({ status: 'error'; message: string } & AuthFormStateBase);
 
-const credentialsSchema = z.object({
+export const credentialsSchema = z.object({
   email: z.string().email('Please enter a valid email address.'),
   password: z.string().min(12, 'Password must be at least 12 characters long.')
 });
-
-type Credentials = z.infer<typeof credentialsSchema>;
 
 export async function signupAction(formData: FormData): Promise<AuthActionResult> {
   const parsed = credentialsSchema.safeParse({
@@ -42,7 +41,7 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
 
   let csrfToken: string;
   try {
-    csrfToken = await fetchCsrfToken();
+    csrfToken = await getCsrfToken();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to prepare secure request.';
     return { status: 'error', message };
@@ -66,60 +65,6 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
       apiKey: typeof response?.apiKey === 'string' ? response.apiKey : undefined
     };
   } catch (error) {
-    return normalizeApiError(error);
-  }
-}
-
-export async function loginAction(formData: FormData): Promise<AuthActionResult> {
-  const parsed = credentialsSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password')
-  });
-
-  if (!parsed.success) {
-    const fieldErrors = parsed.error.flatten().fieldErrors;
-    return { status: 'error', message: 'Please review the submitted information.', fieldErrors };
-  }
-
-  let csrfToken: string;
-  try {
-    csrfToken = await fetchCsrfToken();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to prepare secure request.';
-    return { status: 'error', message };
-  }
-
-  try {
-    await api<void>('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
-        Accept: 'application/json'
-      },
-      body: JSON.stringify(parsed.data),
-      cache: 'no-store'
-    });
-
-    return { status: 'success', next: '/dashboard' };
-  } catch (error) {
-    if (isApiError(error)) {
-      if (error.status === 401) {
-        return { status: 'error', message: 'Невірні креденшали' };
-      }
-      if (error.status === 403) {
-        try {
-          await fetchCsrfToken();
-        } catch {
-          // Swallow fetch errors; the user will see the message below.
-        }
-        return {
-          status: 'error',
-          message: 'Сесія захисту не ініціалізована, перезавантажте сторінку'
-        };
-      }
-    }
-
     return normalizeApiError(error);
   }
 }

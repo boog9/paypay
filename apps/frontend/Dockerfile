@@ -1,24 +1,24 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22.14.0-alpine AS base
-ENV PNPM_HOME=/pnpm
+ENV PNPM_HOME=/pnpm \
+    PNPM_STORE_PATH=/pnpm/store
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /workspace
 
-FROM base AS deps
+FROM base AS build
 ARG NEXT_PUBLIC_BFF_URL
 ENV NEXT_PUBLIC_BFF_URL=$NEXT_PUBLIC_BFF_URL
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/frontend/package.json apps/frontend/package.json
-COPY apps/bff/package.json apps/bff/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm fetch --recursive
-
-FROM deps AS build
-ARG NEXT_PUBLIC_BFF_URL
-ENV NEXT_PUBLIC_BFF_URL=$NEXT_PUBLIC_BFF_URL
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
+  pnpm fetch --filter ./packages/sdk... --filter ./apps/frontend...
 COPY . .
-RUN --mount=type=cache,target=/pnpm/store,sharing=locked pnpm -r install --frozen-lockfile
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
+  pnpm install --offline --frozen-lockfile \
+  --filter ./packages/sdk... --filter ./apps/frontend...
+RUN pnpm --filter @paypay/sdk build
 RUN pnpm --filter ./apps/frontend... build
 
 FROM node:22.14.0-alpine AS runner

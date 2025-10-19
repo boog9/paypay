@@ -19,6 +19,23 @@ PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a type
 - `pnpm --filter bff build && pnpm --filter bff start:prod` – compile and launch the NestJS gateway locally.
 - `pnpm --filter frontend dev` – run only the Next.js UI if you need a focused session.
 
+## Auth flow (CSRF + Cookie)
+The BFF exposes a double-submit CSRF flow so browsers and CLI clients can safely reuse the same cookie jar across requests:
+
+1. **Fetch a CSRF token:** `GET /api/auth/csrf` issues the secret cookie `__Host-pp.csrf.secret` (with an HttpOnly session TTL) and returns a deterministic token derived from that secret. The JSON body includes both `token` and `csrfToken` fields for backwards compatibility, and the response exposes `X-Csrf-Token` for XHR clients.
+2. **Authenticate:** send the previously obtained token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. On success the response sets four cookies (`__Host-pp.access-token`, `__Host-pp.refresh-token`, and their legacy `pp.*` counterparts) – all `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
+3. **Session usage:** subsequent calls such as `GET /api/auth/me` rely solely on those cookies (no Bearer header needed). If the access token expires, call `POST /api/auth/refresh` with a fresh CSRF token; the endpoint verifies both the cookie-stored refresh token and the header. Missing or invalid refresh cookies produce a `401` (`Refresh token is required.` / `Refresh token is no longer valid.`), while absent headers trigger a `403 invalid csrf token`.
+4. **Logout:** `POST /api/auth/logout` clears all auth cookies and requires a valid CSRF token to prevent cross-site logouts.
+
+The repository ships with a ready-to-run smoke script that performs the full flow against production:
+
+```bash
+EMAIL=user@example.com PASS='CorrectHorseBatteryStaple!' \
+  deploy/docker/examples/auth-smoke.sh
+```
+
+The script stores cookies inside `${WORK:-/tmp/paypay}` so you can inspect the jar and response bodies afterwards.
+
 ## Secrets & Env
 
 PayPay keeps every secret and runtime toggle in a single dotenv file: `infra/env/.env`. The template lives at `infra/env/.env.example`; copy it, fill in the values, and keep the real file out of Git (see `.gitignore`). Do **not** create `deploy/docker/.env` or any other shadow copies—the Docker stack, scripts, and CI tooling all read from `infra/env/.env` directly. The BFF Docker image ignores `.env` files whenever `NODE_ENV=production`; Docker Compose injects `infra/env/.env` through `env_file`, so there are no baked-in fallbacks inside the container.
@@ -26,6 +43,7 @@ PayPay keeps every secret and runtime toggle in a single dotenv file: `infra/env
 ### Minimum secret requirements
 
 - `COOKIE_SECRET` – at least 32 characters of entropy. Base64-encoded ≥32 bytes is recommended so it can be reused across platforms.
+- `CSRF_PEPPER` – Base64-encoded secret (≥32 bytes when decoded) used to HMAC CSRF tokens.
 - `JWT_ACCESS_TOKEN_SECRET` – independent secret with ≥32 characters or a Base64 string representing ≥32 bytes.
 - `JWT_REFRESH_TOKEN_SECRET` – another distinct secret with ≥32 characters or Base64 ≥32 bytes.
 - `BTCPAY_MASTER_KEY` – **must** be Base64-encoded with at least 32 bytes; longer keys (e.g. 48 bytes) are acceptable.
@@ -121,7 +139,7 @@ All runtime configuration is delivered via environment variables loaded from `in
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 
 #### Domains / Origins
-- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`
+- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`, `CORS_ORIGIN`
   - **Production requirement:** set `FRONTEND_ORIGIN=https://paypay.iddqd.in` for live deployments or the BFF will refuse to start.
 
 #### Database & SMTP

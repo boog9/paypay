@@ -8,89 +8,80 @@ import {
   Post,
   Req,
   Res,
-  UnauthorizedException
+  UnauthorizedException,
+  UseGuards
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { CookieOptions, Response } from 'express';
-import { ConfigService } from '@nestjs/config';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import {
   AuthSessionDto,
-  AuthTokensDto,
   AuthUserResponseDto,
   RegisterResponseDto,
   SignupResponseDto,
   SignupServiceResultDto
 } from './dto/auth-response.dto';
-import { ACCESS_TOKEN_TTL_S, REFRESH_TOKEN_TTL_MS } from './auth.constants';
-import { CsrfService, RequestWithCsrf } from './csrf.service';
+import { CsrfService } from './csrf.service';
 import { RegisterDto } from './dto/register.dto';
-import { resolveCookieTarget } from './cookie.utils';
 import { resolveCookieNames } from './cookie-names';
+import { setAuthCookies, clearAuthCookies } from './cookies.util';
+import { CsrfGuard } from './guards/csrf.guard';
 
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name, { timestamp: false });
   private readonly cookieNames = resolveCookieNames();
-  private accessCookieBase!: CookieOptions;
-  private refreshCookieBase!: CookieOptions;
-  private legacyAccessCookieBase!: CookieOptions;
-  private legacyRefreshCookieBase!: CookieOptions;
 
   constructor(
     private readonly authService: AuthService,
-    private readonly csrfService: CsrfService,
-    private readonly configService: ConfigService
-  ) {
-    this.makeCookieOptions();
-  }
+    private readonly csrfService: CsrfService
+  ) {}
 
   @Get('csrf')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
-  getCsrf(@Req() req: RequestWithCsrf, @Res({ passthrough: true }) res: Response): { csrfToken: string } {
-    const token = this.csrfService.issueToken(req, res);
-    return { csrfToken: token };
+  getCsrf(@Req() req: Request, @Res({ passthrough: true }) res: Response): { token: string; csrfToken: string } {
+    let secret = this.csrfService.getSecretFromRequest(req);
+    if (!secret) {
+      secret = this.csrfService.issueSecret(res);
+    }
+    const token = this.csrfService.createToken(secret);
+    res.setHeader('X-Csrf-Token', token);
+    return { token, csrfToken: token };
   }
 
   @Get('csrf-token')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   getLegacyCsrf(
-    @Req() req: RequestWithCsrf,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response
-  ): { csrfToken: string } {
+  ): { token: string; csrfToken: string } {
     return this.getCsrf(req, res);
   }
 
   @Post('register')
+  @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @HttpCode(HttpStatus.CREATED)
-  async register(
-    @Req() req: RequestWithCsrf,
-    @Body() dto: RegisterDto,
-    @Res({ passthrough: true }) res: Response
-  ): Promise<RegisterResponseDto> {
+  async register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
     const user = await this.authService.register(dto);
-    this.csrfService.rotateToken(req, res);
     const response: RegisterResponseDto = { id: user.id, email: user.email };
     return response;
   }
 
   @Post('signup')
+  @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
-  async signup(
-    @Req() req: RequestWithCsrf,
-    @Body() dto: SignupDto,
-    @Res({ passthrough: true }) res: Response
-  ): Promise<SignupResponseDto> {
+  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response): Promise<SignupResponseDto> {
     const result: SignupServiceResultDto = await this.authService.signup(dto);
-    this.applyAuthCookies(res, result.auth);
-    this.csrfService.rotateToken(req, res);
+    setAuthCookies(res, {
+      accessJwt: result.auth.accessToken,
+      refreshJwt: result.auth.refreshToken
+    });
     const response: SignupResponseDto = { next: result.next };
     if (result.apiKey) {
       response.apiKey = result.apiKey;
@@ -100,9 +91,10 @@ export class AuthController {
 
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('login')
+  @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async login(
-    @Req() req: RequestWithCsrf,
+    @Req() req: Request,
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response
   ): Promise<void> {
@@ -113,8 +105,10 @@ export class AuthController {
 
     try {
       const result: AuthSessionDto = await this.authService.login(dto);
-      this.applyAuthCookies(res, result);
-      this.csrfService.rotateToken(req, res);
+      setAuthCookies(res, {
+        accessJwt: result.accessToken,
+        refreshJwt: result.refreshToken
+      });
 
       this.logger.log({
         event: 'auth.login',
@@ -123,7 +117,6 @@ export class AuthController {
         ua: normalizedUa,
         result: 'success'
       });
-      res.status(HttpStatus.NO_CONTENT);
       return;
     } catch (error) {
       this.logger.warn({ event: 'auth.login', userId: null, ip: normalizedIp, ua: normalizedUa, result: 'fail' });
@@ -133,29 +126,32 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
+  @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async refresh(
-    @Req() req: RequestWithCsrf,
-    @Body() dto: RefreshTokenDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response
   ): Promise<AuthUserResponseDto> {
-    const refreshToken = this.resolveRefreshToken(req) ?? dto.refreshToken;
+    const refreshToken = this.resolveRefreshToken(req);
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
     }
 
     const result: AuthSessionDto = await this.authService.refresh({ refreshToken });
-    this.applyAuthCookies(res, result);
-    this.csrfService.rotateToken(req, res);
+    setAuthCookies(res, {
+      accessJwt: result.accessToken,
+      refreshJwt: result.refreshToken
+    });
     const response: AuthUserResponseDto = { user: result.user };
     return response;
   }
 
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('logout')
+  @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
   async logout(
-    @Req() req: RequestWithCsrf,
+    @Req() req: Request,
     @Body() dto: LogoutDto,
     @Res({ passthrough: true }) res: Response
   ): Promise<void> {
@@ -169,56 +165,28 @@ export class AuthController {
       }
     }
 
-    this.clearAuthCookies(res);
-    this.csrfService.rotateToken(req, res);
-    res.status(HttpStatus.NO_CONTENT);
+    clearAuthCookies(res);
     return;
   }
 
   @Get('me')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
-  async me(@Req() req: RequestWithCsrf): Promise<AuthUserResponseDto> {
+  async me(@Req() req: Request): Promise<AuthUserResponseDto> {
     const accessToken = this.resolveAccessToken(req);
     if (!accessToken) {
       throw new UnauthorizedException('Access token is required.');
     }
 
-    const user = await this.authService.verifyAccessToken(accessToken);
-    return { user };
+    try {
+      const user = await this.authService.verifyAccessToken(accessToken);
+      return { user };
+    } catch (error) {
+      throw new UnauthorizedException('Access token is required.', { cause: error });
+    }
   }
 
-  private applyAuthCookies(res: Response, tokens: AuthTokensDto): void {
-    const accessOptions = { ...this.accessCookieBase, maxAge: ACCESS_TOKEN_TTL_S * 1000 } satisfies CookieOptions;
-    const refreshOptions = { ...this.refreshCookieBase, maxAge: REFRESH_TOKEN_TTL_MS } satisfies CookieOptions;
-    const legacyAccessOptions = {
-      ...this.legacyAccessCookieBase,
-      maxAge: ACCESS_TOKEN_TTL_S * 1000
-    } satisfies CookieOptions;
-    const legacyRefreshOptions = {
-      ...this.legacyRefreshCookieBase,
-      maxAge: REFRESH_TOKEN_TTL_MS
-    } satisfies CookieOptions;
-
-    res.cookie(this.cookieNames.access, tokens.accessToken, accessOptions);
-    res.cookie(this.cookieNames.refresh, tokens.refreshToken, refreshOptions);
-    res.cookie(this.cookieNames.legacyAccess, tokens.accessToken, legacyAccessOptions);
-    res.cookie(this.cookieNames.legacyRefresh, tokens.refreshToken, legacyRefreshOptions);
-  }
-
-  private clearAuthCookies(res: Response): void {
-    const accessOptions = { ...this.accessCookieBase, maxAge: 0 } satisfies CookieOptions;
-    const refreshOptions = { ...this.refreshCookieBase, maxAge: 0 } satisfies CookieOptions;
-    const legacyAccessOptions = { ...this.legacyAccessCookieBase, maxAge: 0 } satisfies CookieOptions;
-    const legacyRefreshOptions = { ...this.legacyRefreshCookieBase, maxAge: 0 } satisfies CookieOptions;
-
-    res.cookie(this.cookieNames.access, '', accessOptions);
-    res.cookie(this.cookieNames.refresh, '', refreshOptions);
-    res.cookie(this.cookieNames.legacyAccess, '', legacyAccessOptions);
-    res.cookie(this.cookieNames.legacyRefresh, '', legacyRefreshOptions);
-  }
-
-  private resolveRefreshToken(req: RequestWithCsrf): string | undefined {
+  private resolveRefreshToken(req: Request): string | undefined {
     const cookies: unknown = req.cookies;
     if (!cookies || typeof cookies !== 'object') {
       return undefined;
@@ -229,7 +197,7 @@ export class AuthController {
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
-  private resolveAccessToken(req: RequestWithCsrf): string | undefined {
+  private resolveAccessToken(req: Request): string | undefined {
     const cookies: unknown = req.cookies;
     if (!cookies || typeof cookies !== 'object') {
       return undefined;
@@ -239,32 +207,7 @@ export class AuthController {
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
-  private makeCookieOptions(): void {
-    const { isLocal, domain } = resolveCookieTarget({
-      frontendOrigin: this.configService.get<string>('FRONTEND_ORIGIN'),
-      fallbackDomain: this.configService.get<string>('PAYPAY_DOMAIN')
-    });
-
-    const useHostPrefix = this.cookieNames.access.startsWith('__Host-');
-    const effectiveDomain = useHostPrefix ? undefined : domain;
-    const base: CookieOptions = {
-      httpOnly: true,
-      secure: !isLocal,
-      sameSite: 'lax',
-      path: '/',
-      ...(effectiveDomain ? { domain: effectiveDomain } : {})
-    };
-
-    this.accessCookieBase = { ...base };
-    this.refreshCookieBase = { ...base };
-
-    const legacyBase: CookieOptions = { ...base };
-
-    this.legacyAccessCookieBase = { ...legacyBase };
-    this.legacyRefreshCookieBase = { ...legacyBase };
-  }
-
-  private extractClientIp(req: RequestWithCsrf): string {
+  private extractClientIp(req: Request): string {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string' && forwarded.trim().length > 0) {
       return forwarded.split(',')[0]?.trim() ?? '';

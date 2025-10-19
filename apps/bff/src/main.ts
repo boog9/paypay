@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { useContainer } from 'class-validator';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { configureApp, configureCors, configureCsrfProtection } from './bootstrap/app-configuration';
+import { configureApp, configureCors } from './bootstrap/app-configuration';
 import { getEnv } from './config/env.validation';
 
 async function bootstrap() {
@@ -16,7 +16,6 @@ async function bootstrap() {
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
   configureApp(app, env);
   configureCors(app, env);
-  configureCsrfProtection(app, env);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: false, forbidNonWhitelisted: true }));
 

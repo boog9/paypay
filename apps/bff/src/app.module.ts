@@ -4,7 +4,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSourceOptions } from 'typeorm';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { CsrfGuard } from './auth/csrf.guard';
 import { LoggerModule } from 'nestjs-pino';
 import { BtcpayModule } from './btcpay/btcpay.module';
 import { AuthModule } from './auth/auth.module';
@@ -156,10 +155,6 @@ import type { IncomingMessage, ServerResponse } from 'http';
       provide: APP_GUARD,
       useClass: ThrottlerGuard
     },
-    {
-      provide: APP_GUARD,
-      useClass: CsrfGuard
-    }
   ]
 })
 export class AppModule {}

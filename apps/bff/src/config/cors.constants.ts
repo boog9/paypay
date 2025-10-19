@@ -10,5 +10,6 @@ export const CORS_ALLOWED_HEADERS = [
 // if the frontend needs to read service headers from the response, expose them here
 export const CORS_EXPOSED_HEADERS = [
   'Content-Length',
-  'ETag'
+  'ETag',
+  'X-Csrf-Token'
 ];

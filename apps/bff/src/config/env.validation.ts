@@ -16,10 +16,12 @@ export const EnvSchema = z
     TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('loopback'),
 
     COOKIE_SECRET: z.string().min(32, 'must be at least 32 chars or Base64'),
+    CSRF_PEPPER: base64Min32,
     JWT_ACCESS_TOKEN_SECRET: z.string().min(32),
     JWT_REFRESH_TOKEN_SECRET: z.string().min(32),
 
     FRONTEND_ORIGIN: z.string().url(),
+    CORS_ORIGIN: z.string().url().optional(),
     PAYPAY_DOMAIN: z.string(),
     PAYPAY_API_DOMAIN: z.string(),
 

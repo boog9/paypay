@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
-import express, { type Application, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import express, { type Application, type NextFunction, type RequestHandler, type Response } from 'express';
 import helmet from 'helmet';
 import type { RawBodyRequest } from '../http/raw-body-request';
 import { CORS_ALLOWED_HEADERS, CORS_ALLOWED_METHODS, CORS_EXPOSED_HEADERS } from '../config/cors.constants';

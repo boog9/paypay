@@ -281,7 +281,7 @@ importers:
   packages/sdk:
     dependencies:
       axios:
-        specifier: ^1.7.9
+        specifier: ^1.7.0
         version: 1.12.2
     devDependencies:
       '@types/node':

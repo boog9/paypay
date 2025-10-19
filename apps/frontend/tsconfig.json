@@ -22,9 +22,6 @@
       "vitest"
     ],
     "esModuleInterop": true,
-    "paths": {
-      "@paypay/sdk": ["../../packages/sdk/src/index.ts"]
-    },
     "plugins": [
       {
         "name": "next"

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DashboardContent } from "../../../src/components/dashboard/dashboard-content";
-import { API_PREFIX, BFF, apiFetch } from "../../../lib/api";
+import { API_PREFIX, BFF, apiGet, isApiError } from "../../../lib/api";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -21,29 +21,21 @@ async function ensureAuthenticated(): Promise<void> {
   const forwardedHost = headerList.get("x-forwarded-host");
   const host = forwardedHost ?? headerList.get("host");
   const fallbackOrigin = host ? `${proto}://${host}` : "http://localhost";
-  const serializedCookies = headerList.get("cookie") ?? "";
+  const cookie = headerList.get("cookie") ?? "";
 
   const requestHeaders = new Headers({ Accept: "application/json" });
-  if (serializedCookies) {
-    requestHeaders.set("cookie", serializedCookies);
-  }
+  if (cookie) requestHeaders.set("cookie", cookie);
 
-  const response: Response = await apiFetch(`${API_PREFIX}/auth/me`, {
-    method: "GET",
-    headers: requestHeaders,
-    cache: "no-store",
-    baseUrl: BFF || fallbackOrigin
-  });
-
-  if (response.status === 401) {
-    redirect("/login");
-  }
-
-  if (!response.ok) {
+  try {
+    await apiGet(`${API_PREFIX}/auth/me`, {
+      headers: requestHeaders,
+      cache: "no-store",
+      baseUrl: BFF || fallbackOrigin
+    });
+  } catch (error) {
+    if (isApiError(error) && error.status === 401) {
+      redirect("/login");
+    }
     throw new Error("Failed to verify authenticated session.");
-  }
-
-  if (response.status !== 204) {
-    await response.text().catch(() => undefined);
   }
 }

@@ -1,7 +1,6 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@paypay/sdk'],
   reactStrictMode: true,
   output: 'standalone',
   eslint: {

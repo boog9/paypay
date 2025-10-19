@@ -9,7 +9,8 @@ import { Button } from "../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Input } from "../../../../components/ui/input";
 import { Select } from "../../../../components/ui/select";
-import { api, fetchCsrfToken, isApiError } from "../../../../lib/api";
+import { api, isApiError } from "../../../../lib/api";
+import { getCsrfToken } from "../../../../lib/auth";
 import { useToast } from "../../../../components/ui/toast";
 import { persistLastStoreId } from "../../../../src/lib/store-preferences";
 
@@ -115,7 +116,7 @@ export default function CreateStorePage() {
         }
 
         try {
-          const csrfToken = await fetchCsrfToken();
+          const csrfToken = await getCsrfToken();
           const payload = parsed.data;
           const response = await api<CreateStoreResponse>("/api/stores", {
             method: "POST",

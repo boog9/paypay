@@ -1,45 +1,59 @@
 'use client';
 
-import { FormEvent, useCallback, useState, useTransition } from 'react';
+import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginAction, type AuthFormState } from '../../(auth)/client-actions';
+
 import { Button } from '../../../components/ui/button';
+import { login } from '../../../lib/auth';
+import { isApiError } from '../../../lib/api';
+import { credentialsSchema, type AuthFormState } from '../../(auth)/client-actions';
 
 const initialState: AuthFormState = { status: 'idle' };
 
 export function LoginForm() {
   const router = useRouter();
   const [state, setState] = useState<AuthFormState>(initialState);
-  const [isPending, startTransition] = useTransition();
+  const [isSubmitting, setSubmitting] = useState(false);
 
-  const handleSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const formData = new FormData(event.currentTarget);
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
 
-      setState(initialState);
-      startTransition(async () => {
-        const result = await loginAction(formData);
-        if (result.status === 'success') {
-          const nextPath = result.next ?? '/dashboard';
-          try {
-            router.prefetch(nextPath);
-          } catch {
-            // Ignore prefetch errors; navigation will still work.
-          }
-          router.replace(nextPath);
-          return;
-        }
+    const formData = new FormData(event.currentTarget);
+    const emailValue = formData.get('email');
+    const passwordValue = formData.get('password');
+    const credentials = {
+      email: typeof emailValue === 'string' ? emailValue : '',
+      password: typeof passwordValue === 'string' ? passwordValue : ''
+    };
 
-        setState({
-          status: 'error',
-          message: result.message,
-          fieldErrors: result.fieldErrors
-        });
+    const validation = credentialsSchema.safeParse(credentials);
+    if (!validation.success) {
+      const fieldErrors = validation.error.flatten().fieldErrors;
+      setState({
+        status: 'error',
+        message: 'Please review the submitted information.',
+        fieldErrors
       });
-    },
-    [router]
-  );
+      return;
+    }
+
+    setSubmitting(true);
+    setState(initialState);
+
+    void (async () => {
+      try {
+        await login(validation.data.email, validation.data.password);
+        router.replace('/dashboard');
+      } catch (error) {
+        setState(resolveLoginError(error));
+      } finally {
+        setSubmitting(false);
+      }
+    })();
+  };
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
@@ -89,9 +103,92 @@ export function LoginForm() {
           {state.message}
         </p>
       )}
-      <Button type="submit" disabled={isPending} className="w-full">
-        {isPending ? 'Signing in…' : 'Sign in'}
+      <Button type="submit" disabled={isSubmitting} className="w-full">
+        {isSubmitting ? 'Signing in…' : 'Sign in'}
       </Button>
     </form>
   );
+}
+
+function resolveLoginError(error: unknown): AuthFormState {
+  if (isApiError(error)) {
+    if (error.status === 401) {
+      return { status: 'error', message: 'Invalid email or password.' };
+    }
+
+    if (error.status === 403) {
+      return {
+        status: 'error',
+        message: 'Security session is not initialized. Please reload the page.'
+      };
+    }
+
+    if (error.status === 422) {
+      const payload = isRecord(error.body) ? error.body : undefined;
+      const fieldErrors = payload && isRecord(payload['errors'])
+        ? normalizeFieldErrors(payload['errors'])
+        : undefined;
+      const message = extractMessage(payload) ?? 'Please review the submitted information.';
+      return { status: 'error', message, fieldErrors };
+    }
+
+    const message = error.message || `Login failed with status ${error.status}.`;
+    return { status: 'error', message };
+  }
+
+  const fallback = error instanceof Error ? error.message : 'Login error';
+  return { status: 'error', message: (fallback && fallback.trim()) || 'Login error' };
+}
+
+function normalizeFieldErrors(raw: Record<string, unknown>): Record<string, string[]> | undefined {
+  const entries = Object.entries(raw)
+    .map(([key, value]) => {
+      if (isStringArray(value)) {
+        const filtered = value
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+        if (filtered.length > 0) {
+          return [key, filtered] as const;
+        }
+        return null;
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          return [key, [trimmed]] as const;
+        }
+      }
+
+      return null;
+    })
+    .filter((entry): entry is readonly [string, string[]] => entry !== null);
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function extractMessage(payload: Record<string, unknown> | undefined): string | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  const value = payload['message'];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }

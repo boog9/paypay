@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
-const base64Min32 = z.string().refine((val) => {
-  try {
-    const bytes = Buffer.from(val, 'base64');
-    return bytes.length >= 32;
-  } catch {
-    return false;
-  }
-}, 'must be Base64 of at least 32 bytes');
+const base64Min32 = z
+  .string({
+    required_error: 'Environment variable is required',
+    invalid_type_error: 'Environment variable must be a string'
+  })
+  .refine((val) => {
+    try {
+      const bytes = Buffer.from(val, 'base64');
+      return bytes.length >= 32;
+    } catch {
+      return false;
+    }
+  }, 'must be Base64 of at least 32 bytes');
 
 export const EnvSchema = z
   .object({

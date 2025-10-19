@@ -259,7 +259,7 @@ You can also spin up the Docker stack locally with the same production instructi
   - `BTCPAY_ADMIN_API_KEY`
   - `BTCPAY_MASTER_KEY`
   - `BTCPAY_WEBHOOK_URL`
-  - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `COOKIE_SECRET`
+  - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `COOKIE_SECRET`, `CSRF_PEPPER`
 - Platform services:
   - `POSTGRES_*` or `DATABASE_URL`
   - `SMTP_*`

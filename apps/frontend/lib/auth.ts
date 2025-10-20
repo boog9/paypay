@@ -15,20 +15,18 @@ export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
 export async function getCsrfToken(): Promise<string> {
   const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
 
-  if (isApiNoContent(response)) {
-    throw new Error('csrf token missing in response');
-  }
-
   const fromHeader = response.headers.get('X-Csrf-Token');
   if (fromHeader) {
     return fromHeader;
   }
 
-  const payload: unknown = await response.json().catch(() => null);
-  if (isRecord(payload)) {
-    const fallback = pickTokenString(payload['csrfToken']) ?? pickTokenString(payload['token']);
-    if (fallback) {
-      return fallback;
+  if (!isApiNoContent(response)) {
+    const payload: unknown = await response.json().catch(() => null);
+    if (isRecord(payload)) {
+      const fallback = pickTokenString(payload['csrfToken']) ?? pickTokenString(payload['token']);
+      if (fallback) {
+        return fallback;
+      }
     }
   }
 

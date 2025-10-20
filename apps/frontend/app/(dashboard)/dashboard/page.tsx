@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DashboardContent } from "../../../src/components/dashboard/dashboard-content";
-import { API_PREFIX, BFF, apiGet, isApiError } from "../../../lib/api";
+import { AUTH_ME, BFF, apiGet, isApiError } from "../../../lib/api";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -27,7 +27,7 @@ async function ensureAuthenticated(): Promise<void> {
   if (cookie) requestHeaders.set("cookie", cookie);
 
   try {
-    await apiGet(`${API_PREFIX}/auth/me`, {
+    await apiGet(AUTH_ME, {
       headers: requestHeaders,
       cache: "no-store",
       baseUrl: BFF || fallbackOrigin

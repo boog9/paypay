@@ -64,9 +64,11 @@ curl -i -b /tmp/pp_api.txt \
 The BFF exposes a double-submit CSRF flow so browsers and CLI clients can safely reuse the same cookie jar across requests:
 
 1. **Fetch a CSRF token:** `GET /api/auth/csrf` issues the secret cookie `__Host-pp.csrf.secret` (with an HttpOnly session TTL) and returns a deterministic token derived from that secret. The JSON body includes both `token` and `csrfToken` fields for backwards compatibility, and the response exposes `X-Csrf-Token` for XHR clients.
-2. **Authenticate:** send the previously obtained token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. On success the response sets four cookies (`__Host-pp.access-token`, `__Host-pp.refresh-token`, and their legacy `pp.*` counterparts) – all `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
-3. **Session usage:** subsequent calls such as `GET /api/auth/me` rely solely on those cookies (no Bearer header needed). If the access token expires, call `POST /api/auth/refresh` with a fresh CSRF token; the endpoint verifies both the cookie-stored refresh token and the header. Missing or invalid refresh cookies produce a `401` (`Refresh token is required.` / `Refresh token is no longer valid.`), while absent headers trigger a `403 invalid csrf token`.
-4. **Logout:** `POST /api/auth/logout` clears all auth cookies and requires a valid CSRF token to prevent cross-site logouts.
+2. **Authenticate:** send the previously obtained token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. Successful authentication responds with `204 No Content` and sets four cookies (`__Host-pp.access-token`, `__Host-pp.refresh-token`, and their legacy `pp.*` counterparts) – all `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
+3. **Session usage:** subsequent calls such as `GET /api/auth/me` rely solely on those cookies (no Bearer header needed). If the access token expires, call `POST /api/auth/refresh` with a fresh CSRF token; the endpoint responds with `204 No Content` after rotating tokens and verifies both the cookie-stored refresh token and the header. Missing or invalid refresh cookies produce a `401` (`Refresh token is required.` / `Refresh token is no longer valid.`), while absent headers trigger a `403 invalid csrf token`.
+4. **Logout:** `POST /api/auth/logout` responds with `204 No Content`, clears all auth cookies and requires a valid CSRF token to prevent cross-site logouts.
+
+> The frontend always expects `204 No Content` responses from `/api/auth/login`, `/api/auth/logout`, and `/api/auth/refresh`, and immediately follows a successful login with `GET /api/auth/me` (using only cookies) to hydrate the user session.
 
 The repository ships with a ready-to-run smoke script that performs the full flow against production:
 
@@ -76,6 +78,13 @@ EMAIL=user@example.com PASS='CorrectHorseBatteryStaple!' \
 ```
 
 The script stores cookies inside `${WORK:-/tmp/paypay}` so you can inspect the jar and response bodies afterwards.
+
+Playwright-based auth flow tests expect the following environment variables when run via `pnpm --filter frontend test`:
+
+- `PLAYWRIGHT_BFF_URL` – base URL for the BFF (`https://api.paypay.iddqd.in` in production).
+- `PLAYWRIGHT_FRONTEND_ORIGIN` – frontend origin used to populate the `Origin` header (e.g. `https://paypay.iddqd.in`).
+- `PLAYWRIGHT_AUTH_EMAIL` – merchant portal login used for authentication.
+- `PLAYWRIGHT_AUTH_PASSWORD` – matching password for the account above.
 
 ## Secrets & Env
 

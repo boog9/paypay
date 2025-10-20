@@ -28,6 +28,8 @@ export async function fetchFromBff(path: string, init: RequestInit = {}): Promis
   return fetch(url, {
     ...init,
     cache: init.cache ?? "no-store",
-    headers
+    headers,
+    credentials: "include",
+    mode: "cors",
   });
 }

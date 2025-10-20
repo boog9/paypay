@@ -247,6 +247,20 @@ git config core.hooksPath .githooks
    docker compose --env-file ../../infra/env/.env up -d --build
    ```
 
+4. Run database migrations after every deploy:
+   ```bash
+   docker compose exec bff sh -lc 'cd apps/bff && node dist/scripts/migrate.js'
+   ```
+
+5. Verify the schema inside Postgres:
+   ```bash
+   docker compose exec postgres psql -U paypay -d paypay -c '\dt'
+   docker compose exec postgres psql -U paypay -d paypay -c '\d managed_stores'
+   docker compose exec postgres psql -U paypay -d paypay -c '\d idempotency_keys'
+   ```
+
+   If any tables or columns are missing, rerun the migrations command above instead of applying manual SQL patches.
+
 This command builds the frontend and BFF images inside their respective containers and launches five services: Postgres, Redis, the BFF, the frontend, and Caddy. Once running, HTTPS traffic to `https://$PAYPAY_DOMAIN` serves the Next.js UI and `https://$PAYPAY_API_DOMAIN/docs` proxies the BFF Swagger UI via Caddy.
 
 Docker Compose sources the runtime environment for all services from `infra/env/.env` via the shared `env_file` directive in `deploy/docker/docker-compose.yml` and the explicit `--env-file ../../infra/env/.env` flag, keeping secrets in a single place.

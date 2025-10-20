@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import { TIMESTAMP_COLUMN_TYPE } from '../../database/utils/column-types';
 import { RefreshTokenEntity } from './refresh-token.entity';
-import { ManagedStoreEntity } from '../../stores/entities/managed-store.entity';
+import { ManagedStoreEntity } from '../../stores/managed-store.entity';
 
 @Entity({ name: 'users' })
 export class UserEntity {

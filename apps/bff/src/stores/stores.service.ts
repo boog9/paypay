@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateStoreDto } from './dto/create-store.dto';
-import { ManagedStoreEntity } from './entities/managed-store.entity';
+import { ManagedStoreEntity } from './managed-store.entity';
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { normalizeEmail } from '../auth/email.utils';
@@ -281,11 +281,7 @@ export class StoresService {
   ): Promise<StoreDto | null> {
     try {
       const record = await this.idempotencyRepository.findOne({
-        where: {
-          key,
-          userId,
-          route: this.createStoreIdempotencyRoute,
-        },
+        where: { key, userId, route: this.createStoreIdempotencyRoute },
       });
       return this.deserializeStoreResult(record);
     } catch (error) {
@@ -327,6 +323,7 @@ export class StoresService {
     result: StoreDto
   ): Promise<void> {
     try {
+      const payload = JSON.stringify(result);
       const record = this.idempotencyRepository.create({
         key,
         tenantId: null,
@@ -335,7 +332,7 @@ export class StoresService {
         route: this.createStoreIdempotencyRoute,
         resourceId,
         responseStatus: 201,
-        responseBody: JSON.stringify(result),
+        responseBody: payload,
       });
       await this.idempotencyRepository.save(record);
     } catch (error) {

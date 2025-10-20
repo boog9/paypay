@@ -97,24 +97,20 @@ describe('Auth session hardening', () => {
   async function fetchCsrf(
     agent: ReturnType<typeof request.agent>
   ): Promise<{ token: string; cookies: string[] }> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual(
-      expect.objectContaining({ token: expect.any(String) })
-    );
-    const token = response.body.token ?? response.body.csrfToken;
-    return { token, cookies: getCookies(response) };
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
+    return { token: token as string, cookies: getCookies(response) };
   }
 
   it('issues a CSRF cookie and token', async () => {
     const agent = createAgent();
     const { cookies } = await fetchCsrf(agent);
     const secret = cookies.find((cookie) => cookie.startsWith(`${cookieNames.csrfSecret}=`));
-    const legacySecret = cookies.find((cookie) => cookie.startsWith(`${cookieNames.legacyCsrfSecret}=`));
-    const candidate = secret ?? legacySecret;
-    expect(candidate).toBeDefined();
-    if (candidate) {
-      expect(candidate).toContain('SameSite=Lax');
-      expect(candidate).toContain('Secure');
+    expect(secret).toBeDefined();
+    if (secret) {
+      expect(secret).toContain('SameSite=Lax');
+      expect(secret).toContain('Secure');
     }
   });
 
@@ -141,8 +137,6 @@ describe('Auth session hardening', () => {
     const cookies = getCookies(loginResponse);
     expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.access}=`))).toBe(true);
     expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.refresh}=`))).toBe(true);
-    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyAccess}=`))).toBe(true);
-    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyRefresh}=`))).toBe(true);
 
     addCookies(cookieJar, cookies);
 
@@ -173,8 +167,6 @@ describe('Auth session hardening', () => {
     const cookies = getCookies(response);
     expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.access}=`))).toBe(false);
     expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.refresh}=`))).toBe(false);
-    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyAccess}=`))).toBe(false);
-    expect(cookies.some((cookie) => cookie.startsWith(`${cookieNames.legacyRefresh}=`))).toBe(false);
   });
 
   it('requires an access cookie to resolve the current user', async () => {

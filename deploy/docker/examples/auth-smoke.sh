@@ -2,11 +2,15 @@
 set -Eeuo pipefail
 WORK=${WORK:-/tmp/paypay}; mkdir -p "$WORK"; rm -f "$WORK/jar.txt" "$WORK/"*.json
 
-# 1) CSRF
-curl -sS --http1.1 -H 'Accept: application/json' \
+# 1) CSRF (204 + X-Csrf-Token header)
+curl -sS --http1.1 -D "$WORK/csrf.headers" \
   -c "$WORK/jar.txt" -b "$WORK/jar.txt" \
-  https://api.paypay.iddqd.in/api/auth/csrf -o "$WORK/csrf.json"
-CSRF=$(grep -oP '(?:"csrfToken"|"token")\s*:\s*"\K[^"]+' "$WORK/csrf.json")
+  https://api.paypay.iddqd.in/api/auth/csrf -o /dev/null
+CSRF=$(awk -F': ' 'tolower($1) == "x-csrf-token" {print $2}' "$WORK/csrf.headers" | tr -d '\r')
+if [[ -z "$CSRF" ]]; then
+  echo "Missing X-Csrf-Token header" >&2
+  exit 1
+fi
 
 # 2) Логін (204, але Set-Cookie в заголовках)
 jq -nc --arg email "$EMAIL" --arg password "$PASS" '{email:$email,password:$password}' > "$WORK/body.json"

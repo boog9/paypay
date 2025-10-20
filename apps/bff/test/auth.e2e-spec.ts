@@ -67,28 +67,24 @@ describe('AuthModule CSRF + Cookie flow (e2e)', () => {
   }
 
   it('supports CSRF-protected cookie authentication flow', async () => {
-    const csrfResponse = await agent.get('/api/auth/csrf').expect(200);
-    expect(csrfResponse.body).toEqual(
-      expect.objectContaining({ token: expect.any(String) })
-    );
+    const csrfResponse = await agent.get('/api/auth/csrf').expect(204);
     const csrfCookies = getCookies(csrfResponse);
     expect(
       csrfCookies.some((cookie) => cookie.startsWith(`${cookieNames.csrfSecret}=`))
     ).toBe(true);
-    const csrfToken = csrfResponse.body.token ?? csrfResponse.body.csrfToken;
+    const csrfToken = csrfResponse.headers['x-csrf-token'];
+    expect(typeof csrfToken).toBe('string');
 
     const loginResponse = await agent
       .post('/api/auth/login')
-      .set('X-CSRF-Token', csrfToken)
+      .set('X-CSRF-Token', csrfToken as string)
       .send(credentials)
       .expect(204);
 
     const loginCookies = getCookies(loginResponse);
     const expectedCookieNames = [
       cookieNames.access,
-      cookieNames.legacyAccess,
       cookieNames.refresh,
-      cookieNames.legacyRefresh
     ];
     for (const name of expectedCookieNames) {
       const matching = loginCookies.filter((cookie) => cookie.startsWith(`${name}=`));
@@ -114,21 +110,23 @@ describe('AuthModule CSRF + Cookie flow (e2e)', () => {
     );
 
     const freshAgent = request.agent(server);
-    const freshCsrf = await freshAgent.get('/api/auth/csrf').expect(200);
-    const freshCsrfToken = freshCsrf.body.token ?? freshCsrf.body.csrfToken;
+    const freshCsrf = await freshAgent.get('/api/auth/csrf').expect(204);
+    const freshCsrfToken = freshCsrf.headers['x-csrf-token'];
+    expect(typeof freshCsrfToken).toBe('string');
     const refreshWithoutCookie = await freshAgent
       .post('/api/auth/refresh')
-      .set('X-CSRF-Token', freshCsrfToken)
+      .set('X-CSRF-Token', freshCsrfToken as string)
       .expect(401);
     expect(refreshWithoutCookie.body).toEqual(
       expect.objectContaining({ message: 'Refresh token is required.' })
     );
 
-    const refreshCsrf = await agent.get('/api/auth/csrf').expect(200);
-    const refreshToken = refreshCsrf.body.token ?? refreshCsrf.body.csrfToken;
+    const refreshCsrf = await agent.get('/api/auth/csrf').expect(204);
+    const refreshToken = refreshCsrf.headers['x-csrf-token'];
+    expect(typeof refreshToken).toBe('string');
     const refreshResponse = await agent
       .post('/api/auth/refresh')
-      .set('X-CSRF-Token', refreshToken)
+      .set('X-CSRF-Token', refreshToken as string)
       .expect(200);
     expect(refreshResponse.body).toEqual(
       expect.objectContaining({

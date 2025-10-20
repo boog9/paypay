@@ -120,18 +120,13 @@ describe('Public API routing (e2e)', () => {
   });
 
   it('serves auth routes exclusively through /api/*', async () => {
-    const csrfResponse = await agent.get('/api/auth/csrf').expect(200);
+    const csrfResponse = await agent.get('/api/auth/csrf').expect(204);
     expect(hasHeaderValue(csrfResponse.headers['access-control-expose-headers'], 'X-Csrf-Token')).toBe(
       true
     );
     const csrfHeader = csrfResponse.headers['x-csrf-token'];
     expect(typeof csrfHeader === 'string' && csrfHeader.length > 0).toBe(true);
-    expect(csrfResponse.body).toEqual(
-      expect.objectContaining({
-        token: expect.any(String)
-      })
-    );
-    const csrfToken = (csrfResponse.body.token ?? csrfResponse.body.csrfToken ?? csrfHeader).toString();
+    const csrfToken = csrfHeader.toString();
     let sessionCookies = getCookies(csrfResponse);
 
     const loginResponse = await agent
@@ -145,12 +140,7 @@ describe('Public API routing (e2e)', () => {
 
     const loginCookies = getCookies(loginResponse);
     sessionCookies = sessionCookies.concat(loginCookies);
-    for (const name of [
-      cookieNames.access,
-      cookieNames.legacyAccess,
-      cookieNames.refresh,
-      cookieNames.legacyRefresh
-    ]) {
+    for (const name of [cookieNames.access, cookieNames.refresh]) {
       expect(loginCookies.some((cookie: string) => cookie.startsWith(`${name}=`))).toBe(true);
     }
 

@@ -62,14 +62,11 @@ describe('Auth signup provisioning (e2e)', () => {
   });
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual(
-      expect.objectContaining({
-        csrfToken: expect.any(String)
-      })
-    );
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
     const cookies = getCookies(response);
-    return { token: response.body.csrfToken, cookies };
+    return { token: token as string, cookies };
   }
 
   function getCookies(response: Response): string[] {
@@ -137,8 +134,6 @@ describe('Auth signup provisioning (e2e)', () => {
     const cookieHeader = cookies.join(';');
     expect(cookieHeader).toContain(`${cookieNames.access}=`);
     expect(cookieHeader).toContain(`${cookieNames.refresh}=`);
-    expect(cookieHeader).toContain(`${cookieNames.legacyAccess}=`);
-    expect(cookieHeader).toContain(`${cookieNames.legacyRefresh}=`);
     expect(cookieHeader).not.toMatch(/Domain=/i);
 
     const userRepository = dataSource.getRepository(UserEntity);

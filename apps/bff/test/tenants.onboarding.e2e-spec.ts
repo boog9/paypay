@@ -62,10 +62,10 @@ describe('Tenants onboarding (e2e)', () => {
   });
 
   async function fetchCsrf(): Promise<{ token: string }> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual(expect.objectContaining({ csrfToken: expect.any(String) }));
-    const token = response.body.token ?? response.body.csrfToken;
-    return { token };
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
+    return { token: token as string };
   }
 
   it('provisions a tenant and store through the Greenfield API mocks', async () => {

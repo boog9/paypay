@@ -67,13 +67,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("getCsrfToken prefers header value", async () => {
+test("getCsrfToken reads the token from response headers", async () => {
   process.env.NEXT_PUBLIC_BFF_URL = TEST_BFF_URL;
 
   const fetchMock = vi.fn<typeof fetch>();
   fetchMock.mockResolvedValue(
     new Response(null, {
-      status: 200,
+      status: 204,
       headers: { "X-Csrf-Token": "header-token" },
     })
   );
@@ -82,8 +82,7 @@ test("getCsrfToken prefers header value", async () => {
 
   const { getCsrfToken } = await import("./auth");
 
-  const token = await getCsrfToken();
-  expect(token).toBe("header-token");
+  await expect(getCsrfToken()).resolves.toBe("header-token");
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const firstCall = fetchMock.mock.calls[0];
@@ -106,25 +105,19 @@ test("getCsrfToken prefers header value", async () => {
   expect(headers.has("Content-Type")).toBe(false);
 });
 
-test("getCsrfToken falls back to JSON payload", async () => {
+test("getCsrfToken throws when the header is missing", async () => {
   process.env.NEXT_PUBLIC_BFF_URL = TEST_BFF_URL;
 
   const fetchMock = vi.fn<typeof fetch>();
   fetchMock.mockResolvedValue(
-    new Response(
-      JSON.stringify({ csrfToken: "json-token" }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }
-    )
+    new Response(null, {
+      status: 204,
+    })
   );
 
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 
   const { getCsrfToken } = await import("./auth");
 
-  const token = await getCsrfToken();
-  expect(token).toBe("json-token");
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await expect(getCsrfToken()).rejects.toThrow(/csrf token header is missing/i);
 });

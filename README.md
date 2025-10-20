@@ -36,15 +36,15 @@ Fix:
 
 All public BFF routes are served from the `/api` prefix. For example, `https://api.paypay.iddqd.in/api/auth/csrf` issues a CSRF token, while `https://api.paypay.iddqd.in/auth/csrf` is intentionally rejected with a `404`.
 
-### Verify the public API
+### How to verify authentication (curl)
 
 Use the live HTTPS endpoints to validate the authentication flow end-to-end:
 
 ```bash
-# CSRF
+# CSRF (204 + X-Csrf-Token header)
 curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
   -H "Origin: https://paypay.iddqd.in" \
-  "https://api.paypay.iddqd.in/api/auth/csrf"
+  "https://api.paypay.iddqd.in/api/auth/csrf" | egrep 'HTTP/|X-Csrf-Token'
 
 # Login (204 + Set-Cookie)
 curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
@@ -57,14 +57,19 @@ curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
 # Me (200)
 curl -i -b /tmp/pp_api.txt \
   -H "Origin: https://paypay.iddqd.in" \
-  "https://api.paypay.iddqd.in/api/auth/me"
+"https://api.paypay.iddqd.in/api/auth/me"
 ```
+
+These requests mirror what the frontend does with `fetch(..., { credentials: 'include' })`. The BFF must reply with
+`Access-Control-Allow-Credentials: true` and an explicit `Access-Control-Allow-Origin` value (never `*`) so browsers can send the
+host-only cookies across origins. See https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials for
+the underlying CORS rules.
 
 ## Auth flow (CSRF + Cookie)
 The BFF exposes a double-submit CSRF flow so browsers and CLI clients can safely reuse the same cookie jar across requests:
 
-1. **Fetch a CSRF token:** `GET /api/auth/csrf` issues the secret cookie `__Host-pp.csrf.secret` (with an HttpOnly session TTL) and returns a deterministic token derived from that secret. The JSON body includes both `token` and `csrfToken` fields for backwards compatibility, and the response exposes `X-Csrf-Token` for XHR clients.
-2. **Authenticate:** send the previously obtained token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. Successful authentication responds with `204 No Content` and sets four cookies (`__Host-pp.access-token`, `__Host-pp.refresh-token`, and their legacy `pp.*` counterparts) – all `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
+1. **Fetch a CSRF token:** `GET /api/auth/csrf` responds with `204 No Content`, sets the host-only cookie `__Host-pp.csrf.secret`, and exposes the derived token exclusively through the `X-Csrf-Token` response header.
+2. **Authenticate:** send the token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. Successful authentication responds with `204 No Content` and sets the `__Host-pp.access-token` and `__Host-pp.refresh-token` cookies (both `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`).
 3. **Session usage:** subsequent calls such as `GET /api/auth/me` rely solely on those cookies (no Bearer header needed). If the access token expires, call `POST /api/auth/refresh` with a fresh CSRF token; the endpoint responds with `204 No Content` after rotating tokens and verifies both the cookie-stored refresh token and the header. Missing or invalid refresh cookies produce a `401` (`Refresh token is required.` / `Refresh token is no longer valid.`), while absent headers trigger a `403 invalid csrf token`.
 4. **Logout:** `POST /api/auth/logout` responds with `204 No Content`, clears all auth cookies and requires a valid CSRF token to prevent cross-site logouts.
 
@@ -316,6 +321,7 @@ You can also spin up the Docker stack locally with the same production instructi
   - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`
   - `FRONTEND_ORIGIN` (e.g. `https://app.example.com`)
   - `NEXT_PUBLIC_BFF_URL` (e.g. `https://api.example.com`)
+  - `NEXT_PUBLIC_BFF_DEV_PROXY_ORIGIN` (optional; only when using a localhost proxy during development)
 - BTCPay + auth secrets:
   - `BTCPAY_SERVER_URL`
   - `BTCPAY_ADMIN_API_KEY`
@@ -328,6 +334,13 @@ You can also spin up the Docker stack locally with the same production instructi
 - `TRUST_PROXY` (defaults to `loopback`; override if your proxy chain differs)
   - `NODE_ENV=production`
 
+Example production values:
+
+```dotenv
+NEXT_PUBLIC_BFF_URL=https://api.paypay.iddqd.in
+NODE_ENV=production
+```
+
 If your edge or proxy strips the `/api` prefix before reaching the BFF, configure `BTCPAY_WEBHOOK_URL` without `/api` and align the routing rules accordingly. By default, we use `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`.
 
 ## BTCPay admin API key
@@ -338,6 +351,6 @@ If your edge or proxy strips the `/api` prefix before reaching the BFF, configur
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/health` returns **200**.
 - `curl -I https://api.paypay.iddqd.in/auth/me` returns **404** (only `/api/*` is routed to the BFF).
-- `curl -i https://api.paypay.iddqd.in/api/auth/csrf` returns **200** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/`.
+- `curl -i https://api.paypay.iddqd.in/api/auth/csrf` returns **204** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/` plus the `X-Csrf-Token` header.
 - `curl -I https://paypay.iddqd.in/dashboard` returns **200** and serves the merchant portal shell.
 - `curl -I https://paypay.iddqd.in/portal` returns **308/301** with `Location: /dashboard` for legacy clients.

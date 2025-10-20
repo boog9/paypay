@@ -22,9 +22,10 @@ echo "➡️ Ensuring legacy /portal redirects to /dashboard..."
 curl -sI https://paypay.iddqd.in/portal | egrep 'HTTP/|location'
 
 echo "➡️ Checking CORS and cookies for login..."
-CSRF=$(curl -si https://paypay.iddqd.in/api/auth/csrf | awk -F': ' '/^x-csrf-token:/ {print $2}' | tr -d '\r')
+CSRF=$(curl -si https://paypay.iddqd.in/api/auth/csrf | awk -F': ' 'tolower($1) == "x-csrf-token" {print $2}' | tr -d '\r')
 if [[ -z "$CSRF" ]]; then
-  CSRF=$(curl -s https://paypay.iddqd.in/api/auth/csrf | sed -n 's/.*"csrfToken":"\([^"]*\)".*/\1/p')
+  echo "❌ Missing X-Csrf-Token header" >&2
+  exit 1
 fi
 curl -si -X POST https://paypay.iddqd.in/api/auth/login \
   -H 'Origin: https://paypay.iddqd.in' \

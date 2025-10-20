@@ -1,5 +1,4 @@
 import {
-  api,
   apiFetch,
   apiGet,
   isApiNoContent,
@@ -7,30 +6,21 @@ import {
   AUTH_LOGIN,
   AUTH_LOGOUT,
   AUTH_ME,
-  AUTH_REFRESH
+  AUTH_REFRESH,
 } from './api';
 
-export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
+export const ACCESS_TOKEN_COOKIE_NAME = '__Host-pp.access-token';
 
 export async function getCsrfToken(): Promise<string> {
   const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
+  const headers = isApiNoContent(response) ? response.headers : (response as Response).headers;
+  const token = headers.get('X-Csrf-Token');
 
-  const fromHeader = response.headers.get('X-Csrf-Token');
-  if (fromHeader) {
-    return fromHeader;
+  if (token && token.trim()) {
+    return token.trim();
   }
 
-  if (!isApiNoContent(response)) {
-    const payload: unknown = await response.json().catch(() => null);
-    if (isRecord(payload)) {
-      const fallback = pickTokenString(payload['csrfToken']) ?? pickTokenString(payload['token']);
-      if (fallback) {
-        return fallback;
-      }
-    }
-  }
-
-  throw new Error('csrf token missing in response');
+  throw new Error('CSRF token header is missing.');
 }
 
 export async function login(email: string, password: string): Promise<MeResponse> {
@@ -39,43 +29,46 @@ export async function login(email: string, password: string): Promise<MeResponse
   const loginResponse = await apiFetch(AUTH_LOGIN, {
     method: 'POST',
     headers: {
-      'X-CSRF-Token': csrf
+      'X-CSRF-Token': csrf,
     },
     body: { email, password },
-    cache: 'no-store'
+    cache: 'no-store',
   });
 
   if (!isApiNoContent(loginResponse)) {
     throw new Error('Unexpected login response');
   }
 
-  const payload = await api<unknown>(AUTH_ME, {
-    cache: 'no-store'
+  const baseUrl = (process.env.NEXT_PUBLIC_BFF_URL ?? '').replace(/\/$/, '');
+  const meUrl = `${baseUrl}${AUTH_ME}`;
+  const meResponse = await fetch(meUrl, {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
   });
 
-  console.log('Me response:', payload);
+  if (!meResponse.ok) {
+    throw new Error('Failed to verify authenticated session.');
+  }
+
+  const payload: unknown = await meResponse.json();
 
   if (!isRecord(payload)) {
-    console.error('Payload is not a record:', payload);
     throw new Error('Invalid user data: payload is not a record');
   }
 
   if (!isRecord(payload.user)) {
-    console.error('User is not a record:', payload.user);
     throw new Error('Invalid user data: user is not a record');
   }
 
   if (typeof payload.user.id !== 'string') {
-    console.error('User id is not a string:', payload.user.id);
     throw new Error('Invalid user data: user id is not a string');
   }
 
   if (typeof payload.user.email !== 'string') {
-    console.error('User email is not a string:', payload.user.email);
     throw new Error('Invalid user data: user email is not a string');
   }
-
-  console.log('Login successful, user:', payload.user);
 
   return payload as MeResponse;
 }
@@ -86,9 +79,9 @@ export async function logout(): Promise<void> {
   const response = await apiFetch(AUTH_LOGOUT, {
     method: 'POST',
     headers: {
-      'X-CSRF-Token': csrf
+      'X-CSRF-Token': csrf,
     },
-    cache: 'no-store'
+    cache: 'no-store',
   });
 
   if (!isApiNoContent(response)) {
@@ -102,9 +95,9 @@ export async function refresh(): Promise<void> {
   const response = await apiFetch(AUTH_REFRESH, {
     method: 'POST',
     headers: {
-      'X-CSRF-Token': csrf
+      'X-CSRF-Token': csrf,
     },
-    cache: 'no-store'
+    cache: 'no-store',
   });
 
   if (!isApiNoContent(response)) {
@@ -114,13 +107,21 @@ export async function refresh(): Promise<void> {
 
 export async function isLoggedIn(): Promise<boolean> {
   try {
-    const payload = await api<unknown>(AUTH_ME, {
-      cache: 'no-store'
+    const response = await fetch((process.env.NEXT_PUBLIC_BFF_URL ?? '').replace(/\/$/, '') + AUTH_ME, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
     });
 
-    return isMeResponse(payload) && Boolean(payload.user);
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload: unknown = await response.json().catch(() => null);
+
+    return isMeResponse(payload) && Boolean(payload?.user);
   } catch {
-    // treat any failure as unauthenticated to avoid crashing UI/SSR boundaries
     return false;
   }
 }
@@ -134,14 +135,6 @@ type MeResponse = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function pickTokenString(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
 }
 
 function isMeResponse(value: unknown): value is MeResponse {

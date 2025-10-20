@@ -87,6 +87,11 @@ export async function api<T>(path: string, init: ApiRequestOptions = {}): Promis
   return (await response.text()) as unknown as T;
 }
 
+/**
+ * All BFF requests must include credentials so the browser can send the __Host- cookies.
+ * The backend responds with Access-Control-Allow-Credentials: true and an explicit
+ * Access-Control-Allow-Origin header. See https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials
+ */
 export async function apiFetch(path: string, init: ApiRequestOptions = {}): Promise<ApiResponse> {
   const { baseUrl, body, headers, method, ...rest } = init;
   const target = buildUrl(path, baseUrl);

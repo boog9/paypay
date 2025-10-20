@@ -51,9 +51,7 @@ export class CsrfService {
       return undefined;
     }
     const bag = cookies as Record<string, unknown>;
-    const rawSecret =
-      bag[this.cookieNames.csrfSecret] ??
-      bag[this.cookieNames.legacyCsrfSecret];
+    const rawSecret = bag[this.cookieNames.csrfSecret];
     if (typeof rawSecret !== 'string' || !rawSecret) {
       return undefined;
     }
@@ -70,7 +68,6 @@ export class CsrfService {
 
   private setSecretCookies(res: Response, secret: string): void {
     res.cookie(this.cookieNames.csrfSecret, secret, this.cookieOptions);
-    res.cookie(this.cookieNames.legacyCsrfSecret, secret, this.cookieOptions);
   }
 
   private safeEquals(expected: string, actual: string): boolean {

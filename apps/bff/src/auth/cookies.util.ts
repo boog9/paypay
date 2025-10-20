@@ -3,6 +3,10 @@ import { ACCESS_TOKEN_TTL_S, REFRESH_TOKEN_TTL_MS } from './auth.constants';
 import { resolveCookieNames } from './cookie-names';
 
 const cookieNames = resolveCookieNames();
+
+// __Host- cookies are host-only, must be Secure, and cannot set a Domain attribute.
+// This ensures the session cookies never leak to sibling subdomains. See:
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#cookiename
 const baseCookieOptions: CookieOptions = {
   httpOnly: true,
   secure: true,
@@ -25,8 +29,6 @@ export function setAuthCookies(
 
   res.cookie(cookieNames.access, tokens.accessJwt, accessOptions);
   res.cookie(cookieNames.refresh, tokens.refreshJwt, refreshOptions);
-  res.cookie(cookieNames.legacyAccess, tokens.accessJwt, accessOptions);
-  res.cookie(cookieNames.legacyRefresh, tokens.refreshJwt, refreshOptions);
 }
 
 export function clearAuthCookies(res: Response): void {
@@ -37,6 +39,4 @@ export function clearAuthCookies(res: Response): void {
 
   res.cookie(cookieNames.access, '', expiredOptions);
   res.cookie(cookieNames.refresh, '', expiredOptions);
-  res.cookie(cookieNames.legacyAccess, '', expiredOptions);
-  res.cookie(cookieNames.legacyRefresh, '', expiredOptions);
 }

@@ -42,25 +42,16 @@ export class AuthController {
 
   @Get('csrf')
   @SkipThrottle()
-  @HttpCode(HttpStatus.OK)
-  getCsrf(@Req() req: Request, @Res({ passthrough: true }) res: Response): { token: string; csrfToken: string } {
-    let secret = this.csrfService.getSecretFromRequest(req);
-    if (!secret) {
-      secret = this.csrfService.issueSecret(res);
-    }
-    const token = this.csrfService.createToken(secret);
-    res.setHeader('X-Csrf-Token', token);
-    return { token, csrfToken: token };
+  @HttpCode(HttpStatus.NO_CONTENT)
+  getCsrf(@Req() req: Request, @Res({ passthrough: true }) res: Response): void {
+    this.issueCsrfToken(req, res);
   }
 
   @Get('csrf-token')
   @SkipThrottle()
-  @HttpCode(HttpStatus.OK)
-  getLegacyCsrf(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response
-  ): { token: string; csrfToken: string } {
-    return this.getCsrf(req, res);
+  @HttpCode(HttpStatus.NO_CONTENT)
+  getLegacyCsrf(@Req() req: Request, @Res({ passthrough: true }) res: Response): void {
+    this.issueCsrfToken(req, res);
   }
 
   @Post('register')
@@ -192,8 +183,7 @@ export class AuthController {
       return undefined;
     }
     const allCookies = cookies as Record<string, unknown>;
-    const rawToken =
-      allCookies[this.cookieNames.refresh] ?? allCookies[this.cookieNames.legacyRefresh];
+    const rawToken = allCookies[this.cookieNames.refresh];
     return typeof rawToken === 'string' ? rawToken : undefined;
   }
 
@@ -203,8 +193,17 @@ export class AuthController {
       return undefined;
     }
     const allCookies = cookies as Record<string, unknown>;
-    const rawToken = allCookies[this.cookieNames.access] ?? allCookies[this.cookieNames.legacyAccess];
+    const rawToken = allCookies[this.cookieNames.access];
     return typeof rawToken === 'string' ? rawToken : undefined;
+  }
+
+  private issueCsrfToken(req: Request, res: Response): void {
+    let secret = this.csrfService.getSecretFromRequest(req);
+    if (!secret) {
+      secret = this.csrfService.issueSecret(res);
+    }
+    const token = this.csrfService.createToken(secret);
+    res.setHeader('X-Csrf-Token', token);
   }
 
   private extractClientIp(req: Request): string {

@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
         source: '/portal',
         destination: '/dashboard',
         permanent: true
+      },
+      {
+        source: '/login',
+        destination: '/sign-in',
+        permanent: true
       }
     ]);
   },

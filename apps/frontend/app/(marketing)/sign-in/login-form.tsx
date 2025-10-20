@@ -1,17 +1,19 @@
 'use client';
 
 import { FormEvent, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Button } from '../../../components/ui/button';
-import { login } from '../../../lib/auth';
-import { isApiError } from '../../../lib/api';
+import { AUTH_LOGIN, AUTH_ME, apiFetch, isApiError, isApiNoContent } from '../../../lib/api';
+import { getCsrfToken } from '../../../lib/auth';
+import { resolveNextDestination } from '../../../lib/navigation';
 import { credentialsSchema, type AuthFormState } from '../../(auth)/client-actions';
 
 const initialState: AuthFormState = { status: 'idle' };
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [state, setState] = useState<AuthFormState>(initialState);
   const [isSubmitting, setSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -49,16 +51,45 @@ export function LoginForm() {
 
     const submit = async () => {
       try {
-        console.log('🔵 Starting login...');
-        await login(validation.data.email, validation.data.password);
-        console.log('🟢 Login successful, redirecting to dashboard...');
+        const csrfToken = await getCsrfToken();
+        const loginResponse = await apiFetch(AUTH_LOGIN, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
+          body: validation.data,
+          cache: 'no-store'
+        });
 
-        // Don't reset isSubmittingRef here - page will reload anyway
-        window.location.href = '/dashboard';
+        if (!isApiNoContent(loginResponse)) {
+          throw new Error('Unexpected login response.');
+        }
+
+        const baseUrl = (process.env.NEXT_PUBLIC_BFF_URL ?? '').replace(/\/$/, '');
+        const meUrl = `${baseUrl}${AUTH_ME}`;
+        let sessionVerified = false;
+
+        try {
+          const meResponse = await fetch(meUrl, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/json' }
+          });
+          sessionVerified = meResponse.ok;
+        } catch {
+          sessionVerified = false;
+        }
+
+        const rawNext = searchParams?.get('next') ?? null;
+        const target = resolveNextDestination(rawNext);
+        router.replace(target);
+        if (!sessionVerified) {
+          window.location.replace(target);
+        }
       } catch (error) {
-        console.error('🔴 Login failed:', error);
         setState(resolveLoginError(error));
-        // Only reset submission state when the login fails
         setSubmitting(false);
         isSubmittingRef.current = false;
       }
@@ -137,3 +168,4 @@ function resolveLoginError(error: unknown): AuthFormState {
 
   return { status: 'error', message: 'Помилка мережі. Спробуйте знову.' };
 }
+

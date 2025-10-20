@@ -1,16 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import { AUTH_CSRF, AUTH_LOGIN, AUTH_ME } from "../lib/api";
 
-type CsrfPayload = { csrfToken: string };
-function isCsrfPayload(value: unknown): value is CsrfPayload {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "csrfToken" in value &&
-    typeof (value as { csrfToken?: unknown }).csrfToken === "string"
-  );
-}
-
 function headerValue(response: APIResponse, headerName: string): string | undefined {
   const candidate = (response as { headers?: unknown }).headers;
   if (typeof candidate !== "function") {
@@ -66,20 +56,12 @@ test.describe("Auth API flow", () => {
     const csrfResponse: APIResponse = await request.get(`${normalizedBase}${AUTH_CSRF}`, {
       headers: origin ? { Origin: origin } : undefined,
     });
-    expect(csrfResponse.ok()).toBeTruthy();
+    expect(csrfResponse.status()).toBe(204);
 
-    const csrfHeader = headerValue(csrfResponse, "x-csrf-token");
-    let csrfToken: string | null | undefined = csrfHeader;
-    if (!csrfToken) {
-      const csrfUnknown: unknown = await csrfResponse.json();
-      if (!isCsrfPayload(csrfUnknown)) {
-        throw new Error("Malformed CSRF payload");
-      }
-      csrfToken = csrfUnknown.csrfToken;
-    }
-    expect(csrfToken, "CSRF token should be provided").toBeTruthy();
+    const csrfToken = headerValue(csrfResponse, "x-csrf-token");
+    expect(typeof csrfToken).toBe("string");
     if (typeof csrfToken !== "string") {
-      throw new Error("CSRF token is missing");
+      throw new Error("Missing CSRF token header");
     }
 
     const loginHeaders: Record<string, string> = {
@@ -97,6 +79,17 @@ test.describe("Auth API flow", () => {
       },
     });
     expect(loginResponse.status()).toBe(204);
+
+    const setCookieHeaders = loginResponse
+      .headersArray()
+      .filter(({ name }) => name.toLowerCase() === "set-cookie")
+      .map(({ value }) => value);
+    expect(
+      setCookieHeaders.some((cookie) => cookie.startsWith("__Host-pp.access-token"))
+    ).toBeTruthy();
+    expect(
+      setCookieHeaders.some((cookie) => cookie.startsWith("__Host-pp.refresh-token"))
+    ).toBeTruthy();
 
     const meResponse: APIResponse = await request.get(`${normalizedBase}${AUTH_ME}`, {
       headers: origin ? { Origin: origin } : undefined,

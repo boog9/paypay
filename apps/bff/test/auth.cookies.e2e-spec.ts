@@ -90,13 +90,10 @@ describe('Auth cookies (development configuration)', () => {
   }
 
   async function fetchCsrfToken(): Promise<string> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    expect(response.body).toEqual(
-      expect.objectContaining({
-        csrfToken: expect.any(String)
-      })
-    );
-    return response.body.csrfToken;
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
+    return token as string;
   }
 
   it('sets secure, lax cookies without a domain on localhost', async () => {
@@ -111,18 +108,14 @@ describe('Auth cookies (development configuration)', () => {
     expect(cookies.length).toBeGreaterThan(0);
 
     const accessCookie = cookies.find((cookie) => cookie.startsWith(`${cookieNames.access}=`));
-    const legacyAccessCookie = cookies.find((cookie) => cookie.startsWith(`${cookieNames.legacyAccess}=`));
     const refreshCookie = cookies.find((cookie) => cookie.startsWith(`${cookieNames.refresh}=`));
-    const legacyRefreshCookie = cookies.find((cookie) =>
-      cookie.startsWith(`${cookieNames.legacyRefresh}=`)
-    );
 
-    expect(accessCookie ?? legacyAccessCookie).toBeDefined();
-    expect(refreshCookie ?? legacyRefreshCookie).toBeDefined();
+    expect(accessCookie).toBeDefined();
+    expect(refreshCookie).toBeDefined();
 
-    expect((accessCookie ?? legacyAccessCookie)!).toMatch(/Max-Age=\d+/i);
+    expect(accessCookie!).toMatch(/Max-Age=\d+/i);
 
-    for (const cookie of [accessCookie, legacyAccessCookie, refreshCookie, legacyRefreshCookie]) {
+    for (const cookie of [accessCookie, refreshCookie]) {
       if (!cookie) continue;
       expect(cookie).toContain('SameSite=Lax');
       expect(cookie).toContain('Secure');
@@ -247,9 +240,11 @@ describe('Auth cookies compatibility (production-like)', () => {
   }
 
   async function fetchCsrfToken(): Promise<string> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
+    const response = await agent.get('/api/auth/csrf').expect(204);
     addCookies(cookieJar, getCookies(response));
-    return response.body.csrfToken;
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
+    return token as string;
   }
 
   async function login(): Promise<void> {
@@ -278,22 +273,6 @@ describe('Auth cookies compatibility (production-like)', () => {
       .set('X-CSRF-Token', csrfToken)
       .set('Cookie', cookieHeader)
       .send({ name: 'Compat Store', defaultCurrency: 'USD' })
-      .expect((res) => expect(res.status).not.toBe(401));
-  });
-
-  it('authorizes requests that rely on legacy pp.* cookies', async () => {
-    const csrfToken = await prepareAuthContext();
-    const cookieHeader = buildCookieHeader([
-      cookieNames.legacyAccess,
-      cookieNames.legacyCsrfSecret,
-    ]);
-
-    await request(server)
-      .post('/api/stores')
-      .set('Origin', env.FRONTEND_ORIGIN)
-      .set('X-CSRF-Token', csrfToken)
-      .set('Cookie', cookieHeader)
-      .send({ name: 'Compat Store Legacy', defaultCurrency: 'USD' })
       .expect((res) => expect(res.status).not.toBe(401));
   });
 

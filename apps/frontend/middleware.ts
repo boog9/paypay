@@ -1,50 +1,19 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createSecureHeaders } from "next-secure-headers";
 
 import { getBffOrigin } from "./lib/bff";
-import { ACCESS_TOKEN_COOKIE_NAME } from "./lib/auth";
-const PUBLIC_PATHS = new Set([
-  "/",
-  "/login",
-  "/sign-in",
-  "/signup",
-  "/health",
-  "/favicon.ico",
-  "/robots.txt",
-  "/sitemap.xml",
-]);
-const PUBLIC_PREFIXES = ["/_next/"];
 
-function isPublicRoute(pathname: string): boolean {
-  if (!pathname) {
-    return true;
-  }
-
-  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return true;
-  }
-
-  if (PUBLIC_PATHS.has(pathname)) {
-    return true;
-  }
-
-  return false;
-}
-
-export function middleware(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const hasAccessCookie = Boolean(request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)?.value);
-
-  if (!hasAccessCookie && !isPublicRoute(pathname)) {
-    const loginUrl = new URL("/login", request.url);
-    const search = request.nextUrl.search ?? "";
-    const nextParam = `${pathname}${search}`;
-    loginUrl.searchParams.set("next", nextParam || "/");
-    return NextResponse.redirect(loginUrl);
-  }
-
+export function middleware() {
   const response = NextResponse.next();
-  const connectSrc = ["'self'", getBffOrigin()];
+  const connectSrc = [getBffOrigin()];
+  const devProxyOrigin = process.env.NEXT_PUBLIC_BFF_DEV_PROXY_ORIGIN;
+  if (process.env.NODE_ENV !== "production" && devProxyOrigin) {
+    connectSrc.push(devProxyOrigin);
+  }
+  const filteredConnectSrc = connectSrc.filter((value): value is string => Boolean(value));
+  if (filteredConnectSrc.length === 0) {
+    filteredConnectSrc.push("'self'");
+  }
 
   const secureHeaders = createSecureHeaders({
     forceHTTPSRedirect: [true, { maxAge: 60 * 60 * 24 * 365, includeSubDomains: true }],
@@ -54,7 +23,9 @@ export function middleware(request: NextRequest) {
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
-        connectSrc,
+        // Maintain a single CSP header to avoid accidentally overriding connect-src.
+        // https://developer.mozilla.org/docs/Web/HTTP/Headers/Content-Security-Policy/connect-src
+        connectSrc: filteredConnectSrc,
         frameAncestors: ["'none'"],
       },
     },

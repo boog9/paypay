@@ -37,11 +37,16 @@ EMAIL="user@example.com"
 PASS="change-me"
 
 rm -f "$JAR"
-curl -s -c "$JAR" -H "Origin: $ORIGIN" "$API/api/auth/csrf" >/dev/null
-CSRF=$(curl -s -b "$JAR" "$API/api/auth/csrf" | jq -r .csrfToken)
+curl -s -D "$JAR.csrf" -c "$JAR" -H "Origin: $ORIGIN" "$API/api/auth/csrf" -o /dev/null
+CSRF=$(awk -F': ' 'tolower($1) == "x-csrf-token" {print $2}' "$JAR.csrf" | tr -d '\r')
+if [[ -z "$CSRF" ]]; then
+  echo "missing CSRF token" >&2
+  exit 1
+fi
 curl -s -i -c "$JAR" -b "$JAR" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" \
   -X POST "$API/api/auth/login" --data "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" >/dev/null
-CSRF=$(curl -s -b "$JAR" "$API/api/auth/csrf" | jq -r .csrfToken)
+curl -s -D "$JAR.csrf" -b "$JAR" "$API/api/auth/csrf" -o /dev/null
+CSRF=$(awk -F': ' 'tolower($1) == "x-csrf-token" {print $2}' "$JAR.csrf" | tr -d '\r')
 
 TENANT_EMAIL="tenant+$(date +%s)@iddqd.in"
 TENANT_NAME="default"

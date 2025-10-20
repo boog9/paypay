@@ -93,8 +93,10 @@ describe('Stores onboarding (e2e)', () => {
   });
 
   async function fetchCsrf(): Promise<string> {
-    const response = await agent.get('/api/auth/csrf').expect(200);
-    return response.body.csrfToken;
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    const token = response.headers['x-csrf-token'];
+    expect(typeof token).toBe('string');
+    return token as string;
   }
 
   it('creates a store and lists it', async () => {

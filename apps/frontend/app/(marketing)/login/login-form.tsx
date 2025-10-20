@@ -52,7 +52,8 @@ export function LoginForm() {
         console.log('🔵 Starting login...');
         await login(validation.data.email, validation.data.password);
         console.log('🟢 Login successful, redirecting to dashboard...');
-        router.replace('/dashboard');
+        // Use window.location.href instead of router.replace to ensure cookies are sent
+        window.location.href = '/dashboard';
         console.log('🟢 Router.replace called');
       } catch (error) {
         console.error('🔴 Login failed:', error);

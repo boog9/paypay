@@ -61,7 +61,7 @@ afterEach(() => {
   if (originalFetch) {
     globalThis.fetch = originalFetch;
   } else {
-    delete (globalThis as GlobalWithFetch).fetch;
+    Reflect.deleteProperty(globalThis as GlobalWithFetch, "fetch");
   }
   delete process.env.NEXT_PUBLIC_BFF_URL;
   vi.restoreAllMocks();
@@ -70,16 +70,15 @@ afterEach(() => {
 test("getCsrfToken prefers header value", async () => {
   process.env.NEXT_PUBLIC_BFF_URL = TEST_BFF_URL;
 
-  const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>(() =>
-    Promise.resolve(
-      new Response(null, {
-        status: 200,
-        headers: { "X-Csrf-Token": "header-token" },
-      })
-    )
+  const fetchMock = vi.fn<typeof fetch>();
+  fetchMock.mockResolvedValue(
+    new Response(null, {
+      status: 200,
+      headers: { "X-Csrf-Token": "header-token" },
+    })
   );
 
-  globalThis.fetch = fetchMock;
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
 
   const { getCsrfToken } = await import("./auth");
 
@@ -110,19 +109,18 @@ test("getCsrfToken prefers header value", async () => {
 test("getCsrfToken falls back to JSON payload", async () => {
   process.env.NEXT_PUBLIC_BFF_URL = TEST_BFF_URL;
 
-  const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>(() =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify({ csrfToken: "json-token" }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }
-      )
+  const fetchMock = vi.fn<typeof fetch>();
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({ csrfToken: "json-token" }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
     )
   );
 
-  globalThis.fetch = fetchMock;
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
 
   const { getCsrfToken } = await import("./auth");
 

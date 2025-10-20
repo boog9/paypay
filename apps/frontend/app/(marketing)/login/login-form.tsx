@@ -49,9 +49,13 @@ export function LoginForm() {
 
     const submit = async () => {
       try {
+        console.log('🔵 Starting login...');
         await login(validation.data.email, validation.data.password);
+        console.log('🟢 Login successful, redirecting to dashboard...');
         router.replace('/dashboard');
+        console.log('🟢 Router.replace called');
       } catch (error) {
+        console.error('🔴 Login failed:', error);
         setState(resolveLoginError(error));
       } finally {
         setSubmitting(false);

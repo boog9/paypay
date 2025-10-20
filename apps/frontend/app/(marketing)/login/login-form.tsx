@@ -52,13 +52,13 @@ export function LoginForm() {
         console.log('🔵 Starting login...');
         await login(validation.data.email, validation.data.password);
         console.log('🟢 Login successful, redirecting to dashboard...');
-        // Use window.location.href instead of router.replace to ensure cookies are sent
+
+        // Don't reset isSubmittingRef here - page will reload anyway
         window.location.href = '/dashboard';
-        console.log('🟢 Router.replace called');
       } catch (error) {
         console.error('🔴 Login failed:', error);
         setState(resolveLoginError(error));
-      } finally {
+        // Only reset submission state when the login fails
         setSubmitting(false);
         isSubmittingRef.current = false;
       }

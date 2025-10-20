@@ -12,6 +12,14 @@ import { ManagedStoreEntity } from '../src/stores/entities/managed-store.entity'
 import { IdempotencyKeyEntity } from '../src/tenants/entities/idempotency-key.entity';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 
+function readCsrfToken(response: request.Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be a string');
+  }
+  return token;
+}
+
 describe('Stores onboarding (e2e)', () => {
   let app: INestApplication;
   let server: any;
@@ -94,9 +102,9 @@ describe('Stores onboarding (e2e)', () => {
 
   async function fetchCsrf(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
-    return token as string;
+    return token;
   }
 
   it('creates a store and lists it', async () => {

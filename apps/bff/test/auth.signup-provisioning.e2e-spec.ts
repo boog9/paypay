@@ -13,6 +13,14 @@ import { UserEntity } from '../src/auth/entities/user.entity';
 import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
+function readCsrfToken(response: Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be a string');
+  }
+  return token;
+}
+
 describe('Auth signup provisioning (e2e)', () => {
   let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
@@ -63,10 +71,10 @@ describe('Auth signup provisioning (e2e)', () => {
 
   async function fetchCsrfToken(): Promise<{ token: string; cookies: string[] }> {
     const response = await agent.get('/api/auth/csrf').expect(204);
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
     const cookies = getCookies(response);
-    return { token: token as string, cookies };
+    return { token, cookies };
   }
 
   function getCookies(response: Response): string[] {

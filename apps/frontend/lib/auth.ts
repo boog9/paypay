@@ -13,7 +13,7 @@ export const ACCESS_TOKEN_COOKIE_NAME = '__Host-pp.access-token';
 
 export async function getCsrfToken(): Promise<string> {
   const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
-  const headers = isApiNoContent(response) ? response.headers : (response as Response).headers;
+  const headers = response.headers;
   const token = headers.get('X-Csrf-Token');
 
   if (token && token.trim()) {

@@ -17,8 +17,8 @@ vi.mock("next/navigation", () => ({
 const refreshMock = vi.fn();
 vi.mock("../../lib/auth", () => ({ refresh: refreshMock }));
 
-vi.mock("../../lib/api", async (original) => {
-  const actual = await original();
+vi.mock("../../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
   return {
     ...actual,
     AUTH_ME: "/api/auth/me",
@@ -52,7 +52,7 @@ describe("AuthGate", () => {
         headers: { "content-type": "application/json" },
       })
     );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalWithFetch.fetch = fetchMock;
 
     const { AuthGate } = await import("./auth-gate");
 
@@ -77,7 +77,7 @@ describe("AuthGate", () => {
           headers: { "content-type": "application/json" },
         })
       );
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalWithFetch.fetch = fetchMock;
     refreshMock.mockResolvedValueOnce(undefined);
 
     const { AuthGate } = await import("./auth-gate");
@@ -96,7 +96,7 @@ describe("AuthGate", () => {
 
   test("redirects to sign-in when refresh fails", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 }));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalWithFetch.fetch = fetchMock;
     refreshMock.mockRejectedValueOnce(new Error("no session"));
 
     const { AuthGate } = await import("./auth-gate");

@@ -11,6 +11,14 @@ import { configureApp, configureCors } from '../src/bootstrap/app-configuration'
 import { getEnv } from '../src/config/env.validation';
 import { randomBytes } from 'crypto';
 
+function readCsrfToken(response: Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be a string');
+  }
+  return token;
+}
+
 describe('Auth session hardening', () => {
   let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
@@ -98,9 +106,9 @@ describe('Auth session hardening', () => {
     agent: ReturnType<typeof request.agent>
   ): Promise<{ token: string; cookies: string[] }> {
     const response = await agent.get('/api/auth/csrf').expect(204);
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
-    return { token: token as string, cookies: getCookies(response) };
+    return { token, cookies: getCookies(response) };
   }
 
   it('issues a CSRF cookie and token', async () => {

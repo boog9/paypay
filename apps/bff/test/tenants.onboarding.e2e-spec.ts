@@ -6,6 +6,14 @@ import { BtcpayService } from '../src/btcpay/btcpay.service';
 import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
 import { getEnv } from '../src/config/env.validation';
 
+function readCsrfToken(response: request.Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be a string');
+  }
+  return token;
+}
+
 describe('Tenants onboarding (e2e)', () => {
   let app: INestApplication;
   let server: any;
@@ -63,9 +71,9 @@ describe('Tenants onboarding (e2e)', () => {
 
   async function fetchCsrf(): Promise<{ token: string }> {
     const response = await agent.get('/api/auth/csrf').expect(204);
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
-    return { token: token as string };
+    return { token };
   }
 
   it('provisions a tenant and store through the Greenfield API mocks', async () => {

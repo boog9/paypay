@@ -11,6 +11,14 @@ import { configureApp, configureCors } from '../src/bootstrap/app-configuration'
 import { getEnv } from '../src/config/env.validation';
 import { StoresService } from '../src/stores/stores.service';
 
+function readCsrfToken(response: Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be a string');
+  }
+  return token;
+}
+
 describe('Auth cookies (development configuration)', () => {
   let cookieNames: ReturnType<typeof resolveCookieNames>;
   let app: INestApplication;
@@ -91,9 +99,9 @@ describe('Auth cookies (development configuration)', () => {
 
   async function fetchCsrfToken(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
-    return token as string;
+    return token;
   }
 
   it('sets secure, lax cookies without a domain on localhost', async () => {
@@ -242,9 +250,9 @@ describe('Auth cookies compatibility (production-like)', () => {
   async function fetchCsrfToken(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
     addCookies(cookieJar, getCookies(response));
-    const token = response.headers['x-csrf-token'];
+    const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
-    return token as string;
+    return token;
   }
 
   async function login(): Promise<void> {

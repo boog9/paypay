@@ -2,38 +2,43 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  UpdateDateColumn,
+  Unique,
+  UpdateDateColumn
 } from 'typeorm';
-import { TIMESTAMP_COLUMN_TYPE } from '../../database/utils/column-types';
-import { UserEntity } from '../../auth/entities/user.entity';
+import { TIMESTAMP_COLUMN_TYPE } from '../database/utils/column-types';
+import { UserEntity } from '../auth/entities/user.entity';
 
 @Entity({ name: 'managed_stores' })
+@Index('ix_managed_stores_user_id', ['userId'])
+@Unique('uq_managed_stores_user_store', ['userId', 'btcpayStoreId'])
 export class ManagedStoreEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId!: string;
 
   @ManyToOne(() => UserEntity, (user) => user.managedStores, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: UserEntity;
 
-  @Column({ name: 'user_id', type: 'uuid' })
-  userId!: string;
-
-  @Column({ name: 'btcpay_store_id', type: 'varchar', length: 160, unique: true })
+  @Column({ name: 'btcpay_store_id', type: 'varchar', length: 64 })
   btcpayStoreId!: string;
 
-  @Column({ name: 'store_name', type: 'varchar', length: 160 })
+  @Column({ name: 'store_name', type: 'varchar', length: 200 })
   storeName!: string;
 
   @Column({ name: 'default_currency', type: 'varchar', length: 16 })
   defaultCurrency!: string;
 
-  @Column({ name: 'btcpay_host', type: 'varchar', length: 320 })
+  @Column({ name: 'btcpay_host', type: 'varchar', length: 200 })
   btcpayHost!: string;
 
+  // base64-encoded ciphertext and wrapped DEK strings
   @Column({ name: 'api_key_ciphertext', type: 'text' })
   apiKeyCiphertext!: string;
 

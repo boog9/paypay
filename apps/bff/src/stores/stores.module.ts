@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StoresService } from './stores.service';
 import { StoresController } from './stores.controller';
-import { ManagedStoreEntity } from './entities/managed-store.entity';
+import { ManagedStoreEntity } from './managed-store.entity';
 import { SecurityModule } from '../security/security.module';
 import { BtcpayModule } from '../btcpay/btcpay.module';
 import { UserEntity } from '../auth/entities/user.entity';

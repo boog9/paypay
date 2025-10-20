@@ -1,7 +1,9 @@
-import { Column, CreateDateColumn, Entity, PrimaryColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import { TIMESTAMP_COLUMN_TYPE } from '../../database/utils/column-types';
+import { UserEntity } from '../../auth/entities/user.entity';
 
 @Entity({ name: 'idempotency_keys' })
+@Index('ix_idem_user_key', ['userId', 'key'])
 export class IdempotencyKeyEntity {
   @PrimaryColumn({ type: 'varchar', length: 200 })
   key!: string;
@@ -11,6 +13,10 @@ export class IdempotencyKeyEntity {
 
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId!: string | null;
+
+  @ManyToOne(() => UserEntity, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'user_id' })
+  user?: UserEntity;
 
   @Column({ type: 'varchar', length: 160 })
   source!: string;

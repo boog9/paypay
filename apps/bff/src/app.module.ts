@@ -13,7 +13,7 @@ import { TenantEntity } from './tenants/entities/tenant.entity';
 import { StoreEntity } from './tenants/entities/store.entity';
 import { AuditLogEntity } from './tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity';
-import { ManagedStoreEntity } from './stores/entities/managed-store.entity';
+import { ManagedStoreEntity } from './stores/managed-store.entity';
 import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
 import { HealthController } from './health.controller';

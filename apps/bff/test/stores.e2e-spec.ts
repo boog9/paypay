@@ -8,7 +8,7 @@ import { configureApp, configureCors } from '../src/bootstrap/app-configuration'
 import { getEnv } from '../src/config/env.validation';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
 import { UserEntity } from '../src/auth/entities/user.entity';
-import { ManagedStoreEntity } from '../src/stores/entities/managed-store.entity';
+import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { IdempotencyKeyEntity } from '../src/tenants/entities/idempotency-key.entity';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 

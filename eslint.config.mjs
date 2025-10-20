@@ -28,7 +28,7 @@ const baseIgnores = [
   "apps/frontend/next-env.d.ts",
   "apps/frontend/postcss.config.js",
   "packages/sdk/src/gen/*.d.ts",
-  "eslint.config.js"
+  "eslint.config.mjs"
 ];
 
 export default tseslint.config(

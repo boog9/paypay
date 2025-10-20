@@ -57,7 +57,7 @@ test.describe("Auth API flow", () => {
     const origin = process.env.PLAYWRIGHT_FRONTEND_ORIGIN;
 
     if (!baseUrl || !email || !password) {
-      test.skip("Auth flow environment variables are not configured");
+      test.skip(true, "Auth flow environment variables are not configured");
       return;
     }
 

@@ -25,8 +25,9 @@ export class ApiError extends Error {
   }
 }
 
-export interface ApiRequestOptions extends RequestInit {
+export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   baseUrl?: string;
+  body?: unknown;
 }
 
 export interface ApiNoContent {
@@ -60,7 +61,11 @@ export async function apiPost(
   body?: unknown,
   init: ApiRequestOptions = {}
 ): Promise<ApiResponse> {
-  return apiFetch(path, { ...init, method: 'POST', body: body ?? init.body });
+  const requestInit: ApiRequestOptions = { ...init, method: 'POST' };
+  if (body !== undefined) {
+    requestInit.body = body;
+  }
+  return apiFetch(path, requestInit);
 }
 
 export async function api<T>(path: string, init: ApiRequestOptions = {}): Promise<T> {
@@ -86,53 +91,52 @@ export async function apiFetch(path: string, init: ApiRequestOptions = {}): Prom
   const { baseUrl, body, headers, method, ...rest } = init;
   const target = buildUrl(path, baseUrl);
 
-  const requestHeaders = new Headers(headers ?? undefined);
-  if (!requestHeaders.has('Accept')) {
-    requestHeaders.set('Accept', 'application/json');
+  // ——— helpers ———
+  const isBodyInit = (v: unknown): v is BodyInit => {
+    if (typeof v === 'string') return true;
+    if (typeof Blob !== 'undefined' && v instanceof Blob) return true;
+    if (typeof FormData !== 'undefined' && v instanceof FormData) return true;
+    if (typeof URLSearchParams !== 'undefined' && v instanceof URLSearchParams) return true;
+    if (v instanceof ArrayBuffer) return true;
+    // ArrayBufferView (e.g. Uint8Array)
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView?.(v as ArrayBufferView)) return true;
+    return false;
+  };
+
+  const h = new Headers(headers ?? {});
+  if (!h.has('Accept')) h.set('Accept', 'application/json');
+
+  const upperMethod = (method ?? 'GET').toUpperCase();
+  let finalBody: BodyInit | undefined;
+  if (upperMethod !== 'GET' && upperMethod !== 'HEAD' && body !== undefined) {
+    if (isBodyInit(body)) {
+      finalBody = body;
+    } else {
+      if (!h.has('Content-Type')) h.set('Content-Type', 'application/json');
+      finalBody = JSON.stringify(body);
+    }
   }
 
-  const httpMethod = normalizeMethod(method ?? (body !== undefined ? 'POST' : 'GET'));
-
-  if (
-    body !== undefined &&
-    httpMethod !== 'GET' &&
-    httpMethod !== 'HEAD' &&
-    !requestHeaders.has('Content-Type') &&
-    !(body instanceof FormData) &&
-    !(body instanceof URLSearchParams) &&
-    !(typeof Blob !== 'undefined' && body instanceof Blob) &&
-    !(typeof ArrayBuffer !== 'undefined' && (body instanceof ArrayBuffer || ArrayBuffer.isView(body))) &&
-    typeof body !== 'string'
-  ) {
-    requestHeaders.set('Content-Type', 'application/json');
-  }
-
-  const payload = body !== undefined ? serializeBody(body) : undefined;
-
-  const response = await fetch(target, {
-    ...rest,
-    method: httpMethod,
-    headers: requestHeaders,
-    body: payload,
+  const res = await fetch(target, {
+    method: upperMethod,
     credentials: 'include',
     mode: 'cors',
+    headers: h,
+    body: finalBody,
+    ...rest,
   });
 
-  if (response.status === 204) {
-    return { ok: true, status: 204, headers: response.headers };
+  if (res.status === 204) {
+    return { ok: true, status: 204, headers: res.headers };
   }
 
-  if (!response.ok) {
-    const errorBody = await parseErrorBody(response);
-    const message = extractErrorMessage(response.status, errorBody);
-    throw new ApiError(response.status, message, errorBody, response.headers);
+  if (!res.ok) {
+    const errorBody = await parseErrorBody(res);
+    const message = extractErrorMessage(res.status, errorBody);
+    throw new ApiError(res.status, message, errorBody, res.headers);
   }
 
-  return response;
-}
-
-function normalizeMethod(method: string): string {
-  return method.toUpperCase();
+  return res;
 }
 
 function buildUrl(path: string, overrideBase?: string): string {
@@ -162,30 +166,6 @@ function ensureApiPath(path: string): string {
   }
 
   throw new Error(`API requests must use the ${API_PREFIX} prefix. Received: ${path}`);
-}
-
-function serializeBody(body: unknown): BodyInit | undefined {
-  if (body === undefined || body === null) {
-    return body === null ? 'null' : undefined;
-  }
-
-  if (typeof body === 'string') {
-    return body;
-  }
-
-  if (body instanceof FormData || body instanceof URLSearchParams) {
-    return body;
-  }
-
-  if (typeof Blob !== 'undefined' && body instanceof Blob) {
-    return body;
-  }
-
-  if (typeof ArrayBuffer !== 'undefined' && (body instanceof ArrayBuffer || ArrayBuffer.isView(body))) {
-    return body as BodyInit;
-  }
-
-  return JSON.stringify(body);
 }
 
 async function parseErrorBody(response: Response): Promise<unknown> {

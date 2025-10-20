@@ -53,9 +53,29 @@ export async function login(email: string, password: string): Promise<MeResponse
     cache: 'no-store'
   });
 
-  if (!isRecord(payload) || !isRecord(payload.user)) {
-    throw new Error('Invalid user data');
+  console.log('Me response:', payload);
+
+  if (!isRecord(payload)) {
+    console.error('Payload is not a record:', payload);
+    throw new Error('Invalid user data: payload is not a record');
   }
+
+  if (!isRecord(payload.user)) {
+    console.error('User is not a record:', payload.user);
+    throw new Error('Invalid user data: user is not a record');
+  }
+
+  if (typeof payload.user.id !== 'string') {
+    console.error('User id is not a string:', payload.user.id);
+    throw new Error('Invalid user data: user id is not a string');
+  }
+
+  if (typeof payload.user.email !== 'string') {
+    console.error('User email is not a string:', payload.user.email);
+    throw new Error('Invalid user data: user email is not a string');
+  }
+
+  console.log('Login successful, user:', payload.user);
 
   return payload as MeResponse;
 }

@@ -3,6 +3,12 @@ const rawBaseUrl = process.env.NEXT_PUBLIC_BFF_URL?.replace(/\/$/, '');
 export const API_PREFIX = '/api';
 export const BFF: string = rawBaseUrl ?? '';
 
+export const AUTH_LOGIN = `${API_PREFIX}/auth/login`;
+export const AUTH_LOGOUT = `${API_PREFIX}/auth/logout`;
+export const AUTH_REFRESH = `${API_PREFIX}/auth/refresh`;
+export const AUTH_CSRF = `${API_PREFIX}/auth/csrf`;
+export const AUTH_ME = `${API_PREFIX}/auth/me`;
+
 if (!rawBaseUrl && process.env.NODE_ENV !== 'production') {
   console.warn('NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.');
 }
@@ -23,52 +29,46 @@ export interface ApiRequestOptions extends RequestInit {
   baseUrl?: string;
 }
 
+export interface ApiNoContent {
+  ok: true;
+  status: 204;
+  headers: Headers;
+}
+
+export type ApiResponse = Response | ApiNoContent;
+
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-export async function apiGet(path: string, init: ApiRequestOptions = {}): Promise<Response> {
-  const { baseUrl, ...rest } = init;
-  const headers = new Headers(rest.headers ?? undefined);
-
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json');
-  }
-
-  return apiRequest(path, { ...rest, baseUrl, method: 'GET', headers });
+export function isApiNoContent(response: unknown): response is ApiNoContent {
+  return Boolean(
+    response &&
+      typeof response === 'object' &&
+      (response as ApiNoContent).ok === true &&
+      (response as ApiNoContent).status === 204 &&
+      (response as ApiNoContent).headers instanceof Headers
+  );
 }
 
-export async function apiPost(path: string, body?: unknown, init: ApiRequestOptions = {}): Promise<Response> {
-  const { baseUrl, ...rest } = init;
-  const headers = new Headers(rest.headers ?? undefined);
+export async function apiGet(path: string, init: ApiRequestOptions = {}): Promise<ApiResponse> {
+  return apiFetch(path, { ...init, method: 'GET' });
+}
 
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json');
-  }
-
-  if (body !== undefined && !headers.has('Content-Type') && !(body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  const payload = serializeBody(body);
-
-  return apiRequest(path, {
-    ...rest,
-    baseUrl,
-    method: 'POST',
-    headers,
-    body: payload
-  });
+export async function apiPost(
+  path: string,
+  body?: unknown,
+  init: ApiRequestOptions = {}
+): Promise<ApiResponse> {
+  return apiFetch(path, { ...init, method: 'POST', body: body ?? init.body });
 }
 
 export async function api<T>(path: string, init: ApiRequestOptions = {}): Promise<T> {
-  const { baseUrl, ...rest } = init;
-  const headers = new Headers(rest.headers ?? undefined);
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json');
-  }
+  const response = await apiFetch(path, init);
 
-  const response = await apiRequest(path, { ...rest, baseUrl, headers });
+  if (isApiNoContent(response)) {
+    return undefined as T;
+  }
 
   if ([204, 205, 304].includes(response.status)) {
     return undefined as T;
@@ -82,24 +82,57 @@ export async function api<T>(path: string, init: ApiRequestOptions = {}): Promis
   return (await response.text()) as unknown as T;
 }
 
-async function apiRequest(path: string, init: ApiRequestOptions = {}): Promise<Response> {
-  const { baseUrl, ...rest } = init;
-  const headers = new Headers(rest.headers ?? undefined);
+export async function apiFetch(path: string, init: ApiRequestOptions = {}): Promise<ApiResponse> {
+  const { baseUrl, body, headers, method, ...rest } = init;
   const target = buildUrl(path, baseUrl);
+
+  const requestHeaders = new Headers(headers ?? undefined);
+  if (!requestHeaders.has('Accept')) {
+    requestHeaders.set('Accept', 'application/json');
+  }
+
+  const httpMethod = normalizeMethod(method ?? (body !== undefined ? 'POST' : 'GET'));
+
+  if (
+    body !== undefined &&
+    httpMethod !== 'GET' &&
+    httpMethod !== 'HEAD' &&
+    !requestHeaders.has('Content-Type') &&
+    !(body instanceof FormData) &&
+    !(body instanceof URLSearchParams) &&
+    !(typeof Blob !== 'undefined' && body instanceof Blob) &&
+    !(typeof ArrayBuffer !== 'undefined' && (body instanceof ArrayBuffer || ArrayBuffer.isView(body))) &&
+    typeof body !== 'string'
+  ) {
+    requestHeaders.set('Content-Type', 'application/json');
+  }
+
+  const payload = body !== undefined ? serializeBody(body) : undefined;
 
   const response = await fetch(target, {
     ...rest,
-    headers,
-    credentials: 'include'
+    method: httpMethod,
+    headers: requestHeaders,
+    body: payload,
+    credentials: 'include',
+    mode: 'cors',
   });
 
+  if (response.status === 204) {
+    return { ok: true, status: 204, headers: response.headers };
+  }
+
   if (!response.ok) {
-    const body = await parseErrorBody(response);
-    const message = extractErrorMessage(response.status, body);
-    throw new ApiError(response.status, message, body, response.headers);
+    const errorBody = await parseErrorBody(response);
+    const message = extractErrorMessage(response.status, errorBody);
+    throw new ApiError(response.status, message, errorBody, response.headers);
   }
 
   return response;
+}
+
+function normalizeMethod(method: string): string {
+  return method.toUpperCase();
 }
 
 function buildUrl(path: string, overrideBase?: string): string {

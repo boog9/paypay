@@ -1,11 +1,25 @@
-import { api, apiGet, apiPost } from './api';
+import {
+  api,
+  apiFetch,
+  apiGet,
+  isApiNoContent,
+  AUTH_CSRF,
+  AUTH_LOGIN,
+  AUTH_LOGOUT,
+  AUTH_ME,
+  AUTH_REFRESH
+} from './api';
 
 export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
 
 export async function getCsrfToken(): Promise<string> {
-  const response = await apiGet('/api/auth/csrf', { cache: 'no-store' });
+  const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
 
-  const fromHeader = response.headers.get('X-Csrf-Token'); // case-insensitive
+  if (isApiNoContent(response)) {
+    throw new Error('csrf token missing in response');
+  }
+
+  const fromHeader = response.headers.get('X-Csrf-Token');
   if (fromHeader) {
     return fromHeader;
   }
@@ -24,18 +38,20 @@ export async function getCsrfToken(): Promise<string> {
 export async function login(email: string, password: string): Promise<MeResponse> {
   const csrf = await getCsrfToken();
 
-  await apiPost(
-    '/api/auth/login',
-    { email, password },
-    {
-      headers: {
-        'X-CSRF-Token': csrf
-      },
-      cache: 'no-store'
-    }
-  );
+  const loginResponse = await apiFetch(AUTH_LOGIN, {
+    method: 'POST',
+    headers: {
+      'X-CSRF-Token': csrf
+    },
+    body: { email, password },
+    cache: 'no-store'
+  });
 
-  const payload = await api<unknown>('/api/auth/me', {
+  if (!isApiNoContent(loginResponse)) {
+    throw new Error('Unexpected login response');
+  }
+
+  const payload = await api<unknown>(AUTH_ME, {
     cache: 'no-store'
   });
 
@@ -46,9 +62,41 @@ export async function login(email: string, password: string): Promise<MeResponse
   throw new Error('Unexpected session payload');
 }
 
+export async function logout(): Promise<void> {
+  const csrf = await getCsrfToken();
+
+  const response = await apiFetch(AUTH_LOGOUT, {
+    method: 'POST',
+    headers: {
+      'X-CSRF-Token': csrf
+    },
+    cache: 'no-store'
+  });
+
+  if (!isApiNoContent(response)) {
+    throw new Error('Unexpected logout response');
+  }
+}
+
+export async function refresh(): Promise<void> {
+  const csrf = await getCsrfToken();
+
+  const response = await apiFetch(AUTH_REFRESH, {
+    method: 'POST',
+    headers: {
+      'X-CSRF-Token': csrf
+    },
+    cache: 'no-store'
+  });
+
+  if (!isApiNoContent(response)) {
+    throw new Error('Unexpected refresh response');
+  }
+}
+
 export async function isLoggedIn(): Promise<boolean> {
   try {
-    const payload = await api<unknown>('/api/auth/me', {
+    const payload = await api<unknown>(AUTH_ME, {
       cache: 'no-store'
     });
 

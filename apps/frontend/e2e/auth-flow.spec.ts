@@ -1,8 +1,56 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import { AUTH_CSRF, AUTH_LOGIN, AUTH_ME } from "../lib/api";
 
+type CsrfPayload = { csrfToken: string };
+function isCsrfPayload(value: unknown): value is CsrfPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "csrfToken" in value &&
+    typeof (value as { csrfToken?: unknown }).csrfToken === "string"
+  );
+}
+
+function headerValue(response: APIResponse, headerName: string): string | undefined {
+  const candidate = (response as { headers?: unknown }).headers;
+  if (typeof candidate !== "function") {
+    return undefined;
+  }
+
+  const getHeaders = candidate as (this: APIResponse) => unknown;
+  const rawHeaders = getHeaders.call(response);
+  if (typeof rawHeaders !== "object" || rawHeaders === null) {
+    return undefined;
+  }
+
+  const headersRecord = rawHeaders as Record<string, unknown>;
+  const normalizedName = headerName.toLowerCase();
+  for (const [name, value] of Object.entries(headersRecord)) {
+    if (name.toLowerCase() === normalizedName && typeof value === "string") {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+type MePayload = { user: { id: string; email: string } };
+function isMePayload(value: unknown): value is MePayload {
+  if (typeof value !== "object" || value === null || !("user" in value)) {
+    return false;
+  }
+
+  const user = (value as { user?: unknown }).user;
+  return (
+    typeof user === "object" &&
+    user !== null &&
+    typeof (user as { email?: unknown }).email === "string" &&
+    typeof (user as { id?: unknown }).id === "string"
+  );
+}
+
 test.describe("Auth API flow", () => {
-  test("performs login and session hydration", async ({ request }) => {
+  test("performs login and session hydration", async ({ request }: { request: APIRequestContext }) => {
     const baseUrl = process.env.NEXT_PUBLIC_BFF_URL ?? process.env.PLAYWRIGHT_BFF_URL;
     const email = process.env.PLAYWRIGHT_AUTH_EMAIL;
     const password = process.env.PLAYWRIGHT_AUTH_PASSWORD;
@@ -15,27 +63,33 @@ test.describe("Auth API flow", () => {
 
     const normalizedBase = baseUrl.replace(/\/$/, "");
 
-    const csrfResponse = await request.get(`${normalizedBase}${AUTH_CSRF}`, {
+    const csrfResponse: APIResponse = await request.get(`${normalizedBase}${AUTH_CSRF}`, {
       headers: origin ? { Origin: origin } : undefined,
     });
     expect(csrfResponse.ok()).toBeTruthy();
 
-    const csrfHeader = csrfResponse.headers()["x-csrf-token"];
-    let csrfToken = Array.isArray(csrfHeader) ? csrfHeader[0] : csrfHeader;
+    const csrfHeader = headerValue(csrfResponse, "x-csrf-token");
+    let csrfToken: string | null | undefined = csrfHeader;
     if (!csrfToken) {
-      const csrfJson = await csrfResponse.json();
-      csrfToken = csrfJson?.csrfToken;
+      const csrfUnknown: unknown = await csrfResponse.json();
+      if (!isCsrfPayload(csrfUnknown)) {
+        throw new Error("Malformed CSRF payload");
+      }
+      csrfToken = csrfUnknown.csrfToken;
     }
     expect(csrfToken, "CSRF token should be provided").toBeTruthy();
+    if (typeof csrfToken !== "string") {
+      throw new Error("CSRF token is missing");
+    }
 
     const loginHeaders: Record<string, string> = {
-      "X-CSRF-Token": csrfToken as string,
+      "X-CSRF-Token": csrfToken,
     };
     if (origin) {
       loginHeaders["Origin"] = origin;
     }
 
-    const loginResponse = await request.post(`${normalizedBase}${AUTH_LOGIN}`, {
+    const loginResponse: APIResponse = await request.post(`${normalizedBase}${AUTH_LOGIN}`, {
       headers: loginHeaders,
       data: {
         email,
@@ -44,12 +98,15 @@ test.describe("Auth API flow", () => {
     });
     expect(loginResponse.status()).toBe(204);
 
-    const meResponse = await request.get(`${normalizedBase}${AUTH_ME}`, {
+    const meResponse: APIResponse = await request.get(`${normalizedBase}${AUTH_ME}`, {
       headers: origin ? { Origin: origin } : undefined,
     });
     expect(meResponse.status()).toBe(200);
 
-    const meJson = await meResponse.json();
-    expect(meJson?.user?.email).toBe(email);
+    const meUnknown: unknown = await meResponse.json();
+    if (!isMePayload(meUnknown)) {
+      throw new Error("Malformed /me payload");
+    }
+    expect(meUnknown.user.email).toBe(email);
   });
 });

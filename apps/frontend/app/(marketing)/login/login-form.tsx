@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '../../../components/ui/button';
@@ -14,10 +14,13 @@ export function LoginForm() {
   const router = useRouter();
   const [state, setState] = useState<AuthFormState>(initialState);
   const [isSubmitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isSubmitting) {
+    event.stopPropagation();
+
+    if (isSubmittingRef.current) {
       return;
     }
 
@@ -41,9 +44,10 @@ export function LoginForm() {
     }
 
     setSubmitting(true);
+    isSubmittingRef.current = true;
     setState(initialState);
 
-    void (async () => {
+    const submit = async () => {
       try {
         await login(validation.data.email, validation.data.password);
         router.replace('/dashboard');
@@ -51,8 +55,11 @@ export function LoginForm() {
         setState(resolveLoginError(error));
       } finally {
         setSubmitting(false);
+        isSubmittingRef.current = false;
       }
-    })();
+    };
+
+    void submit();
   };
 
   return (

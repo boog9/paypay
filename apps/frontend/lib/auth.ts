@@ -53,11 +53,11 @@ export async function login(email: string, password: string): Promise<MeResponse
     cache: 'no-store'
   });
 
-  if (isMeResponse(payload)) {
-    return payload;
+  if (!isRecord(payload) || !isRecord(payload.user)) {
+    throw new Error('Invalid user data');
   }
 
-  throw new Error('Unexpected session payload');
+  return payload as MeResponse;
 }
 
 export async function logout(): Promise<void> {

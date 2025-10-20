@@ -41,7 +41,7 @@ describe("AuthGate", () => {
     if (originalFetch) {
       globalThis.fetch = originalFetch;
     } else {
-      delete globalWithFetch.fetch;
+      Reflect.deleteProperty(globalWithFetch, "fetch");
     }
   });
 

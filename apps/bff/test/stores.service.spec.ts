@@ -201,4 +201,35 @@ describe('StoresService', () => {
     );
     expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'internal-key');
   });
+
+  it('throws when BTCPay does not return a webhook secret', async () => {
+    usersRepository.findOne.mockResolvedValueOnce({
+      id: 'user-1',
+      email: 'merchant@example.com',
+      btcpayUserId: 'btcpay-user-1',
+    } as UserEntity);
+
+    storesRepository.findOne.mockResolvedValueOnce(null);
+
+    (btcpayService.issueUserApiKeyWithPermissions as jest.Mock).mockResolvedValueOnce({ apiKey: 'bootstrap-key' });
+    (btcpayService.createStoreUsingUserKey as jest.Mock).mockResolvedValueOnce({
+      id: 'store-1',
+      name: 'Demo Store',
+    });
+    (btcpayService.setCoinGeckoAsDefaultRateSource as jest.Mock).mockResolvedValueOnce(undefined);
+    (btcpayService.issueStoreScopedApiKey as jest.Mock).mockResolvedValueOnce({ apiKey: 'internal-key' });
+    (btcpayService.registerWebhook as jest.Mock).mockResolvedValueOnce({ id: 'webhook-1' });
+
+    await expect(
+      service.provisionStoreForUser(
+        'user-1',
+        'merchant@example.com',
+        { name: 'Demo Store', defaultCurrency: 'usd' },
+        null,
+      )
+    ).rejects.toThrow('BTCPay did not return a webhook secret.');
+
+    expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'internal-key');
+    expect(btcpayService.deleteWebhook).not.toHaveBeenCalled();
+  });
 });

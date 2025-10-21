@@ -49,14 +49,19 @@ export class HooksService {
       );
     }
 
-    const secret = this.encryptionService.decrypt(
+    let decryptedSecret = this.encryptionService.decrypt(
       secretRecord.ciphertext,
       secretRecord.dekWrapped
     );
+    let secretBuffer: Buffer | null = null;
     try {
-      this.verifySignature(secret, signature, rawBody);
+      secretBuffer = Buffer.from(decryptedSecret, 'utf8');
+      decryptedSecret = '';
+      this.verifySignature(secretBuffer, signature, rawBody);
     } finally {
-      this.clearBuffer(secret);
+      if (secretBuffer) {
+        secretBuffer.fill(0);
+      }
     }
 
     const processed = await this.tenantsService.registerWebhookDelivery(
@@ -72,7 +77,7 @@ export class HooksService {
     return true;
   }
 
-  private verifySignature(secret: string, signature: string, rawBody: Buffer) {
+  private verifySignature(secret: Buffer, signature: string, rawBody: Buffer) {
     if (!signature) {
       throw new UnauthorizedException('Missing BTCPay signature');
     }
@@ -82,17 +87,12 @@ export class HooksService {
       throw new UnauthorizedException('Invalid BTCPay signature format');
     }
 
-    const hmac = createHmac('sha256', Buffer.from(secret, 'utf8')).update(rawBody).digest('hex');
+    const hmac = createHmac('sha256', secret).update(rawBody).digest('hex');
     const expected = Buffer.from(`sha256=${hmac}`, 'utf8');
     const provided = Buffer.from(normalized, 'utf8');
     if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
       throw new UnauthorizedException('Invalid BTCPay signature');
     }
-  }
-
-  private clearBuffer(value: string) {
-    const buf = Buffer.from(value, 'utf8');
-    buf.fill(0);
   }
 
   private async resolveWebhookSecret(

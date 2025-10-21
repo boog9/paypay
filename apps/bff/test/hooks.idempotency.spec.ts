@@ -15,6 +15,9 @@ describe('HooksController idempotency handling', () => {
     const storeRepo = {
       findOne: jest.fn().mockResolvedValue(store)
     } as any;
+    const managedRepo = {
+      findOne: jest.fn().mockResolvedValue(null)
+    } as any;
     const encryption = {
       decrypt: jest.fn().mockReturnValue('secret-value')
     } as any;
@@ -37,7 +40,7 @@ describe('HooksController idempotency handling', () => {
       config
     );
 
-    const service = new HooksService(storeRepo, encryption, tenantsService);
+    const service = new HooksService(storeRepo, managedRepo, encryption, tenantsService);
     const controller = new HooksController(service);
 
     const payload = { storeId: 'store-1', invoiceId: 'inv-1' };

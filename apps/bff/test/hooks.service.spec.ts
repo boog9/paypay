@@ -13,6 +13,9 @@ describe('HooksService', () => {
     const storeRepo = {
       findOne: jest.fn().mockResolvedValue(store)
     } as any;
+    const managedRepo = {
+      findOne: jest.fn().mockResolvedValue(null)
+    } as any;
     const encryption = {
       decrypt: jest.fn().mockReturnValue('secret-value')
     } as any;
@@ -20,8 +23,8 @@ describe('HooksService', () => {
       registerWebhookDelivery: jest.fn().mockResolvedValue(true)
     } as any;
 
-    const service = new HooksService(storeRepo, encryption, tenants);
-    return { service, storeRepo, encryption, tenants, store: store as StoreEntity };
+    const service = new HooksService(storeRepo, managedRepo, encryption, tenants);
+    return { service, storeRepo, managedRepo, encryption, tenants, store: store as StoreEntity };
   };
 
   it('accepts valid signatures', async () => {
@@ -48,5 +51,28 @@ describe('HooksService', () => {
         storeId: 'store-1'
       })
     ).rejects.toThrow('Invalid BTCPay signature');
+  });
+
+  it('rejects signatures without the sha256 prefix', async () => {
+    const { service } = makeService();
+    const body = Buffer.from(JSON.stringify({ storeId: 'store-1' }));
+
+    await expect(
+      service.handleWebhook('delivery-3', 'deadbeef', body, {
+        storeId: 'store-1'
+      })
+    ).rejects.toThrow('Invalid BTCPay signature format');
+  });
+
+  it('trims signature whitespace before comparison', async () => {
+    const { service, tenants } = makeService();
+    const payload = { storeId: 'store-1', invoiceId: 'inv-2' };
+    const body = Buffer.from(JSON.stringify(payload));
+    const signature = `sha256=${createHmac('sha256', 'secret-value').update(body).digest('hex')}`;
+
+    const processed = await service.handleWebhook('delivery-4', `  ${signature}  `, body, payload);
+
+    expect(processed).toBe(true);
+    expect(tenants.registerWebhookDelivery).toHaveBeenCalledWith('tenant-1', 'delivery-4', 'inv-2');
   });
 });

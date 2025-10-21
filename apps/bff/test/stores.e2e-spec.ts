@@ -35,6 +35,7 @@ describe('Stores onboarding (e2e)', () => {
     setCoinGeckoAsDefaultRateSource: jest.fn(),
     issueStoreScopedApiKey: jest.fn(),
     listStores: jest.fn(),
+    registerWebhook: jest.fn(),
     buildStorePermissions: jest.fn((storeId: string) => [
       `btcpay.store.cancreateinvoice:${storeId}`,
       `btcpay.store.canviewinvoices:${storeId}`,
@@ -124,14 +125,16 @@ describe('Stores onboarding (e2e)', () => {
     btcpayMock.setCoinGeckoAsDefaultRateSource.mockResolvedValueOnce(undefined);
     btcpayMock.issueStoreScopedApiKey.mockResolvedValueOnce({ apiKey: 'internal-key' });
 
+    btcpayMock.registerWebhook.mockResolvedValueOnce({ id: 'webhook-1', secret: 'webhook-secret' });
+
     const createResponse = await agent
       .post('/api/stores')
       .set('X-CSRF-Token', csrfToken)
       .send({ name: 'Demo Store', defaultCurrency: 'USD' })
-      .expect(201);
+      .expect(200);
 
     expect(createResponse.body).toEqual({
-      id: 'store-1',
+      storeId: 'store-1',
       name: 'Demo Store',
       defaultCurrency: 'USD',
     });
@@ -159,12 +162,20 @@ describe('Stores onboarding (e2e)', () => {
         'btcpay.store.canviewstoresettings:store-1',
       ])
     );
+    expect(btcpayMock.registerWebhook).toHaveBeenCalledWith(
+      'https://btcpay.example',
+      'internal-key',
+      'store-1'
+    );
 
     const stored = await managedStoresRepository.findOneOrFail({ where: { btcpayStoreId: 'store-1' } });
     expect(stored.storeKeyLastFour).toBe('-key');
     expect(stored.apiKeyCiphertext).not.toEqual('internal-key');
     expect(stored.apiKeyCiphertext).toBeTruthy();
     expect(stored.apiKeyDekWrapped).toBeTruthy();
+    expect(stored.webhookId).toBe('webhook-1');
+    expect(stored.webhookSecretCiphertext).toBeTruthy();
+    expect(stored.webhookSecretDekWrapped).toBeTruthy();
 
     const user = await usersRepository.findOneOrFail({ where: { email: 'merchant@example.com' } });
     expect(user.btcpayApiKeyHash).toBeTruthy();

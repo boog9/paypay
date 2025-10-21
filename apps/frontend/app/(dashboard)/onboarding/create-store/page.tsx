@@ -12,7 +12,6 @@ import { Select } from "../../../../components/ui/select";
 import { api, isApiError } from "../../../../lib/api";
 import { getCsrfToken } from "../../../../lib/auth";
 import { useToast } from "../../../../components/ui/toast";
-import { persistLastStoreId } from "../../../../src/lib/store-preferences";
 
 function generateIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -37,7 +36,7 @@ const formSchema = z.object({
 type FieldErrors = Partial<Record<"name" | "defaultCurrency", string>>;
 
 type CreateStoreResponse = {
-  id: string;
+  storeId: string;
   name: string;
   defaultCurrency: string;
 };
@@ -130,9 +129,8 @@ export default function CreateStorePage() {
           });
 
           await queryClient.invalidateQueries({ queryKey: ["stores"] });
-          persistLastStoreId(response.id);
           toast({ title: "Store successfully created", variant: "success" });
-          router.push(`/stores/${response.id}/dashboard`);
+          router.replace(`/stores/${response.storeId}/dashboard`);
         } catch (error) {
           if (isApiError(error)) {
             const message = error.message || "Failed to create store.";

@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { ManagedStoreEntity } from '../stores/managed-store.entity';
 
 interface WebhookPayload {
   storeId?: string;
@@ -17,6 +18,8 @@ export class HooksService {
   constructor(
     @InjectRepository(StoreEntity)
     private readonly storesRepository: Repository<StoreEntity>,
+    @InjectRepository(ManagedStoreEntity)
+    private readonly managedStoresRepository: Repository<ManagedStoreEntity>,
     private readonly encryptionService: EnvelopeEncryptionService,
     private readonly tenantsService: TenantsService
   ) {}
@@ -30,15 +33,15 @@ export class HooksService {
     if (!signature) {
       throw new UnauthorizedException('Missing BTCPay signature');
     }
-    if (!rawBody || rawBody.length === 0) {
+    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) {
       throw new UnauthorizedException('Missing webhook payload');
     }
     if (!payload.storeId) {
       throw new UnauthorizedException('Missing store identifier');
     }
 
-    const store = await this.storesRepository.findOne({ where: { btcpayStoreId: payload.storeId } });
-    if (!store) {
+    const secretRecord = await this.resolveWebhookSecret(payload.storeId);
+    if (!secretRecord) {
       return this.tenantsService.registerWebhookDelivery(
         null,
         deliveryId,
@@ -46,10 +49,18 @@ export class HooksService {
       );
     }
 
-    this.verifySignature(store, signature, rawBody);
+    const secret = this.encryptionService.decrypt(
+      secretRecord.ciphertext,
+      secretRecord.dekWrapped
+    );
+    try {
+      this.verifySignature(secret, signature, rawBody);
+    } finally {
+      this.clearBuffer(secret);
+    }
 
     const processed = await this.tenantsService.registerWebhookDelivery(
-      store.tenantId,
+      secretRecord.tenantId,
       deliveryId,
       payload.invoiceId ?? null
     );
@@ -61,26 +72,56 @@ export class HooksService {
     return true;
   }
 
-  private verifySignature(store: StoreEntity, signature: string, rawBody: Buffer) {
+  private verifySignature(secret: string, signature: string, rawBody: Buffer) {
     if (!signature) {
       throw new UnauthorizedException('Missing BTCPay signature');
     }
 
-    const secret = this.encryptionService.decrypt(store.webhookSecretCiphertext, store.webhookSecretDekWrapped);
-    try {
-      const hmac = createHmac('sha256', Buffer.from(secret, 'utf8')).update(rawBody).digest('hex');
-      const expected = Buffer.from(`sha256=${hmac}`, 'utf8');
-      const provided = Buffer.from(signature, 'utf8');
-      if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
-        throw new UnauthorizedException('Invalid BTCPay signature');
-      }
-    } finally {
-      this.clearBuffer(secret);
+    const normalized = signature.trim();
+    if (!normalized.startsWith('sha256=')) {
+      throw new UnauthorizedException('Invalid BTCPay signature format');
+    }
+
+    const hmac = createHmac('sha256', Buffer.from(secret, 'utf8')).update(rawBody).digest('hex');
+    const expected = Buffer.from(`sha256=${hmac}`, 'utf8');
+    const provided = Buffer.from(normalized, 'utf8');
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+      throw new UnauthorizedException('Invalid BTCPay signature');
     }
   }
 
   private clearBuffer(value: string) {
     const buf = Buffer.from(value, 'utf8');
     buf.fill(0);
+  }
+
+  private async resolveWebhookSecret(
+    storeId: string
+  ): Promise<{ tenantId: string | null; ciphertext: string; dekWrapped: string } | null> {
+    const tenantStore = await this.storesRepository.findOne({ where: { btcpayStoreId: storeId } });
+    if (
+      tenantStore?.webhookSecretCiphertext &&
+      tenantStore?.webhookSecretDekWrapped
+    ) {
+      return {
+        tenantId: tenantStore.tenantId,
+        ciphertext: tenantStore.webhookSecretCiphertext,
+        dekWrapped: tenantStore.webhookSecretDekWrapped,
+      };
+    }
+
+    const managedStore = await this.managedStoresRepository.findOne({ where: { btcpayStoreId: storeId } });
+    if (
+      managedStore?.webhookSecretCiphertext &&
+      managedStore?.webhookSecretDekWrapped
+    ) {
+      return {
+        tenantId: null,
+        ciphertext: managedStore.webhookSecretCiphertext,
+        dekWrapped: managedStore.webhookSecretDekWrapped,
+      };
+    }
+
+    return null;
   }
 }

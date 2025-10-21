@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { StoresService, AuthenticatedUserContext } from './stores.service';
@@ -17,6 +27,7 @@ export class StoresController {
 
   @Post()
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
   async createStore(@Body() dto: CreateStoreDto, @Req() req: Request) {
     const idempotencyKey = this.resolveIdempotencyKey(req);
     const context = this.resolveContext(req);

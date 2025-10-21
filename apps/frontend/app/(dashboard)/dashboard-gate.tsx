@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useStoresQuery } from "../../src/hooks/use-stores";
@@ -12,78 +12,45 @@ function extractStoreId(pathname: string | null): string | null {
     return null;
   }
   const match = pathname.match(/^\/stores\/([^/]+)(?:\/.*)?$/);
-  if (match) {
-    return match[1] ?? null;
-  }
-  return null;
+  return match?.[1] ?? null;
 }
 
-function shouldRedirectToOnboarding(pathname: string): boolean {
+function shouldStayOnOnboarding(pathname: string | null): boolean {
   if (!pathname) {
-    return true;
-  }
-  if (pathname.startsWith("/onboarding")) {
     return false;
   }
-  return true;
-}
-
-function shouldRedirectToStoreDashboard(pathname: string): boolean {
-  if (!pathname) {
-    return true;
-  }
-  if (pathname.startsWith(ONBOARDING_PATH)) {
-    return true;
-  }
-  if (pathname === "/" || pathname === "/dashboard" || pathname === "/stores") {
-    return true;
-  }
-  return false;
+  return pathname.startsWith("/onboarding");
 }
 
 export function DashboardGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname() ?? "";
+  const pathname = usePathname();
   const { data: stores = [], isLoading, isFetching } = useStoresQuery();
-  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
-    setHasHydrated(true);
-  }, []);
-
-  const hasStores = stores.length > 0;
-
-  useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
     if (isLoading || isFetching) {
       return;
     }
 
-    if (!hasStores) {
-      if (shouldRedirectToOnboarding(pathname)) {
+    if (!stores.length) {
+      if (!shouldStayOnOnboarding(pathname)) {
         router.replace(ONBOARDING_PATH);
       }
       return;
     }
 
-    const currentStoreId = extractStoreId(pathname);
     const knownStoreIds = stores.map((store) => store.id);
+    const activeStoreId = extractStoreId(pathname ?? null);
     const fallbackStoreId = knownStoreIds[0];
+
     if (!fallbackStoreId) {
       return;
     }
 
-    if (currentStoreId && !knownStoreIds.includes(currentStoreId)) {
-      router.replace(`/stores/${fallbackStoreId}/dashboard`);
-      return;
-    }
-
-    if (!currentStoreId && shouldRedirectToStoreDashboard(pathname)) {
+    if (!activeStoreId || !knownStoreIds.includes(activeStoreId)) {
       router.replace(`/stores/${fallbackStoreId}/dashboard`);
     }
-  }, [hasHydrated, hasStores, isFetching, isLoading, pathname, router, stores]);
+  }, [isFetching, isLoading, pathname, router, stores]);
 
   return <>{children}</>;
 }

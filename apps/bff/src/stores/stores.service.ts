@@ -126,7 +126,7 @@ export class StoresService {
       webhookId = webhook.id ?? null;
 
       const encryptedKey = this.encryptionService.encrypt(storeScopedKey.apiKey);
-      const encryptedWebhook = this.encryptionService.encrypt(webhook.secret, encryptedKey.dekWrapped);
+      const encryptedWebhook = this.encryptionService.encrypt(webhookSecret, encryptedKey.dekWrapped);
       const entity = this.storesRepository.create({
         userId: user.id,
         btcpayHost: baseUrl,
@@ -135,7 +135,7 @@ export class StoresService {
         defaultCurrency,
         apiKeyCiphertext: encryptedKey.ciphertext,
         apiKeyDekWrapped: encryptedKey.dekWrapped,
-        webhookId: webhook.id,
+        webhookId,
         webhookSecretCiphertext: encryptedWebhook.ciphertext,
         webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
         storeKeyLastFour: this.extractLastFour(storeScopedKey.apiKey),

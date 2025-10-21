@@ -36,6 +36,7 @@ describe('Stores onboarding (e2e)', () => {
     issueStoreScopedApiKey: jest.fn(),
     listStores: jest.fn(),
     registerWebhook: jest.fn(),
+    deleteWebhook: jest.fn(),
     buildStorePermissions: jest.fn((storeId: string) => [
       `btcpay.store.cancreateinvoice:${storeId}`,
       `btcpay.store.canviewinvoices:${storeId}`,
@@ -262,24 +263,26 @@ describe('Stores onboarding (e2e)', () => {
     btcpayMock.createStoreUsingUserKey.mockResolvedValue({ id: 'store-idem', name: 'S' });
     btcpayMock.setCoinGeckoAsDefaultRateSource.mockResolvedValue(undefined);
     btcpayMock.issueStoreScopedApiKey.mockResolvedValue({ apiKey: 'scoped' });
+    btcpayMock.registerWebhook.mockResolvedValueOnce({ id: 'webhook-idem', secret: 'idem-secret' });
 
     await agent
       .post('/api/stores')
       .set('X-CSRF-Token', csrfToken)
       .set('Idempotency-Key', 'k1')
       .send({ name: 'S', defaultCurrency: 'USD' })
-      .expect(201);
+      .expect(200);
 
     await agent
       .post('/api/stores')
       .set('X-CSRF-Token', csrfToken)
       .set('Idempotency-Key', 'k1')
       .send({ name: 'S', defaultCurrency: 'USD' })
-      .expect(201);
+      .expect(200);
 
     expect(btcpayMock.createStoreUsingUserKey).toHaveBeenCalledTimes(1);
     expect(btcpayMock.issueUserApiKeyWithPermissions).toHaveBeenCalledTimes(1);
     expect(btcpayMock.issueStoreScopedApiKey).toHaveBeenCalledTimes(1);
     expect(btcpayMock.setCoinGeckoAsDefaultRateSource).toHaveBeenCalledTimes(1);
+    expect(btcpayMock.registerWebhook).toHaveBeenCalledTimes(1);
   });
 });

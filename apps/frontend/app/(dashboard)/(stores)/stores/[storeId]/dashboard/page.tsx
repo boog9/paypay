@@ -1,15 +1,15 @@
+'use client';
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { CheckCircle2, Wallet } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../components/ui/card";
 import { Button } from "../../../../../../components/ui/button";
 
-type StoreDashboardPageProps = {
-  params: { storeId: string };
-};
-
-export default function StoreDashboardPage({ params }: StoreDashboardPageProps) {
-  const { storeId } = params;
+export default function StoreDashboardPage() {
+  const params = useParams<{ storeId: string }>();
+  const storeId = params?.storeId ?? "";
 
   return (
     <div className="space-y-8">
@@ -48,8 +48,8 @@ export default function StoreDashboardPage({ params }: StoreDashboardPageProps) 
             </div>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="secondary">
-              <Link href={`/stores/${storeId}/wallets/btc`}>Go to BTC wallet</Link>
+            <Button asChild variant="secondary" disabled={!storeId}>
+              <Link href={storeId ? `/stores/${storeId}/wallets/btc` : "#"}>Go to BTC wallet</Link>
             </Button>
           </CardContent>
         </Card>

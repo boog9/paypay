@@ -279,11 +279,11 @@ export class BtcpayService {
 
   async createUserApiKey(
     host: string | undefined,
-    email: string,
+    idOrEmail: string,
     storeId: string,
     options?: { correlationId?: string }
   ): Promise<ApiKeyResponse> {
-    return this.issueUserApiKey(host, email, this.buildStorePermissions(storeId), {
+    return this.issueUserApiKey(host, idOrEmail, this.buildStorePermissions(storeId), {
       label: `Store ${storeId} key`,
       correlationId: options?.correlationId,
     });
@@ -291,11 +291,11 @@ export class BtcpayService {
 
   async createUserApiKeyUnscoped(
     host: string | undefined,
-    email: string,
+    idOrEmail: string,
     permissions: string[],
     options?: { label?: string; correlationId?: string }
   ): Promise<ApiKeyResponse> {
-    return this.issueUserApiKey(host, email, permissions, {
+    return this.issueUserApiKey(host, idOrEmail, permissions, {
       label: options?.label ?? 'Temporary key',
       correlationId: options?.correlationId,
     });
@@ -303,7 +303,7 @@ export class BtcpayService {
 
   async issueUserApiKey(
     host: string | undefined,
-    email: string,
+    idOrEmail: string,
     permissions: string[],
     options?: IssueUserApiKeyOptions
   ): Promise<ApiKeyResponse> {
@@ -312,7 +312,7 @@ export class BtcpayService {
     });
     try {
       const response = await http.post<ApiKeyResponse & { label?: string; permissions?: unknown[] }>(
-        `/api/v1/users/${encodeURIComponent(email)}/api-keys`,
+        `/api/v1/users/${encodeURIComponent(idOrEmail)}/api-keys`,
         {
           label: options?.label ?? 'PayPay managed key',
           permissions
@@ -336,6 +336,32 @@ export class BtcpayService {
         correlationId: options?.correlationId,
       });
     }
+  }
+
+  async issueUserApiKeyWithPermissions(
+    idOrEmail: string,
+    permissions: string[],
+    label = 'portal-bootstrap'
+  ): Promise<{ apiKey: string }> {
+    const response = await this.issueUserApiKey(undefined, idOrEmail, permissions, { label });
+    return { apiKey: response.apiKey };
+  }
+
+  async createStoreUsingUserKey(
+    userApiKey: string,
+    dto: { name: string; defaultCurrency?: string }
+  ): Promise<StoreResponse> {
+    return this.createStoreWithUserToken(undefined, userApiKey, dto);
+  }
+
+  async issueStoreScopedApiKey(
+    idOrEmail: string,
+    storeId: string,
+    label: string,
+    permissions: string[]
+  ): Promise<{ apiKey: string }> {
+    const response = await this.issueUserApiKey(undefined, idOrEmail, permissions, { label });
+    return { apiKey: response.apiKey };
   }
 
   async createStoreWithUserToken(

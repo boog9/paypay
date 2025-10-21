@@ -7,15 +7,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CreateStoreDto } from './dto/create-store.dto';
 import { ManagedStoreEntity } from './managed-store.entity';
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { normalizeEmail } from '../auth/email.utils';
 import { UserEntity } from '../auth/entities/user.entity';
 import { IdempotencyKeyEntity } from '../tenants/entities/idempotency-key.entity';
+import { UsersService } from '../auth/users.service';
 
 export interface AuthenticatedUserContext {
+  userId: string | null;
   email: string | null;
   bootstrapApiKey: string | null;
 }
@@ -47,22 +48,27 @@ export class StoresService {
     private readonly idempotencyRepository: Repository<IdempotencyKeyEntity>,
     private readonly btcpayService: BtcpayService,
     private readonly encryptionService: EnvelopeEncryptionService,
+    private readonly usersService: UsersService,
   ) {}
 
-  async createStore(
-    dto: CreateStoreDto,
-    context: AuthenticatedUserContext,
+  async provisionStoreForUser(
+    userId: string | null,
+    email: string | null,
+    dto: { name: string; defaultCurrency?: string },
     idempotencyKey: string | null = null,
   ): Promise<StoreDto> {
-    const email = this.normalizeEmail(context.email);
-    if (!email) {
+    const normalizedEmail = this.normalizeEmail(email);
+    const normalizedUserId = this.normalizeUserId(userId);
+    if (!normalizedEmail || !normalizedUserId) {
       throw new UnauthorizedException('Authenticated user context is required.');
     }
 
-    const user = await this.usersRepository.findOne({ where: { email } });
-    if (!user) {
+    const user = await this.usersRepository.findOne({ where: { id: normalizedUserId } });
+    if (!user || normalizeEmail(user.email) !== normalizedEmail) {
       throw new UnauthorizedException('Authenticated user was not found.');
     }
+    const btcpaySubject = user.btcpayUserId?.trim() ?? null;
+    const subject = btcpaySubject && btcpaySubject.length > 0 ? btcpaySubject : normalizedEmail;
 
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(idempotencyKey);
     const compositeIdempotencyKey = normalizedIdempotencyKey
@@ -75,11 +81,6 @@ export class StoresService {
       }
     }
 
-    const bootstrapKey = this.normalizeApiKey(context.bootstrapApiKey);
-    if (!bootstrapKey) {
-      throw new UnauthorizedException('Bootstrap API key is required to create a store.');
-    }
-
     const storeName = this.normalizeStoreName(dto.name);
     const defaultCurrency = this.normalizeCurrency(dto.defaultCurrency);
 
@@ -89,11 +90,12 @@ export class StoresService {
     }
 
     const baseUrl = this.btcpayService.resolveBaseUrl();
+    const bootstrapKey = await this.issueBootstrapKey(user.id, subject);
     let createdStore: { id: string; name?: string | null } | null = null;
-    let issuedKey: { apiKey: string; id?: string } | null = null;
+    let issuedStoreKey: string | null = null;
 
     try {
-      createdStore = await this.btcpayService.createStoreWithUserToken(baseUrl, bootstrapKey, {
+      createdStore = await this.btcpayService.createStoreUsingUserKey(bootstrapKey, {
         name: storeName,
         defaultCurrency,
       });
@@ -104,14 +106,16 @@ export class StoresService {
 
       await this.btcpayService.setCoinGeckoAsDefaultRateSource(baseUrl, bootstrapKey, createdStore.id);
 
-      issuedKey = await this.btcpayService.issueUserApiKey(
-        baseUrl,
-        email,
+      const storeScopedKey = await this.btcpayService.issueStoreScopedApiKey(
+        subject,
+        createdStore.id,
+        `portal-internal-${createdStore.id}`,
         this.btcpayService.buildStorePermissions(createdStore.id),
-        { label: `portal-internal-${createdStore.id}` },
       );
 
-      const encryptedKey = this.encryptionService.encrypt(issuedKey.apiKey);
+      issuedStoreKey = storeScopedKey.apiKey;
+
+      const encryptedKey = this.encryptionService.encrypt(storeScopedKey.apiKey);
       const entity = this.storesRepository.create({
         userId: user.id,
         btcpayHost: baseUrl,
@@ -120,6 +124,7 @@ export class StoresService {
         defaultCurrency,
         apiKeyCiphertext: encryptedKey.ciphertext,
         apiKeyDekWrapped: encryptedKey.dekWrapped,
+        storeKeyLastFour: this.extractLastFour(storeScopedKey.apiKey),
         lastActiveAt: new Date(),
       });
 
@@ -140,10 +145,19 @@ export class StoresService {
         );
       }
 
+      if (process.env.REVOKE_BOOTSTRAP_AFTER_CREATE === 'true') {
+        try {
+          await this.btcpayService.revokeUserApiKey(baseUrl, bootstrapKey);
+        } catch (revokeError) {
+          const message = revokeError instanceof Error ? revokeError.message : String(revokeError);
+          this.logger.warn(`Failed to revoke bootstrap key: ${message}`);
+        }
+      }
+
       return result;
     } catch (error) {
-      if (issuedKey?.apiKey) {
-        await this.safeRevokeKey(baseUrl, issuedKey.apiKey);
+      if (issuedStoreKey) {
+        await this.safeRevokeKey(baseUrl, issuedStoreKey);
       }
       if (createdStore?.id) {
         this.logger.warn(`Store ${createdStore.id} creation failed; manual cleanup may be required.`);
@@ -151,15 +165,16 @@ export class StoresService {
       throw error;
     } finally {
       this.clearBuffer(bootstrapKey);
-      if (issuedKey?.apiKey) {
-        this.clearBuffer(issuedKey.apiKey);
+      if (issuedStoreKey) {
+        this.clearBuffer(issuedStoreKey);
       }
     }
   }
 
   async listStores(context: AuthenticatedUserContext): Promise<StoreSummaryDto[]> {
     const email = this.normalizeEmail(context.email);
-    if (!email) {
+    const userId = this.normalizeUserId(context.userId);
+    if (!email || !userId) {
       throw new UnauthorizedException('Authenticated user context is required.');
     }
 
@@ -170,7 +185,7 @@ export class StoresService {
     let cleanup: (() => void) | null = null;
 
     if (!apiKey) {
-      const fallback = await this.findFallbackStoreKey(email);
+      const fallback = await this.findFallbackStoreKey(userId);
       if (!fallback) {
         return [];
       }
@@ -200,6 +215,14 @@ export class StoresService {
     return normalized.trim() ? normalized : null;
   }
 
+  private normalizeUserId(value: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
   private normalizeStoreName(value: string): string {
     const trimmed = value.trim();
     if (!trimmed) {
@@ -208,7 +231,10 @@ export class StoresService {
     return trimmed;
   }
 
-  private normalizeCurrency(value: string): string {
+  private normalizeCurrency(value: string | undefined): string {
+    if (!value) {
+      throw new InternalServerErrorException('Default currency is required.');
+    }
     const trimmed = value.trim();
     if (!trimmed) {
       throw new InternalServerErrorException('Default currency is required.');
@@ -232,6 +258,34 @@ export class StoresService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private async issueBootstrapKey(userId: string, subject: string): Promise<string> {
+    const meta = await this.usersService.getBootstrapMeta(userId);
+    const permissions =
+      meta.permissions && meta.permissions.length > 0
+        ? Array.from(new Set(meta.permissions))
+        : this.btcpayService.buildBootstrapPermissions();
+    const label = meta.label?.trim() || 'portal-bootstrap';
+    const issued = await this.btcpayService.issueUserApiKeyWithPermissions(subject, permissions, label);
+    const hash = this.usersService.hashBootstrapApiKey(issued.apiKey);
+    await this.usersService.saveBootstrapMeta(userId, {
+      apiKeyHash: hash,
+      label,
+      permissions,
+    });
+    return issued.apiKey;
+  }
+
+  private extractLastFour(value: string | null | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.slice(-4);
+  }
+
   private buildCompositeIdemKey(userId: string, rawKey: string): string {
     return `${userId}:${rawKey}`;
   }
@@ -248,12 +302,13 @@ export class StoresService {
     }
   }
 
-  private async findFallbackStoreKey(email: string): Promise<string | null> {
-    const user = await this.usersRepository.findOne({ where: { email }, relations: ['managedStores'] });
-    if (!user || !user.managedStores?.length) {
-      return null;
-    }
-    const [store] = user.managedStores.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  private async findFallbackStoreKey(userId: string): Promise<string | null> {
+    const stores = await this.storesRepository.find({
+      where: { userId },
+      order: { createdAt: 'ASC' },
+      take: 1,
+    });
+    const [store] = stores;
     if (!store) {
       return null;
     }

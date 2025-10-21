@@ -93,9 +93,12 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
 }
 
 export function configureCors(app: INestApplication, env: ReturnType<typeof getEnv>): void {
-  const origin = env.CORS_ORIGIN ?? env.FRONTEND_ORIGIN;
+  const allowedOrigin = env.FRONTEND_ORIGIN;
   app.enableCors({
-    origin,
+    origin: (origin: string | undefined, callback: (err: Error | null, allow: boolean) => void) => {
+      const isAllowed = !origin || origin === allowedOrigin;
+      callback(null, isAllowed);
+    },
     methods: CORS_ALLOWED_METHODS,
     allowedHeaders: CORS_ALLOWED_HEADERS,
     exposedHeaders: CORS_EXPOSED_HEADERS,

@@ -15,6 +15,7 @@ import {
 import { CsrfService } from './csrf.service';
 import { CsrfGuard } from './guards/csrf.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { UsersService } from './users.service';
 import { BtcpayModule } from '../btcpay/btcpay.module';
 
 @Module({
@@ -41,7 +42,7 @@ import { BtcpayModule } from '../btcpay/btcpay.module';
     BtcpayModule
   ],
   controllers: [AuthController],
-  providers: [AuthService, CsrfService, CsrfGuard, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard]
+  providers: [AuthService, CsrfService, CsrfGuard, JwtAuthGuard, UsersService],
+  exports: [AuthService, JwtAuthGuard, UsersService]
 })
 export class AuthModule {}

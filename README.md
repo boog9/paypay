@@ -101,13 +101,14 @@ PayPay keeps every secret and runtime toggle in a single dotenv file: `infra/env
 - `CSRF_PEPPER` – Base64-encoded secret (≥32 bytes when decoded) used to HMAC CSRF tokens.
 - `JWT_ACCESS_TOKEN_SECRET` – independent secret with ≥32 characters or a Base64 string representing ≥32 bytes.
 - `JWT_REFRESH_TOKEN_SECRET` – another distinct secret with ≥32 characters or Base64 ≥32 bytes.
-- `BTCPAY_MASTER_KEY` – **must** be Base64-encoded with at least 32 bytes; longer keys (e.g. 48 bytes) are acceptable.
+- `BTCPAY_MASTER_KEY` – **must** be Base64-encoded with exactly 32 bytes once decoded (AES-256 DEK wrapper).
+- `BTCPAY_API_KEY_PEPPER` – Base64-encoded secret (≥32 bytes) used to pepper hashed bootstrap API keys.
 
 Generate safe values with OpenSSL:
 
 ```bash
-openssl rand -base64 32  # Suitable for COOKIE/JWT secrets
-openssl rand -base64 48  # Recommended for BTCPAY_MASTER_KEY (>= 32 bytes once decoded)
+openssl rand -base64 32  # Suitable for COOKIE/JWT secrets, BTCPAY_MASTER_KEY, BTCPAY_API_KEY_PEPPER
+openssl rand -base64 48  # Use for long-lived tokens such as webhook secrets if needed
 ```
 
 You can also pipe the helper script into the file:
@@ -138,7 +139,7 @@ docker compose up -d
 
 The cache purge ensures the resulting images only contain the values provided via `infra/env/.env`. After the stack restarts, rerun the environment inspection commands above.
 
-Rotate secrets with `openssl rand -base64 32` (48 for BTCPay master keys), update `infra/env/.env`, and rebuild the stack. Never commit populated dotenv files.
+Rotate secrets with `openssl rand -base64 32` (48 for webhook secrets and other long-lived tokens), update `infra/env/.env`, and rebuild the stack. Never commit populated dotenv files.
 
 ### Bootstrapping Docker Compose
 
@@ -194,8 +195,9 @@ All runtime configuration is delivered via environment variables loaded from `in
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 
 #### Domains / Origins
-- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`, `CORS_ORIGIN`
-  - **Production requirement:** set `FRONTEND_ORIGIN=https://paypay.iddqd.in` for live deployments or the BFF will refuse to start.
+- `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`
+  - `FRONTEND_ORIGIN` is the single source of truth for the browser origin. In production it must point to an HTTPS URL; the BFF will fail fast if the value is missing or uses `http://`.
+  - CORS mirrors this setting exactly: requests are accepted only when the `Origin` header matches `FRONTEND_ORIGIN` (or when the header is absent for same-origin calls).
 
 #### Database & SMTP
 - Either `DATABASE_URL` or `POSTGRES_*` (host/user/password/db)
@@ -241,6 +243,8 @@ git config core.hooksPath .githooks
 ### Configuration
 1. Prepare `infra/env/.env` using the canonical template.
 2. Review `infra/env/.env` and ensure domains, BTCPay credentials, JWT secrets, and database settings are correct for your deployment. `BTCPAY_WEBHOOK_URL` should point to the BFF webhook endpoint proxied by Caddy (default: `https://$PAYPAY_API_DOMAIN/api/hooks/btcpay`).
+
+   > ℹ️ `FRONTEND_ORIGIN` is the only knob controlling browser origins. Keeping the value in the env file upholds the [12-factor "Config" principle](https://12factor.net/config) and guarantees a safe CORS posture: in production the BFF only allows requests when `Origin === FRONTEND_ORIGIN` (no wildcards, which is critical when cookies/credentials are involved).
 3. From the server, build and start the stack (no Node.js or pnpm required on the host):
    ```bash
    cd deploy/docker
@@ -322,12 +326,12 @@ You can also spin up the Docker stack locally with the same production instructi
 
 ### Envelope encryption master key
 - Used to wrap store-scoped Data Encryption Keys (DEKs) for BTCPay API keys and webhook secrets.
-- Must be Base64-encoded with **at least** 32 bytes once decoded (48 bytes recommended for future expansion).
+- Must be Base64-encoded with **exactly** 32 bytes once decoded (AES-256 DEK wrapper).
 - Generate it with:
   ```bash
-  openssl rand -base64 48
+  openssl rand -base64 32
   ```
-- Set the result as `BTCPAY_MASTER_KEY` in the BFF environment.
+- Set the result as `BTCPAY_MASTER_KEY` in the BFF environment. For longer-lived webhook secrets or idempotency keys, prefer `openssl rand -base64 48` and store them encrypted via the same DEK workflow.
 
 ### Mandatory environment variables
 - Store canonical values in `infra/env/.env` (single source of truth). Compose loads them via the shared `env_file` directive and the explicit `--env-file ../../infra/env/.env` flag in the launch command, so additional dotenv files are not required.
@@ -340,6 +344,7 @@ You can also spin up the Docker stack locally with the same production instructi
   - `BTCPAY_SERVER_URL`
   - `BTCPAY_ADMIN_API_KEY`
   - `BTCPAY_MASTER_KEY`
+  - `BTCPAY_API_KEY_PEPPER`
   - `BTCPAY_WEBHOOK_URL`
   - `JWT_ACCESS_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `COOKIE_SECRET`, `CSRF_PEPPER`
 - Platform services:
@@ -362,9 +367,64 @@ If your edge or proxy strips the `/api` prefix before reaching the BFF, configur
 - Grant only `btcpay.server.canmanageusers`; the BFF provisions stores using temporary user-scoped API keys with `btcpay.store.canmodifystoresettings` and then replaces them with permanent store-scoped keys.
 - Tenant-facing API keys are generated per store with the minimal permissions listed in the BTCPay eCommerce Integration Guide. Keys and webhook secrets are envelope encrypted and never exposed to the frontend.
 
+## Key lifecycle
+
+### Roles
+- **Admin API key** (`BTCPAY_ADMIN_API_KEY`) — stored in the BFF and used exclusively for privileged calls such as issuing bootstrap user keys and store-scoped keys. Every request authenticates with `Authorization: token <BTCPAY_ADMIN_API_KEY>`.
+- **Bootstrap user key** — scoped to the merchant's email with the minimal permission `btcpay.store.canmodifystoresettings`. It exists only long enough to create the store (and configure the default rate source); the BFF can revoke it automatically when `REVOKE_BOOTSTRAP_AFTER_CREATE=true`.
+- **Store-scoped key** — minted for a single store with the e-commerce permissions (`btcpay.store.cancreateinvoice:<STORE_ID>`, `btcpay.store.canviewinvoices:<STORE_ID>`, `btcpay.store.canmodifyinvoices:<STORE_ID>`, `btcpay.store.canviewstoresettings:<STORE_ID>`, `btcpay.store.webhooks.canmodifywebhooks:<STORE_ID>`). Stored only inside the BFF after envelope encryption and never sent to the UI.
+
+### Flow
+1. The BFF calls `POST /api/v1/users/{email}/api-keys` with `Authorization: token <BTCPAY_ADMIN_API_KEY>` to mint a bootstrap key (`label=portal-bootstrap`, permissions `['btcpay.store.canmodifystoresettings']`). The plaintext key is kept in memory just long enough to hash it with `BTCPAY_API_KEY_PEPPER` and persist the metadata in `users`.
+2. Using `Authorization: token <bootstrap_key>`, the BFF creates the store via `POST /api/v1/stores` and immediately sets CoinGecko as the default rate source. No plaintext keys are logged.
+3. The BFF issues a store-scoped key for the same email with `POST /api/v1/users/{email}/api-keys`, supplying the minimal permission set above. The value is encrypted with a fresh 32-byte DEK (AES-GCM) that is wrapped by `BTCPAY_MASTER_KEY` before persisting `api_key_ciphertext`, `api_key_dek_wrapped`, and `store_key_last_four` in `managed_stores`.
+
+### Rotation & safety
+- Need a new key? Issue another store-scoped key, update the ciphertext/last-four in the database, and revoke the old key via the admin API.
+- Bootstrap keys are optional after provisioning; when `REVOKE_BOOTSTRAP_AFTER_CREATE=true`, the BFF revokes the temporary key as soon as the store is ready.
+- Follow the Greenfield API guidance: always authenticate with `Authorization: token ...`, never expose plaintext keys or secrets in logs, and encrypt webhook secrets with the same envelope pattern.
+
 ## Operational Checklist
 - `curl -I https://api.paypay.iddqd.in/health` returns **200**.
 - `curl -I https://api.paypay.iddqd.in/auth/me` returns **404** (only `/api/*` is routed to the BFF).
 - `curl -i https://api.paypay.iddqd.in/api/auth/csrf` returns **204** and includes `Set-Cookie: __Host-...; Secure; SameSite=Lax; Path=/` plus the `X-Csrf-Token` header.
 - `curl -I https://paypay.iddqd.in/dashboard` returns **200** and serves the merchant portal shell.
 - `curl -I https://paypay.iddqd.in/portal` returns **308/301** with `Location: /dashboard` for legacy clients.
+
+Authoritative BTCPay Server references:
+
+- [API key authorization header format](https://docs.btcpayserver.org/GreenField/v1/#section/Authentication/API-Key-Authorization)
+- [Minimal store permissions for e-commerce integrations](https://docs.btcpayserver.org/GreenField/greenfield-ecommerce/)
+- [Issue a user API key](https://docs.btcpayserver.org/GreenField/v1/#operation/Users_CreateUserApiKey) and [create a store](https://docs.btcpayserver.org/GreenField/v1/#operation/Stores_CreateStore)
+
+### Автопровізія Store
+
+End-to-end provisioning flow (reuses the authenticated session cookies):
+
+```bash
+# 1. CSRF (204 + X-Csrf-Token header)
+curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  "https://api.paypay.iddqd.in/api/auth/csrf" | egrep 'HTTP/|X-Csrf-Token'
+
+# 2. Login (204 + Set-Cookie)
+curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  -H "Content-Type: application/json" \
+  -H "X-Csrf-Token: <copy-from-step-1>" \
+  -X POST "https://api.paypay.iddqd.in/api/auth/login" \
+  --data '{"email":"merchant@example.com","password":"CorrectHorseBatteryStaple!"}'
+
+# 3. Auto-provision the store (201/200 + JSON body)
+curl -i -c /tmp/pp_api.txt -b /tmp/pp_api.txt \
+  -H "Origin: https://paypay.iddqd.in" \
+  -H "Content-Type: application/json" \
+  -H "X-Csrf-Token: <copy-from-step-1>" \
+  -X POST "https://api.paypay.iddqd.in/api/stores" \
+  --data '{"name":"Portal QA","defaultCurrency":"USD"}'
+```
+
+Diagnostics:
+
+- `502 Bad Gateway` → confirm BTCPay Server is reachable and the BFF holds a valid admin API key.
+- `401 Unauthorized` now only means the session is missing (login cookies or CSRF token); bootstrap issuance is automatic.

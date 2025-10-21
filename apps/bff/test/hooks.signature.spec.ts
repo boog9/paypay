@@ -14,6 +14,9 @@ describe('HooksController signature validation', () => {
     const storeRepo = {
       findOne: jest.fn().mockResolvedValue(store)
     } as any;
+    const managedRepo = {
+      findOne: jest.fn().mockResolvedValue(null)
+    } as any;
     const encryption = {
       decrypt: jest.fn().mockReturnValue('secret-value')
     } as any;
@@ -21,7 +24,7 @@ describe('HooksController signature validation', () => {
       registerWebhookDelivery: jest.fn().mockResolvedValue(true)
     } as any;
 
-    const service = new HooksService(storeRepo, encryption, tenants);
+    const service = new HooksService(storeRepo, managedRepo, encryption, tenants);
     const controller = new HooksController(service);
 
     return { controller, service, storeRepo, encryption, tenants };

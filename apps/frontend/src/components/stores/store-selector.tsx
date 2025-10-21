@@ -2,14 +2,14 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { cn } from "../../../lib/utils";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { useStoresQuery } from "../../hooks/use-stores";
-import { persistLastStoreId } from "../../lib/store-preferences";
+import { useStoreContext } from "../../contexts/store-context";
 
 type StoreSelectorProps = {
   onStoreSelected?: () => void;
@@ -25,37 +25,18 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
   const listboxId = useId();
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { storeId: activeStoreIdFromContext } = useStoreContext();
 
   const { data: stores = [], isLoading, isError } = useStoresQuery();
 
   const normalizedStores = useMemo(() => stores, [stores]);
 
   const currentStoreId = useMemo(() => {
-    const existing = searchParams.get("store");
-    if (existing && normalizedStores.some((store) => store.id === existing)) {
-      return existing;
+    if (activeStoreIdFromContext && normalizedStores.some((store) => store.id === activeStoreIdFromContext)) {
+      return activeStoreIdFromContext;
     }
     return normalizedStores[0]?.id ?? null;
-  }, [normalizedStores, searchParams]);
-
-  useEffect(() => {
-    if (!normalizedStores.length || !pathname) {
-      return;
-    }
-    const existing = searchParams.get("store");
-    const fallback = normalizedStores[0]?.id;
-    if (!fallback) {
-      return;
-    }
-    if (!existing || !normalizedStores.some((store) => store.id === existing)) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("store", fallback);
-      const queryString = params.toString();
-      const target = queryString ? `${pathname}?${queryString}` : pathname;
-      router.replace(target, { scroll: false });
-    }
-  }, [normalizedStores, pathname, router, searchParams]);
+  }, [activeStoreIdFromContext, normalizedStores]);
 
   const filteredStores = useMemo(() => {
     if (!query.trim()) {
@@ -113,15 +94,13 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
     if (!pathname) {
       return;
     }
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("store", storeId);
-    const queryString = params.toString();
-    const target = queryString ? `${pathname}?${queryString}` : pathname;
+    const match = pathname.match(/^\/stores\/(?:[^/]+)(\/.*)?$/);
+    const suffix = match?.[1] ?? "/dashboard";
+    const target = `/stores/${storeId}${suffix}`;
     router.replace(target, { scroll: false });
     setIsOpen(false);
     setQuery("");
     onStoreSelected?.();
-    persistLastStoreId(storeId);
   };
 
   const handleToggle = () => {
@@ -132,12 +111,6 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
   };
 
   const buttonLabel = isLoading ? "Loading stores…" : activeStore?.name ?? "No stores connected";
-
-  useEffect(() => {
-    if (currentStoreId) {
-      persistLastStoreId(currentStoreId);
-    }
-  }, [currentStoreId]);
 
   return (
     <div className="relative">

@@ -101,7 +101,7 @@ export default function StoresPage() {
                     <Link href={`/tenants/${store.id}`}>Open tenant</Link>
                   </Button>
                   <Button asChild size="sm" className="flex-1">
-                    <Link href={`/stores/${store.id}`}>Manage</Link>
+                    <Link href={`/stores/${store.id}/dashboard`}>Manage</Link>
                   </Button>
                 </CardContent>
               </Card>

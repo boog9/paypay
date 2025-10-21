@@ -1,10 +1,9 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { useStoresQuery, type StoreSummary } from "../../src/hooks/use-stores";
-import { persistLastStoreId, readLastStoreId } from "../../src/lib/store-preferences";
+import { useStoresQuery } from "../../src/hooks/use-stores";
 
 const ONBOARDING_PATH = "/onboarding/create-store";
 
@@ -17,17 +16,6 @@ function extractStoreId(pathname: string | null): string | null {
     return match[1] ?? null;
   }
   return null;
-}
-
-function resolvePreferredStoreId(stores: StoreSummary[]): string {
-  if (!stores.length) {
-    return "";
-  }
-  const stored = readLastStoreId();
-  if (stored && stores.some((store) => store.id === stored)) {
-    return stored;
-  }
-  return stores[0]?.id ?? "";
 }
 
 function shouldRedirectToOnboarding(pathname: string): boolean {
@@ -64,7 +52,6 @@ export function DashboardGate({ children }: { children: ReactNode }) {
   }, []);
 
   const hasStores = stores.length > 0;
-  const preferredStoreId = useMemo(() => (hasStores ? resolvePreferredStoreId(stores) : ""), [hasStores, stores]);
 
   useEffect(() => {
     if (!hasHydrated) {
@@ -81,25 +68,22 @@ export function DashboardGate({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!preferredStoreId) {
-      return;
-    }
-
     const currentStoreId = extractStoreId(pathname);
-    if (currentStoreId && stores.some((store) => store.id === currentStoreId)) {
-      persistLastStoreId(currentStoreId);
+    const knownStoreIds = stores.map((store) => store.id);
+    const fallbackStoreId = knownStoreIds[0];
+    if (!fallbackStoreId) {
       return;
     }
 
-    if (shouldRedirectToStoreDashboard(pathname)) {
-      router.replace(`/stores/${preferredStoreId}/dashboard`);
+    if (currentStoreId && !knownStoreIds.includes(currentStoreId)) {
+      router.replace(`/stores/${fallbackStoreId}/dashboard`);
       return;
     }
 
-    if (currentStoreId && !stores.some((store) => store.id === currentStoreId)) {
-      router.replace(`/stores/${preferredStoreId}/dashboard`);
+    if (!currentStoreId && shouldRedirectToStoreDashboard(pathname)) {
+      router.replace(`/stores/${fallbackStoreId}/dashboard`);
     }
-  }, [hasHydrated, hasStores, isFetching, isLoading, pathname, preferredStoreId, router, stores]);
+  }, [hasHydrated, hasStores, isFetching, isLoading, pathname, router, stores]);
 
   return <>{children}</>;
 }

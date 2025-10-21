@@ -45,6 +45,15 @@ export class ManagedStoreEntity {
   @Column({ name: 'api_key_dek_wrapped', type: 'text' })
   apiKeyDekWrapped!: string;
 
+  @Column({ name: 'webhook_id', type: 'varchar', length: 64, nullable: true })
+  webhookId!: string | null;
+
+  @Column({ name: 'webhook_secret_ciphertext', type: 'text', nullable: true })
+  webhookSecretCiphertext!: string | null;
+
+  @Column({ name: 'webhook_secret_dek_wrapped', type: 'text', nullable: true })
+  webhookSecretDekWrapped!: string | null;
+
   @Column({ name: 'store_key_last_four', type: 'varchar', length: 4, nullable: true })
   storeKeyLastFour!: string | null;
 

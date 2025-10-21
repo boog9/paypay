@@ -28,7 +28,7 @@ export interface StoreSummaryDto {
 }
 
 export interface StoreDto {
-  id: string;
+  storeId: string;
   name: string;
   defaultCurrency: string;
 }
@@ -93,6 +93,8 @@ export class StoresService {
     const bootstrapKey = await this.issueBootstrapKey(user.id, subject);
     let createdStore: { id: string; name?: string | null } | null = null;
     let issuedStoreKey: string | null = null;
+    let webhookSecret: string | null = null;
+    let webhookId: string | null = null;
 
     try {
       createdStore = await this.btcpayService.createStoreUsingUserKey(bootstrapKey, {
@@ -115,7 +117,16 @@ export class StoresService {
 
       issuedStoreKey = storeScopedKey.apiKey;
 
+      const webhook = await this.btcpayService.registerWebhook(baseUrl, storeScopedKey.apiKey, createdStore.id);
+      if (!webhook?.secret) {
+        throw new InternalServerErrorException('BTCPay did not return a webhook secret.');
+      }
+
+      webhookSecret = webhook.secret;
+      webhookId = webhook.id ?? null;
+
       const encryptedKey = this.encryptionService.encrypt(storeScopedKey.apiKey);
+      const encryptedWebhook = this.encryptionService.encrypt(webhook.secret, encryptedKey.dekWrapped);
       const entity = this.storesRepository.create({
         userId: user.id,
         btcpayHost: baseUrl,
@@ -124,6 +135,9 @@ export class StoresService {
         defaultCurrency,
         apiKeyCiphertext: encryptedKey.ciphertext,
         apiKeyDekWrapped: encryptedKey.dekWrapped,
+        webhookId: webhook.id,
+        webhookSecretCiphertext: encryptedWebhook.ciphertext,
+        webhookSecretDekWrapped: encryptedWebhook.dekWrapped,
         storeKeyLastFour: this.extractLastFour(storeScopedKey.apiKey),
         lastActiveAt: new Date(),
       });
@@ -131,7 +145,7 @@ export class StoresService {
       await this.storesRepository.save(entity);
 
       const result: StoreDto = {
-        id: createdStore.id,
+        storeId: createdStore.id,
         name: createdStore.name?.trim() || storeName,
         defaultCurrency,
       } satisfies StoreDto;
@@ -156,6 +170,9 @@ export class StoresService {
 
       return result;
     } catch (error) {
+      if (webhookId && issuedStoreKey && createdStore?.id) {
+        await this.safeDeleteWebhook(baseUrl, issuedStoreKey, createdStore.id, webhookId);
+      }
       if (issuedStoreKey) {
         await this.safeRevokeKey(baseUrl, issuedStoreKey);
       }
@@ -167,6 +184,9 @@ export class StoresService {
       this.clearBuffer(bootstrapKey);
       if (issuedStoreKey) {
         this.clearBuffer(issuedStoreKey);
+      }
+      if (webhookSecret) {
+        this.clearBuffer(webhookSecret);
       }
     }
   }
@@ -330,6 +350,21 @@ export class StoresService {
     }
   }
 
+  private async safeDeleteWebhook(
+    baseUrl: string,
+    apiKey: string,
+    storeId: string,
+    webhookId: string
+  ): Promise<void> {
+    try {
+      await this.btcpayService.deleteWebhook(baseUrl, apiKey, storeId, webhookId);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to delete BTCPay webhook ${webhookId} for store ${storeId}: ${(error as Error).message}`
+      );
+    }
+  }
+
   private async tryResolveIdempotentResult(
     key: string,
     userId: string
@@ -351,7 +386,7 @@ export class StoresService {
     if (!record) {
       return null;
     }
-    if (record.responseStatus !== 201) {
+    if (record.responseStatus !== 200) {
       return null;
     }
     if (typeof record.responseBody !== 'string' || !record.responseBody.trim()) {
@@ -386,7 +421,7 @@ export class StoresService {
         source: this.createStoreIdempotencySource,
         route: this.createStoreIdempotencyRoute,
         resourceId,
-        responseStatus: 201,
+        responseStatus: 200,
         responseBody: payload,
       });
       await this.idempotencyRepository.save(record);
@@ -401,9 +436,9 @@ export class StoresService {
     if (!value || typeof value !== 'object') {
       return false;
     }
-    const candidate = value as { id?: unknown; name?: unknown; defaultCurrency?: unknown };
+    const candidate = value as { storeId?: unknown; name?: unknown; defaultCurrency?: unknown };
     return (
-      typeof candidate.id === 'string' &&
+      typeof candidate.storeId === 'string' &&
       typeof candidate.name === 'string' &&
       typeof candidate.defaultCurrency === 'string'
     );

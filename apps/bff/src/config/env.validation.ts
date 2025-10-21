@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+const isHttps = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 const base64Min32 = z
   .string({
     required_error: 'Environment variable is required',
@@ -14,6 +23,20 @@ const base64Min32 = z
     }
   }, 'must be Base64 of at least 32 bytes');
 
+const base64Exact32 = z
+  .string({
+    required_error: 'Environment variable is required',
+    invalid_type_error: 'Environment variable must be a string'
+  })
+  .refine((val) => {
+    try {
+      const bytes = Buffer.from(val, 'base64');
+      return bytes.length === 32;
+    } catch {
+      return false;
+    }
+  }, 'must be Base64 of exactly 32 bytes');
+
 export const EnvSchema = z
   .object({
     NODE_ENV: z.string().default('production'),
@@ -26,14 +49,14 @@ export const EnvSchema = z
     JWT_REFRESH_TOKEN_SECRET: z.string().min(32),
 
     FRONTEND_ORIGIN: z.string().url(),
-    CORS_ORIGIN: z.string().url().optional(),
     PAYPAY_DOMAIN: z.string(),
     PAYPAY_API_DOMAIN: z.string(),
 
     BTCPAY_SERVER_URL: z.string().url(),
     BTCPAY_ADMIN_API_KEY: z.string().min(1),
     BTCPAY_WEBHOOK_URL: z.string().url(),
-    BTCPAY_MASTER_KEY: base64Min32.optional(),
+    BTCPAY_MASTER_KEY: base64Exact32,
+    BTCPAY_API_KEY_PEPPER: base64Min32,
     BTCPAY_HEALTH_STORE_ID: z.string().optional(),
     BTCPAY_HEALTH_API_KEY: z.string().optional(),
     REVOKE_BOOTSTRAP_AFTER_CREATE: z.coerce.boolean().default(true),
@@ -53,17 +76,17 @@ export const EnvSchema = z
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === 'production') {
-      if (!process.env.FRONTEND_ORIGIN) {
+      if (!process.env.BTCPAY_MASTER_KEY) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'FRONTEND_ORIGIN must be explicitly set in production environments.',
-          path: ['FRONTEND_ORIGIN']
+          message: 'BTCPAY_MASTER_KEY must be set in production environments.',
+          path: ['BTCPAY_MASTER_KEY']
         });
       }
-      if (val.FRONTEND_ORIGIN !== 'https://paypay.iddqd.in') {
+      if (!process.env.FRONTEND_ORIGIN || !isHttps(val.FRONTEND_ORIGIN)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'FRONTEND_ORIGIN must be https://paypay.iddqd.in in production.',
+          message: 'FRONTEND_ORIGIN must be set and use HTTPS in production.',
           path: ['FRONTEND_ORIGIN']
         });
       }
@@ -83,10 +106,6 @@ export function getEnv(): Env {
   // Additional security assertions
   if (e.COOKIE_SECRET === e.JWT_ACCESS_TOKEN_SECRET || e.COOKIE_SECRET === e.JWT_REFRESH_TOKEN_SECRET) {
     console.error('[Config] COOKIE_SECRET must differ from JWT secrets.');
-    process.exit(1);
-  }
-  if (e.NODE_ENV === 'production' && e.FRONTEND_ORIGIN.startsWith('http://')) {
-    console.error('[Config] FRONTEND_ORIGIN must be https:// in production.');
     process.exit(1);
   }
   for (const [key, value] of Object.entries(e)) {

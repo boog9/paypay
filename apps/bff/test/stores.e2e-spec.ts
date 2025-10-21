@@ -30,9 +30,10 @@ describe('Stores onboarding (e2e)', () => {
 
   const btcpayMock = {
     resolveBaseUrl: jest.fn(() => 'https://btcpay.example'),
-    createStoreWithUserToken: jest.fn(),
+    issueUserApiKeyWithPermissions: jest.fn(),
+    createStoreUsingUserKey: jest.fn(),
     setCoinGeckoAsDefaultRateSource: jest.fn(),
-    issueUserApiKey: jest.fn(),
+    issueStoreScopedApiKey: jest.fn(),
     listStores: jest.fn(),
     buildStorePermissions: jest.fn((storeId: string) => [
       `btcpay.store.cancreateinvoice:${storeId}`,
@@ -42,6 +43,7 @@ describe('Stores onboarding (e2e)', () => {
       `btcpay.store.webhooks.canmodifywebhooks:${storeId}`,
     ]),
     revokeUserApiKey: jest.fn(),
+    buildBootstrapPermissions: jest.fn(() => ['btcpay.store.canmodifystoresettings']),
   } as unknown as jest.Mocked<BtcpayService>;
 
   beforeAll(async () => {
@@ -59,11 +61,9 @@ describe('Stores onboarding (e2e)', () => {
     configureApp(app, env);
     configureCors(app, env);
     app.use((req: any, _res: any, next: () => void) => {
-      const disableBootstrap = req.headers['x-test-no-bootstrap'];
       req.user = {
         id: 'user-1',
         email: 'merchant@example.com',
-        bootstrapApiKey: disableBootstrap ? '' : 'bootstrap-key',
       };
       next();
     });
@@ -115,9 +115,14 @@ describe('Stores onboarding (e2e)', () => {
 
     const csrfToken = await fetchCsrf();
 
-    btcpayMock.createStoreWithUserToken.mockResolvedValueOnce({ id: 'store-1', name: 'Demo Store' });
+    btcpayMock.issueUserApiKeyWithPermissions.mockResolvedValueOnce({ apiKey: 'bootstrap-key' });
+    btcpayMock.createStoreUsingUserKey.mockResolvedValueOnce({
+      id: 'store-1',
+      name: 'Demo Store',
+      defaultCurrency: 'USD',
+    });
     btcpayMock.setCoinGeckoAsDefaultRateSource.mockResolvedValueOnce(undefined);
-    btcpayMock.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'internal-key', permissions: [] });
+    btcpayMock.issueStoreScopedApiKey.mockResolvedValueOnce({ apiKey: 'internal-key' });
 
     const createResponse = await agent
       .post('/api/stores')
@@ -131,8 +136,12 @@ describe('Stores onboarding (e2e)', () => {
       defaultCurrency: 'USD',
     });
 
-    expect(btcpayMock.createStoreWithUserToken).toHaveBeenCalledWith(
-      'https://btcpay.example',
+    expect(btcpayMock.issueUserApiKeyWithPermissions).toHaveBeenCalledWith(
+      'user-btcpay-id',
+      ['btcpay.store.canmodifystoresettings'],
+      'portal-bootstrap'
+    );
+    expect(btcpayMock.createStoreUsingUserKey).toHaveBeenCalledWith(
       'bootstrap-key',
       expect.objectContaining({ name: 'Demo Store', defaultCurrency: 'USD' })
     );
@@ -141,15 +150,28 @@ describe('Stores onboarding (e2e)', () => {
       'bootstrap-key',
       'store-1'
     );
-    expect(btcpayMock.issueUserApiKey).toHaveBeenCalledWith(
-      'https://btcpay.example',
-      'merchant@example.com',
+    expect(btcpayMock.issueStoreScopedApiKey).toHaveBeenCalledWith(
+      'user-btcpay-id',
+      'store-1',
+      'portal-internal-store-1',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:store-1',
         'btcpay.store.canviewstoresettings:store-1',
-      ]),
-      { label: 'portal-internal-store-1' }
+      ])
     );
+
+    const stored = await managedStoresRepository.findOneOrFail({ where: { btcpayStoreId: 'store-1' } });
+    expect(stored.storeKeyLastFour).toBe('-key');
+    expect(stored.apiKeyCiphertext).not.toEqual('internal-key');
+    expect(stored.apiKeyCiphertext).toBeTruthy();
+    expect(stored.apiKeyDekWrapped).toBeTruthy();
+
+    const user = await usersRepository.findOneOrFail({ where: { email: 'merchant@example.com' } });
+    expect(user.btcpayApiKeyHash).toBeTruthy();
+    expect(user.btcpayApiKeyLabel).toBe('portal-bootstrap');
+    expect(user.btcpayApiKeyPermissions).toContain('btcpay.store.canmodifystoresettings');
+
+    expect(btcpayMock.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'bootstrap-key');
 
     btcpayMock.listStores.mockResolvedValueOnce([
       { id: 'store-1', name: 'Demo Store', defaultCurrency: 'USD' },
@@ -159,20 +181,6 @@ describe('Stores onboarding (e2e)', () => {
     expect(listResponse.body).toEqual([
       { id: 'store-1', name: 'Demo Store', defaultCurrency: 'USD' },
     ]);
-  });
-
-  it('rejects creation without a bootstrap key', async () => {
-    const csrfToken = await fetchCsrf();
-
-    const response = await agent
-      .post('/api/stores')
-      .set('X-CSRF-Token', csrfToken)
-      .set('X-Test-No-Bootstrap', '1')
-      .send({ name: 'Another Store', defaultCurrency: 'USD' })
-      .expect(401);
-
-    expect(response.body.message).toContain('Bootstrap API key is required');
-    expect(btcpayMock.createStoreWithUserToken).not.toHaveBeenCalled();
   });
 
   it('prevents creating duplicate store names for the same user', async () => {
@@ -200,13 +208,14 @@ describe('Stores onboarding (e2e)', () => {
       .expect(409);
 
     expect(response.body.message).toContain('already exists');
-    expect(btcpayMock.createStoreWithUserToken).not.toHaveBeenCalled();
+    expect(btcpayMock.issueUserApiKeyWithPermissions).not.toHaveBeenCalled();
   });
 
   it('propagates BTCPay failures when store creation fails', async () => {
     const csrfToken = await fetchCsrf();
 
-    btcpayMock.createStoreWithUserToken.mockRejectedValueOnce(new Error('BTCPay offline'));
+    btcpayMock.issueUserApiKeyWithPermissions.mockResolvedValueOnce({ apiKey: 'bootstrap-key' });
+    btcpayMock.createStoreUsingUserKey.mockRejectedValueOnce(new Error('BTCPay offline'));
 
     await agent
       .post('/api/stores')
@@ -214,14 +223,16 @@ describe('Stores onboarding (e2e)', () => {
       .send({ name: 'Failing Store', defaultCurrency: 'USD' })
       .expect(500);
 
-    expect(btcpayMock.createStoreWithUserToken).toHaveBeenCalled();
+    expect(btcpayMock.issueUserApiKeyWithPermissions).toHaveBeenCalled();
+    expect(btcpayMock.createStoreUsingUserKey).toHaveBeenCalled();
     expect(btcpayMock.setCoinGeckoAsDefaultRateSource).not.toHaveBeenCalled();
   });
 
   it('returns 500 and does not issue a key when rate source configuration fails', async () => {
     const csrfToken = await fetchCsrf();
 
-    btcpayMock.createStoreWithUserToken.mockResolvedValueOnce({ id: 'store-err', name: 'X' });
+    btcpayMock.issueUserApiKeyWithPermissions.mockResolvedValueOnce({ apiKey: 'bootstrap-key' });
+    btcpayMock.createStoreUsingUserKey.mockResolvedValueOnce({ id: 'store-err', name: 'X' });
     btcpayMock.setCoinGeckoAsDefaultRateSource.mockRejectedValueOnce(new Error('rates failed'));
 
     await agent
@@ -230,15 +241,16 @@ describe('Stores onboarding (e2e)', () => {
       .send({ name: 'X', defaultCurrency: 'USD' })
       .expect(500);
 
-    expect(btcpayMock.issueUserApiKey).not.toHaveBeenCalled();
+    expect(btcpayMock.issueStoreScopedApiKey).not.toHaveBeenCalled();
   });
 
   it('reuses results when the same Idempotency-Key is provided', async () => {
     const csrfToken = await fetchCsrf();
 
-    btcpayMock.createStoreWithUserToken.mockResolvedValue({ id: 'store-idem', name: 'S' });
+    btcpayMock.issueUserApiKeyWithPermissions.mockResolvedValue({ apiKey: 'bootstrap-key' });
+    btcpayMock.createStoreUsingUserKey.mockResolvedValue({ id: 'store-idem', name: 'S' });
     btcpayMock.setCoinGeckoAsDefaultRateSource.mockResolvedValue(undefined);
-    btcpayMock.issueUserApiKey.mockResolvedValue({ apiKey: 'key', permissions: [] });
+    btcpayMock.issueStoreScopedApiKey.mockResolvedValue({ apiKey: 'scoped' });
 
     await agent
       .post('/api/stores')
@@ -254,8 +266,9 @@ describe('Stores onboarding (e2e)', () => {
       .send({ name: 'S', defaultCurrency: 'USD' })
       .expect(201);
 
-    expect(btcpayMock.createStoreWithUserToken).toHaveBeenCalledTimes(1);
-    expect(btcpayMock.issueUserApiKey).toHaveBeenCalledTimes(1);
+    expect(btcpayMock.createStoreUsingUserKey).toHaveBeenCalledTimes(1);
+    expect(btcpayMock.issueUserApiKeyWithPermissions).toHaveBeenCalledTimes(1);
+    expect(btcpayMock.issueStoreScopedApiKey).toHaveBeenCalledTimes(1);
     expect(btcpayMock.setCoinGeckoAsDefaultRateSource).toHaveBeenCalledTimes(1);
   });
 });

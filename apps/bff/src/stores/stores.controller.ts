@@ -17,21 +17,29 @@ export class StoresController {
 
   @Post()
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
-  createStore(@Body() dto: CreateStoreDto, @Req() req: Request) {
+  async createStore(@Body() dto: CreateStoreDto, @Req() req: Request) {
     const idempotencyKey = this.resolveIdempotencyKey(req);
-    return this.storesService.createStore(dto, this.resolveContext(req), idempotencyKey);
+    const context = this.resolveContext(req);
+    return this.storesService.provisionStoreForUser(
+      context.userId,
+      context.email,
+      { name: dto.name, defaultCurrency: dto.defaultCurrency },
+      idempotencyKey,
+    );
   }
 
   private resolveContext(req: Request): AuthenticatedUserContext {
     const user = (req as { user?: unknown }).user;
     if (!user || typeof user !== 'object') {
-      return { email: null, bootstrapApiKey: null };
+      return { userId: null, email: null, bootstrapApiKey: null };
     }
     const candidate = user as {
+      id?: unknown;
       email?: unknown;
       bootstrapApiKey?: unknown;
       bootstrapKey?: unknown;
     };
+    const userId = typeof candidate.id === 'string' ? candidate.id : null;
     const email = typeof candidate.email === 'string' ? candidate.email : null;
     const bootstrapApiKey =
       typeof candidate.bootstrapApiKey === 'string'
@@ -40,7 +48,7 @@ export class StoresController {
           ? candidate.bootstrapKey
           : null;
 
-    return { email, bootstrapApiKey };
+    return { userId, email, bootstrapApiKey };
   }
 
   private resolveIdempotencyKey(req: Request): string | null {

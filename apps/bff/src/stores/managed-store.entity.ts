@@ -45,6 +45,9 @@ export class ManagedStoreEntity {
   @Column({ name: 'api_key_dek_wrapped', type: 'text' })
   apiKeyDekWrapped!: string;
 
+  @Column({ name: 'store_key_last_four', type: 'varchar', length: 4, nullable: true })
+  storeKeyLastFour!: string | null;
+
   @Column({ name: 'last_active_at', type: TIMESTAMP_COLUMN_TYPE, nullable: true })
   lastActiveAt!: Date | null;
 

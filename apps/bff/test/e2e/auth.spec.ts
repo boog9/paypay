@@ -121,9 +121,7 @@ describe('Public API routing (e2e)', () => {
 
   it('serves auth routes exclusively through /api/*', async () => {
     const csrfResponse = await agent.get('/api/auth/csrf').expect(204);
-    expect(hasHeaderValue(csrfResponse.headers['access-control-expose-headers'], 'X-Csrf-Token')).toBe(
-      true
-    );
+    expect(hasHeaderValue(csrfResponse.headers['access-control-expose-headers'], 'X-Csrf-Token')).toBe(true);
     const csrfHeader = csrfResponse.headers['x-csrf-token'];
     expect(typeof csrfHeader === 'string' && csrfHeader.length > 0).toBe(true);
     const csrfToken = csrfHeader.toString();

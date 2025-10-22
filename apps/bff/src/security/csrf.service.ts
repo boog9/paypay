@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { CookieOptions, Request, Response } from 'express';
-import { resolveCookieNames } from './cookie-names';
+import { resolveCookieNames } from '../auth/cookie-names';
 
 @Injectable()
 export class CsrfService {

@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
-import express, { type Application, type NextFunction, type RequestHandler, type Response } from 'express';
+import express, { type Application, type RequestHandler, type Response } from 'express';
 import helmet from 'helmet';
 import type { RawBodyRequest } from '../http/raw-body-request';
 import { CORS_ALLOWED_HEADERS, CORS_ALLOWED_METHODS, CORS_EXPOSED_HEADERS } from '../config/cors.constants';
@@ -41,14 +41,20 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
   const adapterType = httpAdapter.getType();
   const instance: unknown = httpAdapter.getInstance();
 
+  const assignRawBody = (req: RawBodyRequest, _res: Response, buf: Buffer, _encoding: string) => {
+    req.rawBody = Buffer.from(buf);
+  };
+
   const jsonParser: RequestHandler = express.json({
     limit: '1mb',
-    type: ['application/json', 'application/*+json']
+    type: ['application/json', 'application/*+json'],
+    verify: assignRawBody
   });
-  const urlencodedParser: RequestHandler = express.urlencoded({ extended: false, limit: '1mb' });
-
-  const hooksPaths = ['/hooks/btcpay', '/api/hooks/btcpay'];
-  const isBtcpayHookPath = (path: string) => hooksPaths.some((prefix) => path.startsWith(prefix));
+  const urlencodedParser: RequestHandler = express.urlencoded({
+    extended: false,
+    limit: '1mb',
+    verify: assignRawBody
+  });
 
   if (adapterType === 'fastify') {
     const fastifyInstance = instance as { trustProxy?: TrustProxySetting };
@@ -61,36 +67,10 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
     const effectiveTrustProxy =
       trustProxyValue === undefined || trustProxyValue === null ? 'loopback' : trustProxyValue;
     expressInstance.set('trust proxy', effectiveTrustProxy);
-
-    expressInstance.use(
-      hooksPaths,
-      express.json({
-        limit: '1mb',
-        type: ['application/json', 'application/*+json'],
-        verify: (req: RawBodyRequest, _res, buf: Buffer, encoding?: BufferEncoding) => {
-          void encoding;
-          req.rawBody = Buffer.from(buf);
-        }
-      })
-    );
-
-    app.use((req: RawBodyRequest, res: Response, next: NextFunction) => {
-      const path = `${req.baseUrl ?? ''}${req.path ?? ''}` || req.originalUrl || '';
-      if (isBtcpayHookPath(path)) {
-        return next();
-      }
-      jsonParser(req, res, (jsonError?: unknown) => {
-        if (jsonError) {
-          next(jsonError as Error);
-          return;
-        }
-        urlencodedParser(req, res, next);
-      });
-    });
-  } else {
-    app.use(jsonParser);
-    app.use(urlencodedParser);
   }
+
+  app.use(jsonParser);
+  app.use(urlencodedParser);
 }
 
 export function configureCors(app: INestApplication, env: ReturnType<typeof getEnv>): void {

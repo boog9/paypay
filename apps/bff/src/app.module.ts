@@ -20,6 +20,8 @@ import { HealthController } from './health.controller';
 import { StoresModule } from './stores/stores.module';
 import { WalletsModule } from './wallets/wallets.module';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { SecurityModule } from './security/security.module';
+import { CsrfGuard } from './security/csrf.guard';
 
 @Module({
   imports: [
@@ -157,6 +159,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
       }
     }),
     AuthModule,
+    SecurityModule,
     BtcpayModule,
     TenantsModule,
     HooksModule,
@@ -168,6 +171,10 @@ import type { IncomingMessage, ServerResponse } from 'http';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard
     },
   ]
 })

@@ -1,0 +1,14 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ManagedStoreEntity } from '../stores/managed-store.entity';
+import { BtcpayModule } from '../btcpay/btcpay.module';
+import { AuthModule } from '../auth/auth.module';
+import { OnchainWalletsController } from './onchain-wallets.controller';
+import { OnchainWalletsService } from './onchain-wallets.service';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([ManagedStoreEntity]), BtcpayModule, AuthModule],
+  controllers: [OnchainWalletsController],
+  providers: [OnchainWalletsService]
+})
+export class WalletsModule {}

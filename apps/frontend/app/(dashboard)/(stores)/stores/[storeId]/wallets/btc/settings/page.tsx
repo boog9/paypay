@@ -22,8 +22,8 @@ type WalletConfig = {
 };
 
 type SettingsPageProps = {
-  params: { storeId: string };
-  searchParams?: Record<string, string | string[] | undefined>;
+  params: Promise<{ storeId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -83,10 +83,11 @@ async function loadWalletConfig(storeId: string): Promise<WalletConfig | null> {
 }
 
 export default async function WalletSettingsPage({ params, searchParams }: SettingsPageProps) {
-  const storeId = params.storeId;
-  const connected = Array.isArray(searchParams?.connected)
-    ? searchParams?.connected.includes("1")
-    : searchParams?.connected === "1";
+  const { storeId } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const connected = Array.isArray(resolvedSearchParams?.connected)
+    ? resolvedSearchParams?.connected.includes("1")
+    : resolvedSearchParams?.connected === "1";
 
   const config = await loadWalletConfig(storeId);
 

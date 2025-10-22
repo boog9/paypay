@@ -17,6 +17,7 @@ type WalletConfig = {
   masterFingerprint: string | null;
   label: string | null;
   paymentMethodId: string;
+  currency: string;
   cryptoCode: string;
 };
 
@@ -58,7 +59,16 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
 
       {connected && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900">
-          The wallet was connected successfully. The first ten receiving addresses were confirmed.
+          The wallet was connected successfully. Review the
+          <Link
+            className="ml-1 font-medium underline"
+            href="https://docs.btcpayserver.org/WalletSetup/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            BTCPay wallet documentation
+          </Link>
+          &nbsp;to confirm the derivation matches your external wallet.
         </div>
       )}
 

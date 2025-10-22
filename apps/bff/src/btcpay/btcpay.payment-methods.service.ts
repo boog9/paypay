@@ -16,6 +16,11 @@ import { BtcpayService } from './btcpay.service';
 
 type Maybe<T> = T | null | undefined;
 
+const INVALID_DERIVATION_MESSAGE =
+  "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
+
+export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
+
 export interface OnchainPreviewRequest {
   derivationScheme: string;
   accountKeyPath?: string | null;
@@ -32,6 +37,7 @@ export interface OnchainPreviewAddressItem {
 
 export interface OnchainPreviewResponse {
   storeId: string;
+  currency: string;
   cryptoCode: string;
   paymentMethodId: string;
   derivationScheme: string | null;
@@ -42,6 +48,7 @@ export interface OnchainPreviewResponse {
 
 export interface OnchainPaymentMethodConfig {
   storeId: string;
+  currency: string;
   cryptoCode: string;
   paymentMethodId: string;
   enabled: boolean;
@@ -96,6 +103,8 @@ export class BtcpayPaymentMethodsService {
     private readonly btcpayService: BtcpayService
   ) {}
 
+  // BTCPay 2.x renamed /onchain/{crypto}/preview → /payment-methods/{paymentMethodId}/wallet/preview; data→config, cryptoCode→currency, paymentMethodId BTC-CHAIN.
+  // See https://docs.btcpayserver.org/Development/Greenfield/
   async previewOnchain(
     storeId: string,
     cryptoCode = 'BTC',
@@ -103,28 +112,30 @@ export class BtcpayPaymentMethodsService {
     options?: PaymentMethodRequestOptions
   ): Promise<OnchainPreviewResponse> {
     const context = await this.prepareStoreContext(storeId, options);
-    const paymentMethodId = this.buildPaymentMethodId(cryptoCode);
-    const params = {
-      offset: String(body?.offset ?? 0),
-      amount: String(body?.amount ?? 10)
-    };
-    const payload = this.buildPreviewRequestBody(body);
+    const currency = cryptoCode.toUpperCase();
+    const paymentMethodId = this.buildPaymentMethodId(currency);
+    const params = this.buildPreviewRequestParams(body);
 
     try {
-      const response = await context.http.post(
+      this.logger.debug(
+        `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+      );
+      const response = await context.http.get(
         this.buildModernPreviewPath(context.store.btcpayStoreId, paymentMethodId),
-        payload,
         { params }
       );
       return this.normalizePreviewResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (error) {
       if (this.shouldAttemptFallback(error)) {
-        return this.previewOnchainLegacy(context, cryptoCode, paymentMethodId, body);
+        this.logger.debug(
+          `Falling back to legacy preview endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+        );
+        return this.previewOnchainLegacy(context, currency, paymentMethodId, body);
       }
       this.handleBtcpayError(error);
     } finally {
@@ -134,13 +145,16 @@ export class BtcpayPaymentMethodsService {
     throw new InternalServerErrorException('Failed to preview on-chain payment method.');
   }
 
+  // BTCPay 2.x renamed /payment-methods/onchain/{crypto} → /payment-methods/{paymentMethodId}; data→config, cryptoCode→currency, paymentMethodId BTC-CHAIN.
+  // See https://docs.btcpayserver.org/Development/Greenfield/
   async getOnchain(
     storeId: string,
     cryptoCode = 'BTC',
     options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(storeId, options);
-    const paymentMethodId = this.buildPaymentMethodId(cryptoCode);
+    const currency = cryptoCode.toUpperCase();
+    const paymentMethodId = this.buildPaymentMethodId(currency);
     const params: Record<string, string> = {};
     if (options?.includeConfig !== false) {
       params.includeConfig = 'true';
@@ -154,12 +168,12 @@ export class BtcpayPaymentMethodsService {
       return this.normalizePaymentMethodResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (error) {
       if (this.shouldAttemptFallback(error)) {
-        return this.getOnchainLegacy(context, cryptoCode, paymentMethodId, options?.includeConfig !== false);
+        return this.getOnchainLegacy(context, currency, paymentMethodId, options?.includeConfig !== false);
       }
       this.handleBtcpayError(error);
     } finally {
@@ -169,6 +183,8 @@ export class BtcpayPaymentMethodsService {
     throw new InternalServerErrorException('Failed to retrieve on-chain payment method.');
   }
 
+  // BTCPay 2.x renamed /payment-methods/onchain/{crypto} → /payment-methods/{paymentMethodId}; data→config, cryptoCode→currency, paymentMethodId BTC-CHAIN.
+  // See https://docs.btcpayserver.org/Development/Greenfield/
   async updateOnchain(
     storeId: string,
     cryptoCode = 'BTC',
@@ -176,7 +192,8 @@ export class BtcpayPaymentMethodsService {
     options?: PaymentMethodRequestOptions
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(storeId, options);
-    const paymentMethodId = this.buildPaymentMethodId(cryptoCode);
+    const currency = cryptoCode.toUpperCase();
+    const paymentMethodId = this.buildPaymentMethodId(currency);
     const requestBody = this.buildUpdateRequestBody(payload);
 
     try {
@@ -187,12 +204,12 @@ export class BtcpayPaymentMethodsService {
       return this.normalizePaymentMethodResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (error) {
       if (this.shouldAttemptFallback(error)) {
-        return this.updateOnchainLegacy(context, cryptoCode, payload, paymentMethodId);
+        return this.updateOnchainLegacy(context, currency, payload, paymentMethodId);
       }
       this.handleBtcpayError(error);
     } finally {
@@ -204,45 +221,83 @@ export class BtcpayPaymentMethodsService {
 
   private async previewOnchainLegacy(
     context: StoreContext,
-    cryptoCode: string,
+    currency: string,
     paymentMethodId: string,
     body?: OnchainPreviewRequest
   ): Promise<OnchainPreviewResponse> {
+    const path = this.buildLegacyPreviewPath(context.store.btcpayStoreId, currency);
     try {
-      const response = await context.http.post(
-        this.buildLegacyPreviewPath(context.store.btcpayStoreId, cryptoCode),
-        this.buildLegacyPreviewBody(body)
+      this.logger.debug(
+        `Attempting legacy GET preview for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+      );
+      const response = await context.http.get(path, { params: this.buildLegacyPreviewParams(body) });
+      this.logger.debug(
+        `Legacy GET preview succeeded for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
       return this.normalizePreviewResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (fallbackError) {
+      if (this.shouldAttemptFallback(fallbackError)) {
+        try {
+          this.logger.debug(
+            `Legacy GET preview rejected; attempting POST fallback for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+          );
+          const response = await context.http.post(path, this.buildLegacyPreviewBody(body));
+          this.logger.debug(
+            `Legacy POST preview succeeded for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+          );
+          return this.normalizePreviewResponse(
+            response.data,
+            context.store.btcpayStoreId,
+            currency,
+            paymentMethodId
+          );
+        } catch (postError) {
+          if (this.shouldAttemptFallback(postError)) {
+            const cause = axios.isAxiosError(postError)
+              ? (postError as Error)
+              : postError instanceof Error
+                ? postError
+                : undefined;
+            throw new UnprocessableEntityException(INVALID_DERIVATION_MESSAGE, { cause });
+          }
+          this.handleBtcpayError(postError);
+        }
+      }
       this.handleBtcpayError(fallbackError);
-      throw new InternalServerErrorException('Failed to preview on-chain payment method.');
     }
   }
 
   private async getOnchainLegacy(
     context: StoreContext,
-    cryptoCode: string,
+    currency: string,
     paymentMethodId: string,
     includeConfig: boolean
   ): Promise<OnchainPaymentMethodConfig> {
     try {
       const response = await context.http.get(
-        this.buildLegacyPaymentMethodPath(context.store.btcpayStoreId, cryptoCode),
+        this.buildLegacyPaymentMethodPath(context.store.btcpayStoreId, currency),
         includeConfig ? undefined : { params: { includeConfig: 'false' } }
       );
       return this.normalizePaymentMethodResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (fallbackError) {
+      if (this.shouldAttemptFallback(fallbackError)) {
+        const cause = axios.isAxiosError(fallbackError)
+          ? (fallbackError as Error)
+          : fallbackError instanceof Error
+            ? fallbackError
+            : undefined;
+        throw new UnprocessableEntityException(INVALID_DERIVATION_MESSAGE, { cause });
+      }
       this.handleBtcpayError(fallbackError);
       throw new InternalServerErrorException('Failed to retrieve on-chain payment method.');
     }
@@ -250,25 +305,57 @@ export class BtcpayPaymentMethodsService {
 
   private async updateOnchainLegacy(
     context: StoreContext,
-    cryptoCode: string,
+    currency: string,
     payload: UpdateOnchainPaymentMethodPayload,
     paymentMethodId: string
   ): Promise<OnchainPaymentMethodConfig> {
     try {
       const response = await context.http.put(
-        this.buildLegacyPaymentMethodPath(context.store.btcpayStoreId, cryptoCode),
+        this.buildLegacyPaymentMethodPath(context.store.btcpayStoreId, currency),
         this.buildLegacyUpdateBody(payload)
       );
       return this.normalizePaymentMethodResponse(
         response.data,
         context.store.btcpayStoreId,
-        cryptoCode,
+        currency,
         paymentMethodId
       );
     } catch (fallbackError) {
+      if (this.shouldAttemptFallback(fallbackError)) {
+        const cause = axios.isAxiosError(fallbackError)
+          ? (fallbackError as Error)
+          : fallbackError instanceof Error
+            ? fallbackError
+            : undefined;
+        throw new UnprocessableEntityException(INVALID_DERIVATION_MESSAGE, { cause });
+      }
       this.handleBtcpayError(fallbackError);
       throw new InternalServerErrorException('Failed to update on-chain payment method.');
     }
+  }
+
+  private buildPreviewRequestParams(body?: OnchainPreviewRequest): Record<string, string> {
+    const params: Record<string, string> = {
+      offset: String(body?.offset ?? 0),
+      amount: String(body?.amount ?? DEFAULT_PREVIEW_ADDRESS_COUNT)
+    };
+
+    const config: Record<string, unknown> = {};
+    if (body?.derivationScheme) {
+      config.derivationScheme = body.derivationScheme;
+    }
+    if (body?.accountKeyPath) {
+      config.accountKeyPath = body.accountKeyPath;
+    }
+    if (body?.label) {
+      config.label = body.label;
+    }
+
+    if (Object.keys(config).length > 0) {
+      params.config = JSON.stringify(config);
+    }
+
+    return params;
   }
 
   private buildPreviewRequestBody(body?: OnchainPreviewRequest): Record<string, unknown> {
@@ -285,8 +372,17 @@ export class BtcpayPaymentMethodsService {
     return { config };
   }
 
+  private buildLegacyPreviewParams(body?: OnchainPreviewRequest): Record<string, string> {
+    const params = this.buildPreviewRequestParams(body);
+    delete params.config;
+    return params;
+  }
+
   private buildLegacyPreviewBody(body?: OnchainPreviewRequest): Record<string, unknown> {
-    const payload: Record<string, unknown> = {};
+    const payload: Record<string, unknown> = {
+      offset: body?.offset ?? 0,
+      amount: body?.amount ?? DEFAULT_PREVIEW_ADDRESS_COUNT
+    };
     if (body?.derivationScheme) {
       payload.derivationScheme = body.derivationScheme;
     }
@@ -328,15 +424,17 @@ export class BtcpayPaymentMethodsService {
   private normalizePreviewResponse(
     source: unknown,
     storeId: string,
-    cryptoCode: string,
+    fallbackCurrency: string,
     paymentMethodId: string
   ): OnchainPreviewResponse {
     const addresses = this.extractPreviewAddresses(source);
     const config = this.extractConfigLike(source);
     const { derivationScheme, accountKeyPath, masterFingerprint } = this.extractConfigMetadata(config);
+    const { currency, cryptoCode } = this.extractCurrencyMetadata(source, fallbackCurrency);
 
     return {
       storeId,
+      currency,
       cryptoCode,
       paymentMethodId,
       derivationScheme,
@@ -349,7 +447,7 @@ export class BtcpayPaymentMethodsService {
   private normalizePaymentMethodResponse(
     payload: unknown,
     storeId: string,
-    cryptoCode: string,
+    fallbackCurrency: string,
     fallbackPaymentMethodId: string
   ): OnchainPaymentMethodConfig {
     if (!payload) {
@@ -358,6 +456,8 @@ export class BtcpayPaymentMethodsService {
 
     let enabled = false;
     let paymentMethodId = fallbackPaymentMethodId;
+    let currency = fallbackCurrency;
+    let cryptoCode = fallbackCurrency;
     let configPayload: unknown = payload;
     let label: string | null = null;
 
@@ -375,6 +475,12 @@ export class BtcpayPaymentMethodsService {
       if (typeof record.label === 'string' && record.label.trim()) {
         label = record.label.trim();
       }
+      const { currency: recordCurrency, cryptoCode: recordCryptoCode } = this.extractCurrencyMetadata(
+        record,
+        fallbackCurrency
+      );
+      currency = recordCurrency;
+      cryptoCode = recordCryptoCode;
       if (typeof record.derivationScheme === 'string') {
         configPayload = {
           ...(typeof configPayload === 'object' && configPayload !== null ? (configPayload as Record<string, unknown>) : {}),
@@ -395,9 +501,13 @@ export class BtcpayPaymentMethodsService {
 
     const { derivationScheme, accountKeyPath, masterFingerprint, label: derivedLabel } =
       this.extractConfigMetadata(configPayload);
+    const finalCurrency = this.extractCurrencyMetadata(payload, currency);
+    currency = finalCurrency.currency;
+    cryptoCode = finalCurrency.cryptoCode || cryptoCode;
 
     return {
       storeId,
+      currency,
       cryptoCode,
       paymentMethodId,
       enabled,
@@ -459,6 +569,45 @@ export class BtcpayPaymentMethodsService {
       }
     }
     return source;
+  }
+
+  private extractCurrencyMetadata(source: unknown, fallback: string): { currency: string; cryptoCode: string } {
+    let currency = fallback;
+    let cryptoCode = fallback;
+
+    if (!source || typeof source !== 'object') {
+      return { currency, cryptoCode };
+    }
+
+    const record = source as Record<string, unknown>;
+    const directCurrency = this.firstString([record.currency]);
+    const directCrypto = this.firstString([record.cryptoCode]);
+
+    if (directCurrency) {
+      currency = directCurrency.toUpperCase();
+    }
+    if (directCrypto) {
+      cryptoCode = directCrypto.toUpperCase();
+    } else if (directCurrency) {
+      cryptoCode = directCurrency.toUpperCase();
+    }
+
+    if (record.paymentMethod && typeof record.paymentMethod === 'object') {
+      const paymentMethod = record.paymentMethod as Record<string, unknown>;
+      const nestedCurrency = this.firstString([paymentMethod.currency]);
+      const nestedCrypto = this.firstString([paymentMethod.cryptoCode]);
+      if (nestedCurrency && currency === fallback) {
+        currency = nestedCurrency.toUpperCase();
+      }
+      if (nestedCrypto && cryptoCode === fallback) {
+        cryptoCode = nestedCrypto.toUpperCase();
+      }
+      if (!nestedCrypto && nestedCurrency && cryptoCode === fallback) {
+        cryptoCode = nestedCurrency.toUpperCase();
+      }
+    }
+
+    return { currency, cryptoCode };
   }
 
   private extractConfigMetadata(
@@ -567,7 +716,7 @@ export class BtcpayPaymentMethodsService {
   private shouldAttemptFallback(error: unknown): boolean {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      return status === 404 || status === 405;
+      return status === 404 || status === 405 || status === 415;
     }
     return false;
   }
@@ -638,32 +787,35 @@ export class BtcpayPaymentMethodsService {
     return store;
   }
 
-  private buildPaymentMethodId(cryptoCode: string): string {
-    return `${cryptoCode.toUpperCase()}-CHAIN`;
+  private buildPaymentMethodId(currency: string): string {
+    return `${currency.toUpperCase()}-CHAIN`;
   }
 
   private buildModernPreviewPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
-  private buildLegacyPreviewPath(storeId: string, cryptoCode: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode.toUpperCase())}/preview`;
+  private buildLegacyPreviewPath(storeId: string, currency: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(currency.toUpperCase())}/preview`;
   }
 
   private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
-  private buildLegacyPaymentMethodPath(storeId: string, cryptoCode: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode.toUpperCase())}`;
+  private buildLegacyPaymentMethodPath(storeId: string, currency: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(currency.toUpperCase())}`;
   }
 
   private handleBtcpayError(error: unknown): never {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 502;
       const message = this.extractErrorMessage(error);
-      if (status >= 400 && status < 500) {
+      if ([400, 409, 422].includes(status)) {
         throw new UnprocessableEntityException(message, { cause: error as Error });
+      }
+      if (status === 401 || status === 403) {
+        throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
       throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
     }
@@ -691,7 +843,7 @@ export class BtcpayPaymentMethodsService {
         return this.rewriteValidationMessage(message);
       }
     }
-    return this.rewriteValidationMessage('Invalid derivation scheme. Provide a valid xpub/ypub/zpub or NBX expression such as wpkh([FPR/84\'/0\'/0\']xpub.../0/*).');
+    return this.rewriteValidationMessage(INVALID_DERIVATION_MESSAGE);
   }
 
   private firstErrorMessage(errors: unknown[]): string | null {
@@ -711,15 +863,18 @@ export class BtcpayPaymentMethodsService {
   private rewriteValidationMessage(message: string): string {
     const normalized = message.trim();
     if (!normalized) {
-      return 'Invalid derivation scheme. Provide a valid xpub/ypub/zpub or NBX expression such as wpkh([FPR/84\'/0\'/0\']xpub.../0/*).';
-    }
-    if (/derivation/i.test(normalized)) {
-      return normalized;
+      return INVALID_DERIVATION_MESSAGE;
     }
     if (/mnemonic|seed|xprv|yprv|zprv/i.test(normalized)) {
       return 'Seeds or private keys must never be uploaded. Provide an xpub/ypub/zpub or NBX expression only.';
     }
-    return normalized;
+    if (/derivation|config|xpub|ypub|zpub|wpkh|account/i.test(normalized)) {
+      return normalized;
+    }
+    if (normalized.length <= 160) {
+      return normalized;
+    }
+    return `${normalized.slice(0, 157)}...`;
   }
 
   private clearBuffer(value: string | null | undefined): void {

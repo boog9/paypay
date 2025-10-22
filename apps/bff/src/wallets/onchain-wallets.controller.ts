@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CsrfGuard } from '../auth/guards/csrf.guard';
 import { OnchainWalletsService } from './onchain-wallets.service';
 import { PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
 
@@ -9,6 +10,7 @@ import { PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
 export class OnchainWalletsController {
   constructor(private readonly walletsService: OnchainWalletsService) {}
 
+  @UseGuards(CsrfGuard)
   @Post('preview')
   preview(
     @Param('storeId') storeId: string,
@@ -23,6 +25,7 @@ export class OnchainWalletsController {
     return this.walletsService.getConfig(this.resolveUserId(req), storeId);
   }
 
+  @UseGuards(CsrfGuard)
   @Put()
   update(
     @Param('storeId') storeId: string,

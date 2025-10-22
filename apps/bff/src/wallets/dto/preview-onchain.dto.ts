@@ -22,7 +22,7 @@ export const INVALID_DERIVATION_MESSAGE =
 const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,-]+$/u;
 
 function resolveEnglishWordlist(): string[] {
-  const candidate = (wordlists as Record<string, unknown>).english;
+  const candidate = wordlists.english;
   if (!Array.isArray(candidate)) {
     return [];
   }

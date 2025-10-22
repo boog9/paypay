@@ -1,10 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../components/ui/card";
-import { Badge } from "../../../../../../../components/ui/badge";
-import { Button } from "../../../../../../../components/ui/button";
-import { fetchFromBff } from "../../../../../../../lib/server-api";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
+import { Badge } from "../../../../../../../../components/ui/badge";
+import { Button } from "../../../../../../../../components/ui/button";
+import { fetchFromBff } from "../../../../../../../../lib/server-api";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -26,14 +26,57 @@ type SettingsPageProps = {
   searchParams?: Record<string, string | string[] | undefined>;
 };
 
-async function loadWalletConfig(storeId: string): Promise<WalletConfig | null> {
-  const response = await fetchFromBff(`/stores/${storeId}/wallets/btc`, { method: "GET" });
-  if (!response.ok) {
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
     return null;
   }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeWalletConfigPayload(value: unknown): WalletConfig | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+
+  if (typeof record.enabled !== "boolean") {
+    return null;
+  }
+
+  const paymentMethodId = normalizeOptionalString(record.paymentMethodId);
+  const currency = normalizeOptionalString(record.currency);
+  const cryptoCode = normalizeOptionalString(record.cryptoCode);
+
+  if (!paymentMethodId || !currency || !cryptoCode) {
+    return null;
+  }
+
+  return {
+    enabled: record.enabled,
+    derivationScheme: normalizeOptionalString(record.derivationScheme),
+    accountKeyPath: normalizeOptionalString(record.accountKeyPath),
+    masterFingerprint: normalizeOptionalString(record.masterFingerprint),
+    label: normalizeOptionalString(record.label),
+    paymentMethodId,
+    currency,
+    cryptoCode,
+  } satisfies WalletConfig;
+}
+
+async function loadWalletConfig(storeId: string): Promise<WalletConfig | null> {
   try {
-    const payload = (await response.json()) as WalletConfig;
-    return payload;
+    const response = await fetchFromBff(`/stores/${storeId}/wallets/btc`, { method: "GET" });
+    if (!response.ok) {
+      return null;
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return null;
+    }
+    return normalizeWalletConfigPayload(payload);
   } catch {
     return null;
   }

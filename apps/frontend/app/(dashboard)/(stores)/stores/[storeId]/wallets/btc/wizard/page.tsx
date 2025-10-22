@@ -1,15 +1,15 @@
 "use client";
 
-import { FormEvent, useCallback, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
-import { Button } from "../../../../../../../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../components/ui/card";
-import { Input } from "../../../../../../../components/ui/input";
-import { api, isApiError } from "../../../../../../../lib/api";
-import { useToast } from "../../../../../../../components/ui/toast";
-import { getCsrfToken } from "../../../../../../../lib/auth";
+import { Button } from "../../../../../../../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
+import { Input } from "../../../../../../../../components/ui/input";
+import { api, isApiError } from "../../../../../../../../lib/api";
+import { useToast } from "../../../../../../../../components/ui/toast";
+import { getCsrfToken } from "../../../../../../../../lib/auth";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -30,20 +30,72 @@ type PreviewResponse = {
   addresses: PreviewAddress[];
 };
 
-type SaveResponse = {
-  enabled: boolean;
-  derivationScheme: string | null;
-  accountKeyPath: string | null;
-  masterFingerprint: string | null;
-  label: string | null;
-  paymentMethodId: string;
-  currency: string;
-  cryptoCode: string;
-};
+function normalizeNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizePreviewAddressPayload(value: unknown): PreviewAddress | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const address = normalizeNonEmptyString(record.address);
+  if (!address) {
+    return null;
+  }
+
+  const indexValue = record.index;
+  const index = typeof indexValue === "number" && Number.isFinite(indexValue)
+    ? Math.trunc(indexValue)
+    : null;
+
+  return {
+    address,
+    keyPath: normalizeNonEmptyString(record.keyPath),
+    index,
+  } satisfies PreviewAddress;
+}
+
+function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const storeId = normalizeNonEmptyString(record.storeId);
+  const currency = normalizeNonEmptyString(record.currency);
+  const cryptoCode = normalizeNonEmptyString(record.cryptoCode);
+  const paymentMethodId = normalizeNonEmptyString(record.paymentMethodId);
+
+  if (!storeId || !currency || !cryptoCode || !paymentMethodId) {
+    return null;
+  }
+
+  const addressesRaw = Array.isArray(record.addresses) ? record.addresses : [];
+  const addresses = addressesRaw
+    .map((item) => normalizePreviewAddressPayload(item))
+    .filter((item): item is PreviewAddress => item !== null);
+
+  return {
+    storeId,
+    currency,
+    cryptoCode,
+    paymentMethodId,
+    derivationScheme: normalizeNonEmptyString(record.derivationScheme),
+    accountKeyPath: normalizeNonEmptyString(record.accountKeyPath),
+    masterFingerprint: normalizeNonEmptyString(record.masterFingerprint),
+    addresses,
+  } satisfies PreviewResponse;
+}
 
 const INVALID_DERIVATION_MESSAGE =
   "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
-const DERIVATION_PATTERN = /^[A-Za-z0-9\[\]\(\)'\/\*_,\-]+$/;
+const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,-]+$/u;
 const SENSITIVE_PATTERN = /(seed|mnemonic|xprv|yprv|zprv|privatekey)/i;
 
 const formSchema = z.object({
@@ -80,7 +132,7 @@ type WizardProps = {
 export default function WalletWizardPage({ params }: WizardProps) {
   const storeId = params.storeId;
   const router = useRouter();
-  const { toast } = useToast();
+  const toastContext = useToast();
 
   const [step, setStep] = useState<WizardStep>("connect");
   const [derivationScheme, setDerivationScheme] = useState("");
@@ -92,113 +144,117 @@ export default function WalletWizardPage({ params }: WizardProps) {
 
   const addresses = useMemo(() => preview?.addresses ?? [], [preview]);
 
+  const handleDerivationChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setDerivationScheme(event.currentTarget.value);
+  }, []);
+
+  const handleAccountKeyPathChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.currentTarget.value;
+    setAccountKeyPath(nextValue.length > 0 ? nextValue : undefined);
+  }, []);
+
   const handleStart = useCallback(() => {
     setStep("enter");
     setFormError(null);
     setFormErrors({});
   }, []);
 
-  const handlePreview = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (isLoading) {
-        return;
-      }
-
-      void (async () => {
-        setIsLoading(true);
-        setFormError(null);
-        setFormErrors({});
-
-        const parsed = formSchema.safeParse({ derivationScheme, accountKeyPath });
-        if (!parsed.success) {
-          const nextErrors: FormErrors = {};
-          const fieldErrors = parsed.error.flatten().fieldErrors;
-          if (fieldErrors.derivationScheme?.length) {
-            nextErrors.derivationScheme = fieldErrors.derivationScheme[0] ?? null;
-          }
-          if (fieldErrors.accountKeyPath?.length) {
-            nextErrors.accountKeyPath = fieldErrors.accountKeyPath[0] ?? null;
-          }
-          setFormErrors(nextErrors);
-          setIsLoading(false);
-          return;
-        }
-
-        setDerivationScheme(parsed.data.derivationScheme);
-        setAccountKeyPath(parsed.data.accountKeyPath);
-
-        try {
-          const csrfToken = await getCsrfToken();
-          const response = await api<PreviewResponse>(`/api/stores/${storeId}/wallets/btc/preview`, {
-            method: "POST",
-            body: parsed.data,
-            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-          });
-          setPreview(response);
-          setStep("confirm");
-        } catch (error) {
-          if (isApiError(error)) {
-            const message = error.message || "Failed to preview derivation scheme.";
-            setFormError(message);
-            toast({ title: "Preview failed", description: message, variant: "destructive" });
-          } else {
-            const message = error instanceof Error ? error.message : "Unexpected error during preview.";
-            setFormError(message);
-            toast({ title: "Unexpected error", description: message, variant: "destructive" });
-          }
-        } finally {
-          setIsLoading(false);
-        }
-      })();
-    },
-    [accountKeyPath, derivationScheme, isLoading, storeId, toast]
-  );
-
-  const handleConfirm = useCallback(() => {
-    if (!preview) {
-      return;
-    }
-
+  const handlePreview = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (isLoading) {
       return;
     }
 
-    void (async () => {
-      setIsLoading(true);
-      try {
-        const csrfToken = await getCsrfToken();
-        const nextDerivation = preview.derivationScheme ?? derivationScheme;
-        const nextAccountPath = preview.accountKeyPath ?? accountKeyPath;
-        const payload = {
-          derivationScheme: nextDerivation,
-          accountKeyPath: nextAccountPath,
-          enabled: true,
-        };
-        await api<SaveResponse>(`/api/stores/${storeId}/wallets/btc`, {
-          method: "PUT",
-          body: payload,
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-        });
-        toast({
-          title: "Wallet connected",
-          description: "The on-chain Bitcoin wallet has been saved for this store.",
-          variant: "success",
-        });
-        router.replace(`/stores/${storeId}/wallets/btc/settings?connected=1`);
-      } catch (error) {
-        if (isApiError(error)) {
-          const message = error.message || "Failed to save wallet configuration.";
-          toast({ title: "Save failed", description: message, variant: "destructive" });
-        } else {
-          const message = error instanceof Error ? error.message : "Unexpected error while saving wallet.";
-          toast({ title: "Unexpected error", description: message, variant: "destructive" });
-        }
-      } finally {
-        setIsLoading(false);
+    setIsLoading(true);
+    setFormError(null);
+    setFormErrors({});
+
+    const parsed = formSchema.safeParse({ derivationScheme, accountKeyPath });
+    if (!parsed.success) {
+      const nextErrors: FormErrors = {};
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      if (fieldErrors.derivationScheme?.length) {
+        nextErrors.derivationScheme = fieldErrors.derivationScheme[0] ?? null;
       }
-    })();
-  }, [accountKeyPath, derivationScheme, isLoading, preview, router, storeId, toast]);
+      if (fieldErrors.accountKeyPath?.length) {
+        nextErrors.accountKeyPath = fieldErrors.accountKeyPath[0] ?? null;
+      }
+      setFormErrors(nextErrors);
+      setIsLoading(false);
+      return;
+    }
+
+    setDerivationScheme(parsed.data.derivationScheme);
+    setAccountKeyPath(parsed.data.accountKeyPath);
+
+    try {
+      const csrfToken = await getCsrfToken();
+      const response = await api<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, {
+        method: "POST",
+        body: parsed.data,
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      });
+      const normalized = normalizePreviewResponsePayload(response);
+      if (!normalized) {
+        throw new Error("Invalid preview payload returned by the server.");
+      }
+      setPreview(normalized);
+      setStep("confirm");
+    } catch (error: unknown) {
+      if (isApiError(error)) {
+        const message = error.message || "Failed to preview derivation scheme.";
+        setFormError(message);
+        toastContext.toast({ title: "Preview failed", description: message, variant: "destructive" });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Unexpected error during preview.";
+      setFormError(message);
+      toastContext.toast({ title: "Unexpected error", description: message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accountKeyPath, derivationScheme, isLoading, storeId, toastContext]);
+
+  const handleConfirm = useCallback(async () => {
+    if (!preview || isLoading) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const csrfToken = await getCsrfToken();
+      const nextDerivation = preview.derivationScheme ?? derivationScheme;
+      const nextAccountPath = preview.accountKeyPath ?? accountKeyPath;
+      const payload = {
+        derivationScheme: nextDerivation,
+        accountKeyPath: nextAccountPath ?? undefined,
+        enabled: true,
+      };
+      await api<unknown>(`/api/stores/${storeId}/wallets/btc`, {
+        method: "PUT",
+        body: payload,
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      });
+      toastContext.toast({
+        title: "Wallet connected",
+        description: "The on-chain Bitcoin wallet has been saved for this store.",
+        variant: "success",
+      });
+      router.replace(`/stores/${storeId}/wallets/btc/settings?connected=1`);
+    } catch (error: unknown) {
+      if (isApiError(error)) {
+        const message = error.message || "Failed to save wallet configuration.";
+        toastContext.toast({ title: "Save failed", description: message, variant: "destructive" });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Unexpected error while saving wallet.";
+      toastContext.toast({ title: "Unexpected error", description: message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accountKeyPath, derivationScheme, isLoading, preview, router, storeId, toastContext]);
 
   const handleBackToEnter = useCallback(() => {
     setStep("enter");
@@ -266,7 +322,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-6" onSubmit={handlePreview}>
+            <form
+              className="space-y-6"
+              onSubmit={(event) => {
+                void handlePreview(event);
+              }}
+            >
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="derivationScheme">
                   Derivation scheme (xpub/ypub/zpub or NBX)
@@ -275,7 +336,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
                   id="derivationScheme"
                   name="derivationScheme"
                   value={derivationScheme}
-                  onChange={(event) => setDerivationScheme(event.target.value)}
+                  onChange={handleDerivationChange}
                   placeholder="wpkh([FPR/84&apos;/0&apos;/0&apos;]xpub.../0/*)"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -295,7 +356,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
                   id="accountKeyPath"
                   name="accountKeyPath"
                   value={accountKeyPath ?? ""}
-                  onChange={(event) => setAccountKeyPath(event.target.value || undefined)}
+                  onChange={handleAccountKeyPathChange}
                   placeholder="m/84&apos;/0&apos;/0&apos;"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -371,7 +432,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
               <Button variant="secondary" onClick={handleBackToEnter}>
                 Back
               </Button>
-              <Button onClick={handleConfirm} disabled={isLoading}>
+              <Button
+                onClick={() => {
+                  void handleConfirm();
+                }}
+                disabled={isLoading}
+              >
                 {isLoading ? "Saving…" : "Confirm and save"}
               </Button>
             </div>

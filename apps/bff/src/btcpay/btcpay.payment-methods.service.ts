@@ -527,10 +527,14 @@ export class BtcpayPaymentMethodsService {
     const candidates: unknown[] = [];
 
     if (Array.isArray(record.addresses)) {
-      candidates.push(...record.addresses);
+      for (const address of record.addresses) {
+        candidates.push(address);
+      }
     }
     if (Array.isArray(record.addressPreview)) {
-      candidates.push(...record.addressPreview);
+      for (const preview of record.addressPreview) {
+        candidates.push(preview);
+      }
     }
 
     return candidates

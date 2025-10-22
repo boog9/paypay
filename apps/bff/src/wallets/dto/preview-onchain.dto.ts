@@ -9,7 +9,6 @@ import {
   MaxLength,
   Min,
   registerDecorator,
-  ValidationArguments,
   ValidationOptions,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -20,8 +19,17 @@ import { wordlists } from 'bip39';
 
 export const INVALID_DERIVATION_MESSAGE =
   "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
-const DERIVATION_PATTERN = /^[A-Za-z0-9\[\]\(\)'\/\*_,\-]+$/;
-const BIP39_WORD_SET = new Set(wordlists.english.map((word) => word.toLowerCase()));
+const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,-]+$/u;
+
+function resolveEnglishWordlist(): string[] {
+  const candidate = (wordlists as Record<string, unknown>).english;
+  if (!Array.isArray(candidate)) {
+    return [];
+  }
+  return candidate.filter((word): word is string => typeof word === 'string');
+}
+
+const BIP39_WORD_SET = new Set<string>(resolveEnglishWordlist().map((word) => word.toLowerCase()));
 
 function normalizeString(value: unknown): string | undefined {
   if (typeof value !== 'string') {
@@ -57,7 +65,7 @@ class NoSensitiveSecretsConstraint implements ValidatorConstraintInterface {
     return true;
   }
 
-  defaultMessage(_args: ValidationArguments): string {
+  defaultMessage(): string {
     return INVALID_DERIVATION_MESSAGE;
   }
 }
@@ -76,7 +84,7 @@ export function NoSensitiveSecrets(validationOptions?: ValidationOptions) {
 
 export class PreviewOnchainDto {
   @IsString()
-  @Transform(({ value }) => normalizeString(value))
+  @Transform(({ value }: { value: unknown }) => normalizeString(value))
   @Length(1, 512, { message: INVALID_DERIVATION_MESSAGE })
   @Matches(DERIVATION_PATTERN, { message: INVALID_DERIVATION_MESSAGE })
   @NoSensitiveSecrets({ message: INVALID_DERIVATION_MESSAGE })
@@ -85,14 +93,14 @@ export class PreviewOnchainDto {
   @IsOptional()
   @ValidateIf((_obj, value) => typeof value === 'string')
   @IsString()
-  @Transform(({ value }) => normalizeString(value))
+  @Transform(({ value }: { value: unknown }) => normalizeString(value))
   @MaxLength(200, { message: INVALID_DERIVATION_MESSAGE })
   @Matches(/^m(\/\d+'?){2,8}$/i, { message: INVALID_DERIVATION_MESSAGE })
   @NoSensitiveSecrets({ message: INVALID_DERIVATION_MESSAGE })
   accountKeyPath?: string;
 
   @IsOptional()
-  @Transform(({ value }) => {
+  @Transform(({ value }: { value: unknown }) => {
     if (value === undefined || value === null || value === '') {
       return undefined;
     }

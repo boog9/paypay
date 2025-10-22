@@ -40,7 +40,7 @@ test.describe("Wallet wizard", () => {
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         body: JSON.stringify(previewResponse),
         contentType: "application/json",
@@ -50,10 +50,10 @@ test.describe("Wallet wizard", () => {
     await page.route(`**/api/stores/${storeId}/wallets/btc`, async (route) => {
       if (route.request().method() === "PUT") {
         expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
-        route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
+        await route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
         return;
       }
-      route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
+      await route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
     });
 
     await page.goto(`/stores/${storeId}/wallets/btc/wizard`);

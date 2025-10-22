@@ -41,7 +41,13 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
   const adapterType = httpAdapter.getType();
   const instance: unknown = httpAdapter.getInstance();
 
-  const assignRawBody = (req: RawBodyRequest, _res: Response, buf: Buffer, _encoding: string) => {
+  const assignRawBody = (
+    req: RawBodyRequest,
+    _res: Response,
+    buf: Buffer,
+    _encoding: BufferEncoding
+  ) => {
+    void _encoding;
     req.rawBody = Buffer.from(buf);
   };
 

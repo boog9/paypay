@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useCallback, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, use, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
@@ -126,11 +126,11 @@ const formSchema = z.object({
 type FormErrors = Partial<Record<"derivationScheme" | "accountKeyPath", string>>;
 
 type WizardProps = {
-  params: { storeId: string };
+  params: Promise<{ storeId: string }>;
 };
 
 export default function WalletWizardPage({ params }: WizardProps) {
-  const storeId = params.storeId;
+  const { storeId } = use(params);
   const router = useRouter();
   const toastContext = useToast();
 

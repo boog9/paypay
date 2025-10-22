@@ -49,7 +49,7 @@ export default function StoreDashboardPage() {
           </CardHeader>
           <CardContent>
             <Button asChild variant="secondary" disabled={!storeId}>
-              <Link href={storeId ? `/stores/${storeId}/wallets/btc` : "#"}>Go to BTC wallet</Link>
+              <Link href={storeId ? `/stores/${storeId}/wallets/btc/wizard` : "#"}>Go to BTC wallet</Link>
             </Button>
           </CardContent>
         </Card>

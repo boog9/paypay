@@ -18,6 +18,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
 import { HealthController } from './health.controller';
 import { StoresModule } from './stores/stores.module';
+import { WalletsModule } from './wallets/wallets.module';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 @Module({
@@ -159,7 +160,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
     BtcpayModule,
     TenantsModule,
     HooksModule,
-    StoresModule
+    StoresModule,
+    WalletsModule
   ],
   controllers: [HealthController],
   providers: [

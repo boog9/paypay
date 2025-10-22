@@ -6,12 +6,15 @@ import { BtcpayProvisioningService } from './btcpay-provisioning.service';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { SecurityModule } from '../security/security.module';
+import { BtcpayPaymentMethodsService } from './btcpay.payment-methods.service';
+import { ManagedStoreEntity } from '../stores/managed-store.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StoreEntity]), SecurityModule],
+  imports: [TypeOrmModule.forFeature([StoreEntity, ManagedStoreEntity]), SecurityModule],
   providers: [
     BtcpayService,
     BtcpayProvisioningService,
+    BtcpayPaymentMethodsService,
     {
       provide: BTCPAY_CONFIG,
       useFactory: (config: ConfigService): BtcpayRuntimeConfig => {
@@ -52,6 +55,6 @@ import { SecurityModule } from '../security/security.module';
       inject: [ConfigService]
     }
   ],
-  exports: [BtcpayService, BtcpayProvisioningService]
+  exports: [BtcpayService, BtcpayProvisioningService, BtcpayPaymentMethodsService]
 })
 export class BtcpayModule {}

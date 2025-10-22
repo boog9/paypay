@@ -67,7 +67,8 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
       express.json({
         limit: '1mb',
         type: ['application/json', 'application/*+json'],
-        verify: (req: RawBodyRequest, _res, buf: Buffer) => {
+        verify: (req: RawBodyRequest, _res, buf: Buffer, encoding?: BufferEncoding) => {
+          void encoding;
           req.rawBody = Buffer.from(buf);
         }
       })

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Input } from "../../../../../../../components/ui/input";
 import { api, isApiError } from "../../../../../../../lib/api";
 import { useToast } from "../../../../../../../components/ui/toast";
+import { getCsrfToken } from "../../../../../../../lib/auth";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -20,6 +21,7 @@ type PreviewAddress = {
 
 type PreviewResponse = {
   storeId: string;
+  currency: string;
   cryptoCode: string;
   paymentMethodId: string;
   derivationScheme: string | null;
@@ -35,31 +37,37 @@ type SaveResponse = {
   masterFingerprint: string | null;
   label: string | null;
   paymentMethodId: string;
+  currency: string;
   cryptoCode: string;
 };
 
+const INVALID_DERIVATION_MESSAGE =
+  "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
+const DERIVATION_PATTERN = /^[A-Za-z0-9\[\]\(\)'\/\*_,\-]+$/;
+const SENSITIVE_PATTERN = /(seed|mnemonic|xprv|yprv|zprv|privatekey)/i;
+
 const formSchema = z.object({
   derivationScheme: z
-    .string({ required_error: "Derivation scheme is required." })
+    .string({ required_error: INVALID_DERIVATION_MESSAGE })
     .trim()
-    .min(1, "Derivation scheme is required.")
-    .max(512, "Derivation scheme is too long.")
-    .refine((value) => !/\s/.test(value), {
-      message: "Derivation scheme must not contain whitespace.",
+    .min(1, INVALID_DERIVATION_MESSAGE)
+    .max(512, INVALID_DERIVATION_MESSAGE)
+    .refine((value) => DERIVATION_PATTERN.test(value), {
+      message: INVALID_DERIVATION_MESSAGE,
     })
-    .refine((value) => !/(seed|mnemonic|xprv|yprv|zprv|privatekey)/i.test(value), {
-      message: "Never paste seeds, mnemonics or private keys.",
+    .refine((value) => !SENSITIVE_PATTERN.test(value), {
+      message: INVALID_DERIVATION_MESSAGE,
     }),
   accountKeyPath: z
     .string()
     .optional()
     .transform((value) => (value ? value.trim() : ""))
     .transform((value) => (value.length === 0 ? undefined : value))
-    .refine((value) => (value ? !/\s/.test(value) : true), {
-      message: "Account key path must not contain whitespace.",
+    .refine((value) => (value ? /^m(\/\d+'?){2,8}$/i.test(value) : true), {
+      message: INVALID_DERIVATION_MESSAGE,
     })
-    .refine((value) => (value ? !/(seed|mnemonic|xprv|yprv|zprv|privatekey)/i.test(value) : true), {
-      message: "Account key path must not include sensitive material.",
+    .refine((value) => (value ? !SENSITIVE_PATTERN.test(value) : true), {
+      message: INVALID_DERIVATION_MESSAGE,
     }),
 });
 
@@ -117,11 +125,15 @@ export default function WalletWizardPage({ params }: WizardProps) {
           return;
         }
 
+        setDerivationScheme(parsed.data.derivationScheme);
+        setAccountKeyPath(parsed.data.accountKeyPath);
+
         try {
+          const csrfToken = await getCsrfToken();
           const response = await api<PreviewResponse>(`/api/stores/${storeId}/wallets/btc/preview`, {
             method: "POST",
             body: parsed.data,
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
           });
           setPreview(response);
           setStep("confirm");
@@ -155,15 +167,18 @@ export default function WalletWizardPage({ params }: WizardProps) {
     void (async () => {
       setIsLoading(true);
       try {
+        const csrfToken = await getCsrfToken();
+        const nextDerivation = preview.derivationScheme ?? derivationScheme;
+        const nextAccountPath = preview.accountKeyPath ?? accountKeyPath;
         const payload = {
-          derivationScheme,
-          accountKeyPath,
+          derivationScheme: nextDerivation,
+          accountKeyPath: nextAccountPath,
           enabled: true,
         };
         await api<SaveResponse>(`/api/stores/${storeId}/wallets/btc`, {
           method: "PUT",
           body: payload,
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
         });
         toast({
           title: "Wallet connected",
@@ -195,17 +210,19 @@ export default function WalletWizardPage({ params }: WizardProps) {
     }
     return (
       <ol className="space-y-2">
-        {addresses.map((item, index) => (
-          <li
-            key={`${item.address}-${index}`}
-            className="rounded-md border border-muted bg-muted/40 px-4 py-3 text-sm"
-          >
-            <div className="font-medium text-foreground">{item.address}</div>
-            <div className="text-xs text-muted-foreground">
-              Key path: {item.keyPath ?? "0/" + index}
-            </div>
-          </li>
-        ))}
+        {addresses.map((item, index) => {
+          const displayIndex = typeof item.index === "number" ? item.index : index;
+          const keyPath = item.keyPath ?? `0/${displayIndex}`;
+          return (
+            <li
+              key={`${item.address}-${displayIndex}`}
+              className="rounded-md border border-muted bg-muted/40 px-4 py-3 text-sm"
+            >
+              <div className="font-medium text-foreground">{item.address}</div>
+              <div className="text-xs text-muted-foreground">Key path: {keyPath}</div>
+            </li>
+          );
+        })}
       </ol>
     );
   }, [addresses]);
@@ -222,32 +239,17 @@ export default function WalletWizardPage({ params }: WizardProps) {
       </header>
 
       {step === "connect" && (
-        <section className="grid gap-4 md:grid-cols-2">
+        <section className="grid gap-4 md:grid-cols-1">
           <Card className="border border-primary/30 bg-primary/5">
             <CardHeader>
               <CardTitle className="text-lg">Connect an existing wallet</CardTitle>
               <CardDescription>
-                Import an extended public key (xpub/ypub/zpub or NBX expression) from an external wallet such
-                as Ledger Live, Sparrow, Specter or Wasabi.
+                Import the read-only extended public key (xpub/ypub/zpub or NBX expression) from your hardware or
+                software wallet. This wizard only stores public information needed to derive receiving addresses.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={handleStart}>Enter extended public key</Button>
-            </CardContent>
-          </Card>
-
-          <Card className="opacity-60">
-            <CardHeader>
-              <CardTitle className="text-lg">Generate a new wallet</CardTitle>
-              <CardDescription>
-                Generating a new hot wallet from BTCPay is not yet available in PayPay. Use the BTCPay UI if
-                you need to create a new wallet.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" disabled>
-                Coming soon
-              </Button>
             </CardContent>
           </Card>
         </section>
@@ -328,8 +330,8 @@ export default function WalletWizardPage({ params }: WizardProps) {
           <CardHeader className="space-y-2">
             <CardTitle className="text-lg">Confirm receiving addresses</CardTitle>
             <CardDescription>
-              Compare the first deposit addresses with your external wallet (Ledger, Sparrow, Specter,
-              Wasabi, Electrum). Only confirm if the addresses match exactly.
+              Compare the first deposit addresses with your external wallet and verify them in your wallet of
+              choice (Electrum, Wasabi, Ledger, Sparrow, Specter). Only confirm once the addresses match exactly.
             </CardDescription>
             <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
               Derivation scheme: <span className="font-mono text-foreground">{preview.derivationScheme ?? derivationScheme}</span>
@@ -357,7 +359,11 @@ export default function WalletWizardPage({ params }: WizardProps) {
               <p>
                 BTCPay derives these addresses using NBXplorer. Confirm that your wallet shows the same
                 0/0…0/9 addresses before enabling this payment method. If the addresses differ, double-check
-                the derivation scheme and account key path in your wallet settings.
+                the derivation scheme and account key path in your wallet configuration.
+              </p>
+              <p className="font-medium text-foreground">
+                Tip: use your wallet&apos;s address explorer to confirm each path and mark them as verified before
+                proceeding.
               </p>
             </div>
 

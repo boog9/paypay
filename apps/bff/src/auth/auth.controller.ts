@@ -24,11 +24,11 @@ import {
   SignupResponseDto,
   SignupServiceResultDto
 } from './dto/auth-response.dto';
-import { CsrfService } from './csrf.service';
+import { CsrfService } from '../security/csrf.service';
 import { RegisterDto } from './dto/register.dto';
 import { resolveCookieNames } from './cookie-names';
 import { setAuthCookies, clearAuthCookies } from './cookies.util';
-import { CsrfGuard } from './guards/csrf.guard';
+import { CsrfGuard } from '../security/csrf.guard';
 
 @Controller('auth')
 export class AuthController {

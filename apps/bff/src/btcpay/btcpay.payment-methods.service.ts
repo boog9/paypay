@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { BtcpayService } from './btcpay.service';
+import { BTCPayAuthError, BTCPayUpstreamError } from './btcpay.errors';
 
 type Maybe<T> = T | null | undefined;
 
@@ -65,11 +66,47 @@ export interface UpdateOnchainPaymentMethodPayload {
     derivationScheme: string;
     accountKeyPath?: string | null;
     label?: string | null;
+    masterFingerprint?: string | null;
   };
+}
+
+export type BtcpayPaymentMethodType = 'chain' | 'ln' | 'lnurl';
+
+export function normalizePaymentMethodId(cryptoCode: string, type: BtcpayPaymentMethodType): string {
+  const code = typeof cryptoCode === 'string' ? cryptoCode.trim().toUpperCase() : '';
+  if (!code) {
+    throw new InternalServerErrorException('Invalid payment method crypto code.');
+  }
+
+  switch (type) {
+    case 'chain':
+      return `${code}-CHAIN`;
+    case 'ln':
+      return `${code}-LN`;
+    case 'lnurl':
+      return `${code}-LNURL`;
+    default:
+      throw new InternalServerErrorException('Unsupported payment method type.');
+  }
 }
 
 interface PaymentMethodRequestOptions {
   store?: ManagedStoreEntity;
+  apiKeyOverride?: string | null;
+}
+
+export interface UpdateOnchainPaymentMethodRequest {
+  storeId: string;
+  cryptoCode: string;
+  derivationScheme: string;
+  accountKeyPath?: string | null;
+  masterFingerprint?: string | null;
+  label?: string | null;
+  enabled?: boolean;
+}
+
+export interface UpdateOnchainPaymentMethodOptions extends PaymentMethodRequestOptions {
+  apiKey: string;
 }
 
 interface StoreContext {
@@ -116,7 +153,7 @@ export class BtcpayPaymentMethodsService {
   ): Promise<OnchainPreviewResponse> {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
-    const paymentMethodId = this.buildPaymentMethodId(currency);
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
     try {
       this.logger.debug(
         `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
@@ -145,7 +182,7 @@ export class BtcpayPaymentMethodsService {
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
-    const paymentMethodId = this.buildPaymentMethodId(currency);
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
     const params: Record<string, string> = {};
     if (options?.includeConfig !== false) {
       params.includeConfig = 'true';
@@ -176,7 +213,7 @@ export class BtcpayPaymentMethodsService {
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
-    const paymentMethodId = this.buildPaymentMethodId(currency);
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
     const requestBody = this.buildUpdateRequestBody(payload);
 
     try {
@@ -192,6 +229,37 @@ export class BtcpayPaymentMethodsService {
     }
 
     throw new InternalServerErrorException('Failed to update on-chain payment method.');
+  }
+
+  async updateOnchainPaymentMethod(
+    params: UpdateOnchainPaymentMethodRequest,
+    options: UpdateOnchainPaymentMethodOptions
+  ): Promise<void> {
+    const context = await this.prepareStoreContext(params.storeId, {
+      store: options.store,
+      apiKeyOverride: options.apiKey
+    });
+    const paymentMethodId = normalizePaymentMethodId(params.cryptoCode, 'chain');
+    const body = this.buildUpdateRequestBody({
+      enabled: params.enabled ?? true,
+      config: {
+        derivationScheme: params.derivationScheme,
+        accountKeyPath: params.accountKeyPath,
+        masterFingerprint: params.masterFingerprint,
+        label: params.label
+      }
+    });
+
+    try {
+      await context.http.put(
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
+        body
+      );
+    } catch (error) {
+      this.handleUpdatePaymentMethodError(error);
+    } finally {
+      context.cleanup();
+    }
   }
 
   private buildPreviewRequestBody(body?: OnchainPreviewRequest): Record<string, unknown> {
@@ -256,6 +324,14 @@ export class BtcpayPaymentMethodsService {
 
     if (typeof config.label === 'string' && config.label.trim()) {
       payload.label = config.label;
+    }
+
+    if (config.masterFingerprint !== undefined) {
+      if (config.masterFingerprint === null) {
+        payload.masterFingerprint = null;
+      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
+        payload.masterFingerprint = config.masterFingerprint.trim().toUpperCase();
+      }
     }
 
     return payload;
@@ -522,7 +598,8 @@ export class BtcpayPaymentMethodsService {
       throw new NotFoundException('Store not found');
     }
 
-    const apiKey = this.decryptStoreApiKey(store);
+    const overrideApiKey = this.normalizeApiKey(options?.apiKeyOverride);
+    const apiKey = overrideApiKey ?? this.decryptStoreApiKey(store);
     const baseUrl = this.resolveBaseUrl(store);
     const http = this.createHttp(baseUrl, apiKey);
     return {
@@ -532,6 +609,14 @@ export class BtcpayPaymentMethodsService {
       http,
       cleanup: () => this.clearBuffer(apiKey)
     } satisfies StoreContext;
+  }
+
+  private normalizeApiKey(value: string | null | undefined): string | null {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
   }
 
   private resolveBaseUrl(store: ManagedStoreEntity): string {
@@ -579,10 +664,6 @@ export class BtcpayPaymentMethodsService {
     return store;
   }
 
-  private buildPaymentMethodId(currency: string): string {
-    return `${currency.toUpperCase()}-CHAIN`;
-  }
-
   private buildModernPreviewPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
@@ -609,6 +690,18 @@ export class BtcpayPaymentMethodsService {
     }
 
     throw new BadGatewayException('BTCPay request failed', { cause: error instanceof Error ? error : undefined });
+  }
+
+  private handleUpdatePaymentMethodError(error: unknown): never {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      if (status === 401 || status === 403) {
+        throw new BTCPayAuthError('BTCPay authentication failed', error);
+      }
+      throw new BTCPayUpstreamError('Upstream error', error, status);
+    }
+
+    throw new BTCPayUpstreamError('Upstream error', error);
   }
 
   private extractErrorMessage(error: AxiosError): string {

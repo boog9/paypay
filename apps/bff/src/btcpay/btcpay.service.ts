@@ -477,6 +477,34 @@ export class BtcpayService {
     }
   }
 
+  async deleteUserApiKeyForUser(host: string | undefined, email: string, apiKeyIdOrValue: string): Promise<void> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.getAdminApiKey()}`
+    });
+    try {
+      await http.delete(
+        `/api/v1/users/${encodeURIComponent(email)}/api-keys/${encodeURIComponent(apiKeyIdOrValue)}`
+      );
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data: unknown = error.response?.data;
+        if (this.isMissingApiKeyError(status, data)) {
+          this.logger.warn(
+            {
+              statusCode: status,
+              key: this.redactToken(apiKeyIdOrValue),
+              email
+            },
+            'deleteUserApiKeyForUser'
+          );
+          return;
+        }
+      }
+      this.maskError(error, { action: 'deleteUserApiKeyForUser' });
+    }
+  }
+
   async removeStoreUser(host: string | undefined, storeId: string, idOrEmail: string): Promise<void> {
     const http = this.createHttp(host ?? this.config.baseUrl, {
       Authorization: `token ${this.getAdminApiKey()}`

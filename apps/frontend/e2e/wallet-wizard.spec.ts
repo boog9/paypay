@@ -49,7 +49,7 @@ test.describe("Wallet wizard", () => {
     await page.route(`**/api/stores/${storeId}/wallets/btc`, async (route) => {
       if (route.request().method() === "PUT") {
         expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
-        await route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
+        await route.fulfill({ status: 204 });
         return;
       }
       await route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });

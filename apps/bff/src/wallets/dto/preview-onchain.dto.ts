@@ -85,7 +85,7 @@ export function NoSensitiveSecrets(validationOptions?: ValidationOptions) {
 export class PreviewOnchainDto {
   @IsString()
   @Transform(({ value }: { value: unknown }) => normalizeString(value))
-  @Length(1, 512, { message: INVALID_DERIVATION_MESSAGE })
+  @Length(8, 512, { message: INVALID_DERIVATION_MESSAGE })
   @Matches(DERIVATION_PATTERN, { message: INVALID_DERIVATION_MESSAGE })
   @NoSensitiveSecrets({ message: INVALID_DERIVATION_MESSAGE })
   derivationScheme!: string;
@@ -124,4 +124,11 @@ export class UpdateOnchainDto extends PreviewOnchainDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => typeof value === 'string')
+  @IsString()
+  @Transform(({ value }) => normalizeString(value))
+  @Matches(/^[0-9a-fA-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
+  masterFingerprint?: string;
 }

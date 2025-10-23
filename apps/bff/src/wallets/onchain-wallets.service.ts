@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -14,19 +15,32 @@ import {
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload
 } from '../btcpay/btcpay.payment-methods.service';
+import { BtcpayKeysService } from '../btcpay/btcpay.keys.service';
+import { isBTCPayAuthError, isBTCPayUpstreamError } from '../btcpay/btcpay.errors';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { INVALID_DERIVATION_MESSAGE, PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
+import { normalizeEmail } from '../auth/email.utils';
+
+interface WalletUserContext {
+  id: string | null;
+  email: string | null;
+}
 
 @Injectable()
 export class OnchainWalletsService {
   constructor(
     @InjectRepository(ManagedStoreEntity)
     private readonly storesRepository: Repository<ManagedStoreEntity>,
-    private readonly paymentMethods: BtcpayPaymentMethodsService
+    private readonly paymentMethods: BtcpayPaymentMethodsService,
+    private readonly keysService: BtcpayKeysService
   ) {}
 
-  async preview(tenantUserId: string | null, storeId: string, dto: PreviewOnchainDto): Promise<OnchainPreviewResponse> {
-    const userId = this.requireUserId(tenantUserId);
+  async preview(
+    userContext: WalletUserContext,
+    storeId: string,
+    dto: PreviewOnchainDto
+  ): Promise<OnchainPreviewResponse> {
+    const userId = this.requireUserId(userContext.id);
     const store = await this.requireStore(userId, storeId);
     const previewRequest = this.buildPreviewRequest(dto);
     const preview = await this.paymentMethods.previewOnchain(store.btcpayStoreId, 'BTC', previewRequest, { store });
@@ -37,21 +51,53 @@ export class OnchainWalletsService {
     };
   }
 
-  async getConfig(tenantUserId: string | null, storeId: string): Promise<OnchainPaymentMethodConfig> {
-    const userId = this.requireUserId(tenantUserId);
+  async getConfig(
+    userContext: WalletUserContext,
+    storeId: string
+  ): Promise<OnchainPaymentMethodConfig> {
+    const userId = this.requireUserId(userContext.id);
     const store = await this.requireStore(userId, storeId);
     return this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true });
   }
 
   async update(
-    tenantUserId: string | null,
+    userContext: WalletUserContext,
     storeId: string,
     dto: UpdateOnchainDto
-  ): Promise<OnchainPaymentMethodConfig> {
-    const userId = this.requireUserId(tenantUserId);
+  ): Promise<void> {
+    const userId = this.requireUserId(userContext.id);
+    const userEmail = this.requireUserEmail(userContext.email);
     const store = await this.requireStore(userId, storeId);
     const payload: UpdateOnchainPaymentMethodPayload = this.buildUpdatePayload(dto);
-    return this.paymentMethods.updateOnchain(store.btcpayStoreId, 'BTC', payload, { store });
+    try {
+      await this.keysService.withStoreSettingsWriteKey(
+        store.btcpayStoreId,
+        userEmail,
+        async (apiKey) => {
+          await this.paymentMethods.updateOnchainPaymentMethod(
+            {
+              storeId: store.btcpayStoreId,
+              cryptoCode: 'BTC',
+              derivationScheme: payload.config.derivationScheme,
+              accountKeyPath: payload.config.accountKeyPath,
+              masterFingerprint: payload.config.masterFingerprint,
+              label: payload.config.label,
+              enabled: payload.enabled
+            },
+            { store, apiKey }
+          );
+        },
+        { host: store.btcpayHost }
+      );
+    } catch (error) {
+      if (isBTCPayAuthError(error)) {
+        throw new UnauthorizedException('BTCPay authentication failed');
+      }
+      if (isBTCPayUpstreamError(error)) {
+        throw new BadGatewayException('Upstream error');
+      }
+      throw error;
+    }
   }
 
   private buildPreviewRequest(dto: PreviewOnchainDto): OnchainPreviewRequest {
@@ -70,7 +116,8 @@ export class OnchainWalletsService {
       config: {
         derivationScheme: dto.derivationScheme,
         accountKeyPath: dto.accountKeyPath,
-        label: dto.label
+        label: dto.label,
+        masterFingerprint: dto.masterFingerprint
       }
     };
   }
@@ -84,6 +131,17 @@ export class OnchainWalletsService {
       throw new UnauthorizedException('Authenticated user context is required.');
     }
     return trimmed;
+  }
+
+  private requireUserEmail(email: string | null): string {
+    if (!email) {
+      throw new UnauthorizedException('Authenticated user context is required.');
+    }
+    const normalized = normalizeEmail(email);
+    if (!normalized) {
+      throw new UnauthorizedException('Authenticated user context is required.');
+    }
+    return normalized;
   }
 
   private async requireStore(userId: string, storeId: string): Promise<ManagedStoreEntity> {

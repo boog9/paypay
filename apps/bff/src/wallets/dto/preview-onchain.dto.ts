@@ -19,7 +19,7 @@ import { wordlists } from 'bip39';
 
 export const INVALID_DERIVATION_MESSAGE =
   "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
-const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,-]+$/u;
+const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,:-]+$/u;
 
 function resolveEnglishWordlist(): string[] {
   const candidate = wordlists.english;
@@ -95,7 +95,7 @@ export class PreviewOnchainDto {
   @IsString()
   @Transform(({ value }: { value: unknown }) => normalizeString(value))
   @MaxLength(200, { message: INVALID_DERIVATION_MESSAGE })
-  @Matches(/^m(\/\d+'?){2,8}$/i, { message: INVALID_DERIVATION_MESSAGE })
+  @Matches(/^(?:m|[0-9a-fA-F]{8})(\/\d+'?){2,8}$/i, { message: INVALID_DERIVATION_MESSAGE })
   @NoSensitiveSecrets({ message: INVALID_DERIVATION_MESSAGE })
   accountKeyPath?: string;
 

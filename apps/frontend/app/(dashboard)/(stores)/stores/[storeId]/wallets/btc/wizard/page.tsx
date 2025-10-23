@@ -95,7 +95,7 @@ function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null
 
 const INVALID_DERIVATION_MESSAGE =
   "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
-const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,-]+$/u;
+const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,:-]+$/u;
 const SENSITIVE_PATTERN = /(seed|mnemonic|xprv|yprv|zprv|privatekey)/i;
 
 const formSchema = z.object({
@@ -115,7 +115,7 @@ const formSchema = z.object({
     .optional()
     .transform((value) => (value ? value.trim() : ""))
     .transform((value) => (value.length === 0 ? undefined : value))
-    .refine((value) => (value ? /^m(\/\d+'?){2,8}$/i.test(value) : true), {
+    .refine((value) => (value ? /^(?:m|[0-9a-fA-F]{8})(\/\d+'?){2,8}$/i.test(value) : true), {
       message: INVALID_DERIVATION_MESSAGE,
     })
     .refine((value) => (value ? !SENSITIVE_PATTERN.test(value) : true), {

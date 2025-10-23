@@ -1,7 +1,10 @@
+import { BadGatewayException, UnauthorizedException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { OnchainWalletsService } from '../src/wallets/onchain-wallets.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { BtcpayPaymentMethodsService, OnchainPreviewResponse } from '../src/btcpay/btcpay.payment-methods.service';
+import { BtcpayKeysService } from '../src/btcpay/btcpay.keys.service';
+import { BTCPayAuthError, BTCPayUpstreamError } from '../src/btcpay/btcpay.errors';
 
 const store: ManagedStoreEntity = {
   id: 'local-store',
@@ -39,18 +42,26 @@ describe('OnchainWalletsService', () => {
 
   const paymentMethods = {
     previewOnchain: jest.fn().mockResolvedValue(previewResponse),
+    updateOnchainPaymentMethod: jest.fn()
   } as unknown as BtcpayPaymentMethodsService;
 
-  const service = new OnchainWalletsService(repository, paymentMethods);
+  const keysService = {
+    withStoreSettingsWriteKey: jest.fn()
+  } as unknown as BtcpayKeysService;
+
+  const service = new OnchainWalletsService(repository, paymentMethods, keysService);
 
   beforeEach(() => {
     jest.clearAllMocks();
     (repository.findOne as jest.Mock).mockResolvedValue(store);
     (paymentMethods.previewOnchain as jest.Mock).mockResolvedValue(previewResponse);
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockReset();
+    (paymentMethods.updateOnchainPaymentMethod as jest.Mock).mockReset();
+    (paymentMethods.updateOnchainPaymentMethod as jest.Mock).mockResolvedValue(undefined);
   });
 
   it('limits preview addresses to the requested amount', async () => {
-    const result = await service.preview('tenant-user', store.btcpayStoreId, {
+    const result = await service.preview({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId, {
       derivationScheme: 'zpubExample',
       amount: 5,
     } as any);
@@ -70,5 +81,72 @@ describe('OnchainWalletsService', () => {
     expect(result.addresses).toHaveLength(5);
     expect(result.addresses[0]?.address).toBe('bcrt1qpreview0');
     expect(result.addresses[4]?.index).toBe(4);
+  });
+
+  it('updates the on-chain payment method using a temporary key', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) => {
+        await handler('temp-key');
+      }
+    );
+
+    await service.update(
+      { id: 'tenant-user', email: 'merchant@example.com' },
+      store.btcpayStoreId,
+      {
+        derivationScheme: 'xpubExample',
+        accountKeyPath: "m/84'/0'/0'",
+        masterFingerprint: 'abcdef12'
+      } as any
+    );
+
+    expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+      store.btcpayStoreId,
+      'merchant@example.com',
+      expect.any(Function),
+      { host: store.btcpayHost }
+    );
+
+    expect(paymentMethods.updateOnchainPaymentMethod).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: store.btcpayStoreId,
+        cryptoCode: 'BTC',
+        derivationScheme: 'xpubExample',
+        masterFingerprint: 'abcdef12'
+      }),
+      { store, apiKey: 'temp-key' }
+    );
+  });
+
+  it('throws UnauthorizedException when BTCPay rejects the temporary key', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockRejectedValue(new BTCPayAuthError());
+
+    await expect(
+      service.update(
+        { id: 'tenant-user', email: 'merchant@example.com' },
+        store.btcpayStoreId,
+        {
+          derivationScheme: 'xpubExample',
+          accountKeyPath: "m/84'/0'/0'"
+        } as any
+      )
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(paymentMethods.updateOnchainPaymentMethod).not.toHaveBeenCalled();
+  });
+
+  it('maps upstream BTCPay errors to BadGatewayException', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockRejectedValue(new BTCPayUpstreamError());
+
+    await expect(
+      service.update(
+        { id: 'tenant-user', email: 'merchant@example.com' },
+        store.btcpayStoreId,
+        {
+          derivationScheme: 'xpubExample',
+          accountKeyPath: "m/84'/0'/0'"
+        } as any
+      )
+    ).rejects.toBeInstanceOf(BadGatewayException);
+    expect(paymentMethods.updateOnchainPaymentMethod).not.toHaveBeenCalled();
   });
 });

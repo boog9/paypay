@@ -93,7 +93,7 @@ const formSchema = z.object({
   derivationScheme: z
     .string({ required_error: INVALID_DERIVATION_MESSAGE })
     .trim()
-    .min(1, INVALID_DERIVATION_MESSAGE)
+    .min(8, INVALID_DERIVATION_MESSAGE)
     .max(512, INVALID_DERIVATION_MESSAGE)
     .refine((value) => DERIVATION_PATTERN.test(value), {
       message: INVALID_DERIVATION_MESSAGE,
@@ -233,7 +233,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
       router.replace(`/stores/${storeId}/wallets/btc/settings?connected=1`);
     } catch (error: unknown) {
       if (isApiError(error)) {
-        const message = error.message || "Failed to save wallet configuration.";
+        let message = error.message || "Failed to save wallet configuration.";
+        if (error.status === 401) {
+          message = "BTCPay authentication failed";
+        } else if (error.status === 502) {
+          message = "BTCPay upstream error, try again";
+        }
         toastContext.toast({ title: "Save failed", description: message, variant: "destructive" });
         return;
       }

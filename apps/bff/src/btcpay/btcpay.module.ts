@@ -8,6 +8,7 @@ import { StoreEntity } from '../tenants/entities/store.entity';
 import { SecurityModule } from '../security/security.module';
 import { BtcpayPaymentMethodsService } from './btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
+import { BtcpayKeysService } from './btcpay.keys.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([StoreEntity, ManagedStoreEntity]), SecurityModule],
@@ -15,6 +16,7 @@ import { ManagedStoreEntity } from '../stores/managed-store.entity';
     BtcpayService,
     BtcpayProvisioningService,
     BtcpayPaymentMethodsService,
+    BtcpayKeysService,
     {
       provide: BTCPAY_CONFIG,
       useFactory: (config: ConfigService): BtcpayRuntimeConfig => {
@@ -55,6 +57,6 @@ import { ManagedStoreEntity } from '../stores/managed-store.entity';
       inject: [ConfigService]
     }
   ],
-  exports: [BtcpayService, BtcpayProvisioningService, BtcpayPaymentMethodsService]
+  exports: [BtcpayService, BtcpayProvisioningService, BtcpayPaymentMethodsService, BtcpayKeysService]
 })
 export class BtcpayModule {}

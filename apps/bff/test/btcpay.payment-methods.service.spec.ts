@@ -4,6 +4,7 @@ import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-method
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
+import { BTCPayAuthError, BTCPayUpstreamError } from '../src/btcpay/btcpay.errors';
 
 jest.mock('axios');
 
@@ -200,5 +201,93 @@ describe('BtcpayPaymentMethodsService', () => {
         })
       })
     );
+  });
+
+  it('updates an on-chain payment method with a temporary key', async () => {
+    const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(
+      mockAxiosInstance({ put: putMock })
+    );
+
+    const service = buildService();
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        cryptoCode: 'btc',
+        derivationScheme: 'xpubTemp',
+        accountKeyPath: "m/84'/0'/0'",
+        masterFingerprint: 'abcd1234',
+        label: 'Temporary import',
+        enabled: true
+      },
+      { store, apiKey: 'temporary-key' }
+    );
+
+    expect(mockedAxios.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'token temporary-key' })
+      })
+    );
+
+    expect(putMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
+      {
+        enabled: true,
+        config: {
+          derivationScheme: 'xpubTemp',
+          accountKeyPath: "m/84'/0'/0'",
+          masterFingerprint: 'ABCD1234',
+          label: 'Temporary import'
+        }
+      }
+    );
+  });
+
+  it('throws BTCPayAuthError on 401 when updating with temporary key', async () => {
+    const error = {
+      isAxiosError: true,
+      response: { status: 401 }
+    } as AxiosError;
+    const putMock = jest.fn().mockRejectedValue(error);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.updateOnchainPaymentMethod(
+        {
+          storeId: store.btcpayStoreId,
+          cryptoCode: 'BTC',
+          derivationScheme: 'xpubAuth'
+        },
+        { store, apiKey: 'temp-key' }
+      )
+    ).rejects.toBeInstanceOf(BTCPayAuthError);
+  });
+
+  it('throws BTCPayUpstreamError on unexpected status when updating with temporary key', async () => {
+    const error = {
+      isAxiosError: true,
+      response: { status: 500 }
+    } as AxiosError;
+    const putMock = jest.fn().mockRejectedValue(error);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.updateOnchainPaymentMethod(
+        {
+          storeId: store.btcpayStoreId,
+          cryptoCode: 'BTC',
+          derivationScheme: 'xpubError'
+        },
+        { store, apiKey: 'temp-key' }
+      )
+    ).rejects.toBeInstanceOf(BTCPayUpstreamError);
   });
 });

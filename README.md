@@ -195,6 +195,8 @@ All runtime configuration is delivered via environment variables loaded from `in
 - `BTCPAY_ADMIN_API_KEY` — admin API key used by BFF for store provisioning & health checks
 - `BTCPAY_WEBHOOK_URL` — public BFF endpoint for BTCPay webhooks, e.g. `https://paypay.iddqd.in/api/hooks/btcpay`
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
+- Wallet wizard operations issue a temporary per-store API key with only `btcpay.store.canmodifystoresettings:<STORE_ID>` permission to persist on-chain configuration and revoke it immediately after a successful save. See the [Greenfield authorization documentation](https://docs.btcpayserver.org/API/Greenfield/v1/#section/Authentication) for background.
+- Payment method identifiers follow BTCPay Server ≥ 2.x conventions (`BTC-CHAIN`, `BTC-LN`, `BTC-LNURL`).
 
 #### Domains / Origins
 - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`

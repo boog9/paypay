@@ -24,16 +24,19 @@ test.describe("Wallet wizard", () => {
     };
 
     const saveResponse = {
-      enabled: true,
-      paymentMethodId: "BTC-OnChain",
-      currency: "BTC",
       storeId,
-      config: {
-        derivationScheme,
-        accountKeyPath: "84'/0'/0'",
-        masterFingerprint: "abcd1234",
+      currency: "BTC",
+      paymentMethodId: "BTC-OnChain",
+      enabled: true,
+      connected: true,
+      missingLocalMeta: false,
+      metadata: {
         label: "Imported wallet",
+        accountKeyPath: "84'/0'/0'",
+        hasDerivationScheme: true,
+        hasMasterFingerprint: true,
       },
+      addressPreview: previewResponse.addresses,
     };
 
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
@@ -69,9 +72,11 @@ test.describe("Wallet wizard", () => {
 
     await page.getByRole("button", { name: "Confirm and save" }).click();
 
-    await page.waitForURL(`/stores/${storeId}/wallets/btc/settings?connected=1`);
+    await page.waitForURL(`/stores/${storeId}/wallets/btc?connected=1`);
     await expect(page.getByText("Bitcoin wallet settings")).toBeVisible();
-    await expect(page.getByText(derivationScheme)).toBeVisible();
+    await expect(page.getByText("Imported wallet")).toBeVisible();
+    await expect(page.getByText("Stored securely on BTCPay")).toBeVisible();
     await expect(page.getByText("BTCPay wallet documentation")).toBeVisible();
+    await expect(page.getByText(previewResponse.addresses[0].address)).toBeVisible();
   });
 });

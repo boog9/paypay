@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -10,9 +11,12 @@ import { Repository } from 'typeorm';
 import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
+  OnchainPaymentMethodConfig,
   OnchainPreviewRequest,
   OnchainPreviewResponse,
-  UpdateOnchainPaymentMethodPayload
+  UpdateOnchainPaymentMethodPayload,
+  canonicalPaymentMethodId,
+  normalizePaymentMethodId
 } from '../btcpay/btcpay.payment-methods.service';
 import { BtcpayKeysService } from '../btcpay/btcpay.keys.service';
 import { isBTCPayAuthError, isBTCPayUpstreamError } from '../btcpay/btcpay.errors';
@@ -33,15 +37,16 @@ export interface OnchainWalletStatusReadModel {
   enabled: boolean;
   connected: boolean;
   missingLocalMeta: boolean;
-  config: {
-    derivationScheme: string | null;
-    accountKeyPath: string | null;
-    masterFingerprint: string | null;
+  metadata: {
     label: string | null;
+    accountKeyPath: string | null;
+    hasDerivationScheme: boolean;
+    hasMasterFingerprint: boolean;
   };
+  addressPreview: OnchainPreviewResponse['addresses'];
 }
 
-const BTC_ONCHAIN_PAYMENT_METHOD_ID = 'BTC-OnChain';
+const BTC_ONCHAIN_PAYMENT_METHOD_ID = normalizePaymentMethodId('BTC', 'chain');
 
 @Injectable()
 export class OnchainWalletsService {
@@ -66,6 +71,7 @@ export class OnchainWalletsService {
     const requestedAmount = this.normalizeRequestedAmount(dto.amount);
     return {
       ...preview,
+      paymentMethodId: canonicalPaymentMethodId(preview.paymentMethodId, 'chain') || preview.paymentMethodId,
       addresses: this.normalizePreviewAddresses(preview.addresses, requestedAmount)
     };
   }
@@ -79,21 +85,58 @@ export class OnchainWalletsService {
     const paymentMethodId = BTC_ONCHAIN_PAYMENT_METHOD_ID;
     const [status, wallet] = await Promise.all([
       this.paymentMethods.getOnchainMethodStatus(store.btcpayStoreId, paymentMethodId, { store }),
-      this.walletsRepository.findOne({ where: { storeId: store.id, paymentMethodId } })
+      this.walletsRepository.findOne({
+        where: [
+          { storeId: store.id, paymentMethodId },
+          { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
+        ]
+      })
     ]);
 
     const enabled = Boolean(status?.enabled);
-    const resolvedPaymentMethodId = status?.paymentMethodId?.trim() || paymentMethodId;
+    if (!enabled) {
+      throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
+    }
 
-    return {
+    let remoteConfig: OnchainPaymentMethodConfig | null = null;
+    let limitedView = false;
+    try {
+      remoteConfig = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+        store,
+        includeConfig: true
+      });
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        limitedView = true;
+      } else {
+        throw error;
+      }
+    }
+
+    const resolvedPaymentMethodId = canonicalPaymentMethodId(
+      remoteConfig?.paymentMethodId ?? status?.paymentMethodId ?? paymentMethodId,
+      'chain'
+    ) || paymentMethodId;
+
+    const preview = limitedView ? [] : await this.safePreviewAddresses(store);
+    const metadata = this.buildMetadata(remoteConfig, wallet);
+
+    const readModel: OnchainWalletStatusReadModel = {
       storeId: store.btcpayStoreId,
       currency: 'BTC',
       paymentMethodId: resolvedPaymentMethodId,
-      enabled,
-      connected: enabled,
-      missingLocalMeta: enabled && !wallet,
-      config: this.normalizeLocalWallet(wallet)
-    } satisfies OnchainWalletStatusReadModel;
+      enabled: true,
+      connected: true,
+      missingLocalMeta: !wallet,
+      metadata,
+      addressPreview: preview
+    };
+
+    if (limitedView) {
+      throw new ForbiddenException(readModel);
+    }
+
+    return readModel;
   }
 
   async update(
@@ -146,22 +189,68 @@ export class OnchainWalletsService {
 
   private normalizeLocalWallet(
     wallet: ManagedStoreWalletEntity | null
-  ): OnchainWalletStatusReadModel['config'] {
+  ): OnchainWalletStatusReadModel['metadata'] {
     if (!wallet) {
       return {
-        derivationScheme: null,
         accountKeyPath: null,
-        masterFingerprint: null,
-        label: null
+        label: null,
+        hasDerivationScheme: false,
+        hasMasterFingerprint: false
       };
     }
 
     return {
-      derivationScheme: wallet.derivationScheme ?? null,
-      accountKeyPath: wallet.accountKeyPath ?? null,
-      masterFingerprint: wallet.masterFingerprint ?? null,
-      label: wallet.label ?? null
+      accountKeyPath: this.sanitizeString(wallet.accountKeyPath),
+      label: this.sanitizeString(wallet.label),
+      hasDerivationScheme: Boolean(this.sanitizeString(wallet.derivationScheme)),
+      hasMasterFingerprint: Boolean(this.sanitizeString(wallet.masterFingerprint))
     };
+  }
+
+  private buildMetadata(
+    remoteConfig: OnchainPaymentMethodConfig | null,
+    wallet: ManagedStoreWalletEntity | null
+  ): OnchainWalletStatusReadModel['metadata'] {
+    const local = this.normalizeLocalWallet(wallet);
+    const config = remoteConfig?.config ?? null;
+
+    const record = config && typeof config === 'object' ? (config as Record<string, unknown>) : null;
+    const remoteLabel = record ? this.sanitizeString(record.label) : null;
+    const remoteAccountKeyPath = record ? this.sanitizeString(record.accountKeyPath) : null;
+    const remoteDerivationScheme = record ? this.sanitizeString(record.derivationScheme) : null;
+    const remoteMasterFingerprint = record ? this.sanitizeString(record.masterFingerprint) : null;
+
+    return {
+      label: remoteLabel ?? local.label,
+      accountKeyPath: remoteAccountKeyPath ?? local.accountKeyPath,
+      hasDerivationScheme: Boolean(remoteDerivationScheme) || local.hasDerivationScheme,
+      hasMasterFingerprint: Boolean(remoteMasterFingerprint) || local.hasMasterFingerprint
+    };
+  }
+
+  private async safePreviewAddresses(
+    store: ManagedStoreEntity
+  ): Promise<OnchainPreviewResponse['addresses']> {
+    try {
+      const preview = await this.paymentMethods.previewOnchain(
+        store.btcpayStoreId,
+        'BTC',
+        { amount: DEFAULT_PREVIEW_ADDRESS_COUNT },
+        { store }
+      );
+      return Array.isArray(preview.addresses) ? preview.addresses.slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT) : [];
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error instanceof ForbiddenException) {
+        return [];
+      }
+      return [];
+    }
   }
 
   private async saveWalletMetadata(
@@ -174,20 +263,24 @@ export class OnchainWalletsService {
       label: string | null;
     }
   ): Promise<void> {
-    const derivationScheme = metadata.derivationScheme.trim();
-    const accountKeyPath = metadata.accountKeyPath?.trim() || null;
-    const masterFingerprint = metadata.masterFingerprint?.trim().toUpperCase() || null;
-    const label = metadata.label?.trim() || null;
+    const hasDerivationScheme = Boolean(metadata.derivationScheme && metadata.derivationScheme.trim());
+    const derivationSchemeMarker = hasDerivationScheme ? 'PRESENT' : null;
+    const accountKeyPath = this.sanitizeString(metadata.accountKeyPath);
+    const masterFingerprint = this.sanitizeString(metadata.masterFingerprint)?.toUpperCase() || null;
+    const label = this.sanitizeString(metadata.label);
 
     const existing = await this.walletsRepository.findOne({
-      where: { storeId: store.id, paymentMethodId: metadata.paymentMethodId }
+      where: [
+        { storeId: store.id, paymentMethodId: metadata.paymentMethodId },
+        { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
+      ]
     });
 
     if (!existing) {
       const entity = this.walletsRepository.create({
         storeId: store.id,
         paymentMethodId: metadata.paymentMethodId,
-        derivationScheme,
+        derivationScheme: derivationSchemeMarker,
         accountKeyPath,
         masterFingerprint,
         label
@@ -196,7 +289,8 @@ export class OnchainWalletsService {
       return;
     }
 
-    existing.derivationScheme = derivationScheme;
+    existing.paymentMethodId = metadata.paymentMethodId;
+    existing.derivationScheme = derivationSchemeMarker;
     existing.accountKeyPath = accountKeyPath;
     existing.masterFingerprint = masterFingerprint;
     existing.label = label;
@@ -289,6 +383,14 @@ export class OnchainWalletsService {
         keyPath
       };
     });
+  }
+
+  private sanitizeString(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private normalizeRequestedAmount(amount: number | undefined): number {

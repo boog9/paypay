@@ -8,7 +8,8 @@ type GlobalWithFetch = typeof globalThis & { fetch?: typeof fetch };
 function requestUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
-  return (input as Request).url;
+  if (input instanceof Request) return input.url;
+  throw new TypeError("Unsupported request input");
 }
 
 function headerValue(init: RequestInit | undefined, name: string): string | null {

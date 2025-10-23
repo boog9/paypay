@@ -5,12 +5,14 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn
 } from 'typeorm';
 import { TIMESTAMP_COLUMN_TYPE } from '../database/utils/column-types';
 import { UserEntity } from '../auth/entities/user.entity';
+import { ManagedStoreWalletEntity } from '../wallets/entities/managed-store-wallet.entity';
 
 @Entity({ name: 'managed_stores' })
 @Index('ix_managed_stores_user_id', ['userId'])
@@ -65,4 +67,7 @@ export class ManagedStoreEntity {
 
   @UpdateDateColumn({ name: 'updated_at', type: TIMESTAMP_COLUMN_TYPE })
   updatedAt!: Date;
+
+  @OneToMany(() => ManagedStoreWalletEntity, (wallet) => wallet.store)
+  wallets!: ManagedStoreWalletEntity[];
 }

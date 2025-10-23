@@ -15,6 +15,8 @@ type WalletConfig = {
   enabled: boolean;
   paymentMethodId: string;
   currency: string;
+  connected: boolean;
+  missingLocalMeta: boolean;
   config: {
     derivationScheme: string | null;
     accountKeyPath: string | null;
@@ -54,6 +56,9 @@ function normalizeWalletConfigPayload(value: unknown): WalletConfig | null {
     return null;
   }
 
+  const connected = typeof record.connected === "boolean" ? record.connected : record.enabled;
+  const missingLocalMeta = typeof record.missingLocalMeta === "boolean" ? record.missingLocalMeta : false;
+
   const configRecord =
     record.config && typeof record.config === "object" && !Array.isArray(record.config)
       ? (record.config as Record<string, unknown>)
@@ -64,6 +69,8 @@ function normalizeWalletConfigPayload(value: unknown): WalletConfig | null {
     enabled: record.enabled,
     paymentMethodId,
     currency,
+    connected,
+    missingLocalMeta,
     config: {
       derivationScheme: normalizeOptionalString(configRecord.derivationScheme),
       accountKeyPath: normalizeOptionalString(configRecord.accountKeyPath),
@@ -73,21 +80,22 @@ function normalizeWalletConfigPayload(value: unknown): WalletConfig | null {
   } satisfies WalletConfig;
 }
 
-async function loadWalletConfig(storeId: string): Promise<WalletConfig | null> {
+async function loadWalletConfig(storeId: string): Promise<{ config: WalletConfig | null; status: number }> {
   try {
     const response = await fetchFromBff(`/stores/${storeId}/wallets/btc`, { method: "GET" });
+    const status = response.status;
     if (!response.ok) {
-      return null;
+      return { config: null, status };
     }
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
-      return null;
+      return { config: null, status };
     }
-    return normalizeWalletConfigPayload(payload);
+    return { config: normalizeWalletConfigPayload(payload), status };
   } catch {
-    return null;
+    return { config: null, status: 0 };
   }
 }
 
@@ -98,7 +106,35 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
     ? resolvedSearchParams?.connected.includes("1")
     : resolvedSearchParams?.connected === "1";
 
-  const config = await loadWalletConfig(storeId);
+  const { config, status } = await loadWalletConfig(storeId);
+  const authError = status === 401 || status === 403;
+  const fetchFailed = !authError && !config && status !== 0;
+  const missingLocalMeta = config?.missingLocalMeta ?? false;
+
+  const statusMessage = (() => {
+    if (authError) {
+      return (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Missing/expired session або недостатні права. Перелогіньтесь.
+        </div>
+      );
+    }
+    if (config && !config.enabled) {
+      return (
+        <div className="rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-900">
+          On-chain BTC payment method не увімкнено. Запустіть майстер ще раз.
+        </div>
+      );
+    }
+    if (fetchFailed) {
+      return (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load wallet configuration. Run the wallet wizard again.
+        </div>
+      );
+    }
+    return null;
+  })();
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
@@ -125,6 +161,8 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
         </div>
       )}
 
+      {statusMessage}
+
       <Card className="border border-muted">
         <CardHeader>
           <CardTitle className="text-lg">On-chain BTC payment method</CardTitle>
@@ -144,61 +182,67 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
         </CardHeader>
         <CardContent>
           {config ? (
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Payment method ID
-                </dt>
-                <dd className="text-sm text-foreground">{config.paymentMethodId}</dd>
-              </div>
+            <>
+              {missingLocalMeta && (
+                <div className="mb-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-900">
+                  Local wallet metadata is missing. Run the wallet wizard again to resync this configuration.
+                </div>
+              )}
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payment method ID
+                  </dt>
+                  <dd className="text-sm text-foreground">{config.paymentMethodId}</dd>
+                </div>
 
-              <div className="space-y-1">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</dt>
-                <dd>
-                  <Badge variant={config.enabled ? "default" : "secondary"}>
-                    {config.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                </dd>
-              </div>
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</dt>
+                  <dd>
+                    <Badge variant={config.enabled ? "default" : "secondary"}>
+                      {config.enabled ? "Enabled" : "Disabled"}
+                    </Badge>
+                  </dd>
+                </div>
 
-              <div className="space-y-1 sm:col-span-2">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Derivation scheme
-                </dt>
-                <dd className="text-sm font-mono text-foreground">
-                  {config.config.derivationScheme ?? "Not configured"}
-                </dd>
-              </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Derivation scheme
+                  </dt>
+                  <dd className="text-sm font-mono text-foreground">
+                    {config.config.derivationScheme ?? "Not configured"}
+                  </dd>
+                </div>
 
-              <div className="space-y-1">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Account key path
-                </dt>
-                <dd className="text-sm font-mono text-foreground">
-                  {config.config.accountKeyPath ?? "Not provided"}
-                </dd>
-              </div>
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Account key path
+                  </dt>
+                  <dd className="text-sm font-mono text-foreground">
+                    {config.config.accountKeyPath ?? "Not provided"}
+                  </dd>
+                </div>
 
-              <div className="space-y-1">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Master fingerprint
-                </dt>
-                <dd className="text-sm font-mono text-foreground">
-                  {config.config.masterFingerprint ?? "Not available"}
-                </dd>
-              </div>
+                <div className="space-y-1">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Master fingerprint
+                  </dt>
+                  <dd className="text-sm font-mono text-foreground">
+                    {config.config.masterFingerprint ?? "Not available"}
+                  </dd>
+                </div>
 
-              <div className="space-y-1 sm:col-span-2">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Label</dt>
-                <dd className="text-sm text-foreground">{config.config.label ?? "Not set"}</dd>
-              </div>
-            </dl>
-          ) : (
+                <div className="space-y-1 sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Label</dt>
+                  <dd className="text-sm text-foreground">{config.config.label ?? "Not set"}</dd>
+                </div>
+              </dl>
+            </>
+          ) : !statusMessage ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              Unable to load wallet configuration from BTCPay. Verify that the store has an on-chain payment
-              method configured and that your API key includes the store settings scope.
+              Unable to load wallet configuration.
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

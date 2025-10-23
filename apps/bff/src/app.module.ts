@@ -14,6 +14,7 @@ import { StoreEntity } from './tenants/entities/store.entity';
 import { AuditLogEntity } from './tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from './tenants/entities/idempotency-key.entity';
 import { ManagedStoreEntity } from './stores/managed-store.entity';
+import { ManagedStoreWalletEntity } from './wallets/entities/managed-store-wallet.entity';
 import { TenantsModule } from './tenants/tenants.module';
 import { HooksModule } from './hooks/hooks.module';
 import { HealthController } from './health.controller';
@@ -106,7 +107,8 @@ import { CsrfGuard } from './security/csrf.guard';
               StoreEntity,
               AuditLogEntity,
               IdempotencyKeyEntity,
-              ManagedStoreEntity
+              ManagedStoreEntity,
+              ManagedStoreWalletEntity
             ],
             synchronize: true,
             dropSchema: true,
@@ -123,7 +125,8 @@ import { CsrfGuard } from './security/csrf.guard';
             StoreEntity,
             AuditLogEntity,
             IdempotencyKeyEntity,
-            ManagedStoreEntity
+            ManagedStoreEntity,
+            ManagedStoreWalletEntity
           ],
           synchronize: false,
           migrations: ['dist/migrations/*.js'],

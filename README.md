@@ -2,6 +2,8 @@
 
 PayPay is a monorepo housing the Next.js merchant portal, NestJS BFF, and a typed SDK for interacting with the BTCPay Greenfield API.
 
+> **BTCPay compatibility:** The stack targets BTCPay Server ≥ 2.x exclusively and interacts with the platform through the Greenfield API v1. Consult your instance's Swagger UI at `/docs` for the canonical schema and available payment method identifiers before wiring new features.
+
 ## Prerequisites
 - Node.js 22.14.0 (LTS) with Corepack enabled.
 - pnpm 9 (managed via Corepack).

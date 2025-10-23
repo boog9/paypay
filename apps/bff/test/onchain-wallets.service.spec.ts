@@ -29,11 +29,7 @@ describe('OnchainWalletsService', () => {
   const previewResponse: OnchainPreviewResponse = {
     storeId: store.btcpayStoreId,
     currency: 'BTC',
-    cryptoCode: 'BTC',
     paymentMethodId: 'BTC-CHAIN',
-    derivationScheme: 'zpubExample',
-    accountKeyPath: "84'/1'/0'",
-    masterFingerprint: 'abcdef12',
     addresses: Array.from({ length: 10 }, (_, index) => ({
       address: `bcrt1qpreview${index}`,
       keyPath: `0/${index}`,
@@ -53,7 +49,7 @@ describe('OnchainWalletsService', () => {
     (paymentMethods.previewOnchain as jest.Mock).mockResolvedValue(previewResponse);
   });
 
-  it('sanitizes derivation scheme and limits preview addresses', async () => {
+  it('limits preview addresses to the requested amount', async () => {
     const result = await service.preview('tenant-user', store.btcpayStoreId, {
       derivationScheme: 'zpubExample',
       amount: 5,
@@ -62,9 +58,15 @@ describe('OnchainWalletsService', () => {
     expect(paymentMethods.previewOnchain).toHaveBeenCalledWith(store.btcpayStoreId, 'BTC', expect.any(Object), {
       store,
     });
-    expect(result.derivationScheme).toBeNull();
-    expect(result.accountKeyPath).toBeNull();
-    expect(result.masterFingerprint).toBeNull();
+    const [, , request] = (paymentMethods.previewOnchain as jest.Mock).mock.calls[0];
+    expect(request).toEqual({
+      amount: 5,
+      config: {
+        derivationScheme: 'zpubExample',
+      },
+    });
+    expect(result.currency).toBe('BTC');
+    expect(result.paymentMethodId).toBe('BTC-CHAIN');
     expect(result.addresses).toHaveLength(5);
     expect(result.addresses[0]?.address).toBe('bcrt1qpreview0');
     expect(result.addresses[4]?.index).toBe(4);

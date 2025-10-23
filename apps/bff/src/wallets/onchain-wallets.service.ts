@@ -10,6 +10,7 @@ import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
   OnchainPaymentMethodConfig,
+  OnchainPreviewRequest,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload
 } from '../btcpay/btcpay.payment-methods.service';
@@ -27,17 +28,12 @@ export class OnchainWalletsService {
   async preview(tenantUserId: string | null, storeId: string, dto: PreviewOnchainDto): Promise<OnchainPreviewResponse> {
     const userId = this.requireUserId(tenantUserId);
     const store = await this.requireStore(userId, storeId);
-    const preview = await this.paymentMethods.previewOnchain(store.btcpayStoreId, 'BTC', dto, { store });
-    const sanitized: OnchainPreviewResponse = {
-      ...preview,
-      derivationScheme: null,
-      accountKeyPath: null,
-      masterFingerprint: null
-    };
+    const previewRequest = this.buildPreviewRequest(dto);
+    const preview = await this.paymentMethods.previewOnchain(store.btcpayStoreId, 'BTC', previewRequest, { store });
     const requestedAmount = this.normalizeRequestedAmount(dto.amount);
     return {
-      ...sanitized,
-      addresses: this.normalizePreviewAddresses(sanitized.addresses, requestedAmount)
+      ...preview,
+      addresses: this.normalizePreviewAddresses(preview.addresses, requestedAmount)
     };
   }
 
@@ -54,13 +50,29 @@ export class OnchainWalletsService {
   ): Promise<OnchainPaymentMethodConfig> {
     const userId = this.requireUserId(tenantUserId);
     const store = await this.requireStore(userId, storeId);
-    const payload: UpdateOnchainPaymentMethodPayload = {
-      enabled: dto.enabled ?? true,
-      derivationScheme: dto.derivationScheme,
-      accountKeyPath: dto.accountKeyPath,
-      label: dto.label
-    };
+    const payload: UpdateOnchainPaymentMethodPayload = this.buildUpdatePayload(dto);
     return this.paymentMethods.updateOnchain(store.btcpayStoreId, 'BTC', payload, { store });
+  }
+
+  private buildPreviewRequest(dto: PreviewOnchainDto): OnchainPreviewRequest {
+    return {
+      amount: dto.amount,
+      config: {
+        derivationScheme: dto.derivationScheme,
+        accountKeyPath: dto.accountKeyPath
+      }
+    };
+  }
+
+  private buildUpdatePayload(dto: UpdateOnchainDto): UpdateOnchainPaymentMethodPayload {
+    return {
+      enabled: dto.enabled ?? true,
+      config: {
+        derivationScheme: dto.derivationScheme,
+        accountKeyPath: dto.accountKeyPath,
+        label: dto.label
+      }
+    };
   }
 
   private requireUserId(userId: string | null): string {

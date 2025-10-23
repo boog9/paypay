@@ -11,14 +11,16 @@ export const metadata: Metadata = {
 };
 
 type WalletConfig = {
+  storeId: string;
   enabled: boolean;
-  derivationScheme: string | null;
-  accountKeyPath: string | null;
-  masterFingerprint: string | null;
-  label: string | null;
   paymentMethodId: string;
   currency: string;
-  cryptoCode: string;
+  config: {
+    derivationScheme: string | null;
+    accountKeyPath: string | null;
+    masterFingerprint: string | null;
+    label: string | null;
+  };
 };
 
 type SettingsPageProps = {
@@ -44,23 +46,30 @@ function normalizeWalletConfigPayload(value: unknown): WalletConfig | null {
     return null;
   }
 
+  const storeId = normalizeOptionalString(record.storeId);
   const paymentMethodId = normalizeOptionalString(record.paymentMethodId);
   const currency = normalizeOptionalString(record.currency);
-  const cryptoCode = normalizeOptionalString(record.cryptoCode);
 
-  if (!paymentMethodId || !currency || !cryptoCode) {
+  if (!storeId || !paymentMethodId || !currency) {
     return null;
   }
 
+  const configRecord =
+    record.config && typeof record.config === "object" && !Array.isArray(record.config)
+      ? (record.config as Record<string, unknown>)
+      : {};
+
   return {
+    storeId,
     enabled: record.enabled,
-    derivationScheme: normalizeOptionalString(record.derivationScheme),
-    accountKeyPath: normalizeOptionalString(record.accountKeyPath),
-    masterFingerprint: normalizeOptionalString(record.masterFingerprint),
-    label: normalizeOptionalString(record.label),
     paymentMethodId,
     currency,
-    cryptoCode,
+    config: {
+      derivationScheme: normalizeOptionalString(configRecord.derivationScheme),
+      accountKeyPath: normalizeOptionalString(configRecord.accountKeyPath),
+      masterFingerprint: normalizeOptionalString(configRecord.masterFingerprint),
+      label: normalizeOptionalString(configRecord.label),
+    },
   } satisfies WalletConfig;
 }
 
@@ -157,7 +166,7 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
                   Derivation scheme
                 </dt>
                 <dd className="text-sm font-mono text-foreground">
-                  {config.derivationScheme ?? "Not configured"}
+                  {config.config.derivationScheme ?? "Not configured"}
                 </dd>
               </div>
 
@@ -166,7 +175,7 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
                   Account key path
                 </dt>
                 <dd className="text-sm font-mono text-foreground">
-                  {config.accountKeyPath ?? "Not provided"}
+                  {config.config.accountKeyPath ?? "Not provided"}
                 </dd>
               </div>
 
@@ -175,13 +184,13 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
                   Master fingerprint
                 </dt>
                 <dd className="text-sm font-mono text-foreground">
-                  {config.masterFingerprint ?? "Not available"}
+                  {config.config.masterFingerprint ?? "Not available"}
                 </dd>
               </div>
 
               <div className="space-y-1 sm:col-span-2">
                 <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Label</dt>
-                <dd className="text-sm text-foreground">{config.label ?? "Not set"}</dd>
+                <dd className="text-sm text-foreground">{config.config.label ?? "Not set"}</dd>
               </div>
             </dl>
           ) : (

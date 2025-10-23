@@ -114,15 +114,14 @@ export class BtcpayPaymentMethodsService {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = cryptoCode.toUpperCase();
     const paymentMethodId = this.buildPaymentMethodId(currency);
-    const params = this.buildPreviewRequestParams(body);
-
     try {
       this.logger.debug(
         `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
-      const response = await context.http.get(
+      const payload = this.buildPreviewRequestBody(body);
+      const response = await context.http.post(
         this.buildModernPreviewPath(context.store.btcpayStoreId, paymentMethodId),
-        { params }
+        payload
       );
       return this.normalizePreviewResponse(
         response.data,
@@ -334,30 +333,6 @@ export class BtcpayPaymentMethodsService {
     }
   }
 
-  private buildPreviewRequestParams(body?: OnchainPreviewRequest): Record<string, string> {
-    const params: Record<string, string> = {
-      offset: String(body?.offset ?? 0),
-      amount: String(body?.amount ?? DEFAULT_PREVIEW_ADDRESS_COUNT)
-    };
-
-    const config: Record<string, unknown> = {};
-    if (body?.derivationScheme) {
-      config.derivationScheme = body.derivationScheme;
-    }
-    if (body?.accountKeyPath) {
-      config.accountKeyPath = body.accountKeyPath;
-    }
-    if (body?.label) {
-      config.label = body.label;
-    }
-
-    if (Object.keys(config).length > 0) {
-      params.config = JSON.stringify(config);
-    }
-
-    return params;
-  }
-
   private buildPreviewRequestBody(body?: OnchainPreviewRequest): Record<string, unknown> {
     const config: Record<string, unknown> = {};
     if (body?.derivationScheme) {
@@ -369,12 +344,31 @@ export class BtcpayPaymentMethodsService {
     if (body?.label) {
       config.label = body.label;
     }
-    return { config };
+    const payload: Record<string, unknown> = {
+      offset: body?.offset ?? 0,
+      amount: body?.amount ?? DEFAULT_PREVIEW_ADDRESS_COUNT
+    };
+
+    if (Object.keys(config).length > 0) {
+      payload.config = config;
+    }
+
+    return payload;
   }
 
   private buildLegacyPreviewParams(body?: OnchainPreviewRequest): Record<string, string> {
-    const params = this.buildPreviewRequestParams(body);
-    delete params.config;
+    const params: Record<string, string> = {
+      offset: String(body?.offset ?? 0),
+      amount: String(body?.amount ?? DEFAULT_PREVIEW_ADDRESS_COUNT)
+    };
+
+    if (body?.derivationScheme) {
+      params.derivationScheme = body.derivationScheme;
+    }
+    if (body?.accountKeyPath) {
+      params.accountKeyPath = body.accountKeyPath;
+    }
+
     return params;
   }
 
@@ -720,7 +714,7 @@ export class BtcpayPaymentMethodsService {
   private shouldAttemptFallback(error: unknown): boolean {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      return status === 404 || status === 405 || status === 415;
+      return status === 404 || status === 405 || status === 415 || status === 422 || status === 501;
     }
     return false;
   }

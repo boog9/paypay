@@ -1,6 +1,8 @@
 import {
+  type ApiResponse,
   apiFetch,
   apiGet,
+  getCachedCsrfToken,
   isApiNoContent,
   AUTH_CSRF,
   AUTH_LOGIN,
@@ -12,12 +14,17 @@ import {
 export const ACCESS_TOKEN_COOKIE_NAME = '__Host-pp.access-token';
 
 export async function getCsrfToken(): Promise<string> {
-  const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
-  const headers = response.headers;
-  const token = headers.get('X-Csrf-Token');
+  const cached = getCachedCsrfToken();
+  if (cached) {
+    return cached;
+  }
 
-  if (token && token.trim()) {
-    return token.trim();
+  const response = await apiGet(AUTH_CSRF, { cache: 'no-store' });
+  const headers = extractHeaders(response);
+  const token = getCachedCsrfToken() ?? readCsrfHeader(headers);
+
+  if (token) {
+    return token;
   }
 
   throw new Error('CSRF token header is missing.');
@@ -154,4 +161,23 @@ function isMeResponse(value: unknown): value is MeResponse {
   const id = userValue['id'];
   const email = userValue['email'];
   return typeof id === 'string' && typeof email === 'string';
+}
+
+function extractHeaders(response: ApiResponse): Headers {
+  if (isApiNoContent(response)) {
+    return response.headers;
+  }
+  return response.headers;
+}
+
+function readCsrfHeader(headers: Headers): string | null {
+  for (const [name, value] of headers.entries()) {
+    if (name.toLowerCase() === 'x-csrf-token') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
 }

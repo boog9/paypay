@@ -28,10 +28,16 @@ export class OnchainWalletsService {
     const userId = this.requireUserId(tenantUserId);
     const store = await this.requireStore(userId, storeId);
     const preview = await this.paymentMethods.previewOnchain(store.btcpayStoreId, 'BTC', dto, { store });
+    const sanitized: OnchainPreviewResponse = {
+      ...preview,
+      derivationScheme: null,
+      accountKeyPath: null,
+      masterFingerprint: null
+    };
     const requestedAmount = this.normalizeRequestedAmount(dto.amount);
     return {
-      ...preview,
-      addresses: this.normalizePreviewAddresses(preview.addresses, requestedAmount)
+      ...sanitized,
+      addresses: this.normalizePreviewAddresses(sanitized.addresses, requestedAmount)
     };
   }
 

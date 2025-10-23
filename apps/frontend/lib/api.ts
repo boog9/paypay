@@ -9,9 +9,15 @@ export const AUTH_REFRESH = `${API_PREFIX}/auth/refresh`;
 export const AUTH_CSRF = `${API_PREFIX}/auth/csrf`;
 export const AUTH_ME = `${API_PREFIX}/auth/me`;
 
+const CSRF_HEADER_NAME = 'x-csrf-token';
+
 if (!rawBaseUrl && process.env.NODE_ENV !== 'production') {
   console.warn('NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.');
 }
+
+let cachedCsrfToken: string | null = null;
+let ongoingCsrfFetch: Promise<string | null> | null = null;
+let ongoingRefresh: Promise<boolean> | null = null;
 
 export class ApiError extends Error {
   constructor(
@@ -93,55 +99,184 @@ export async function api<T>(path: string, init: ApiRequestOptions = {}): Promis
  * Access-Control-Allow-Origin header. See https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials
  */
 export async function apiFetch(path: string, init: ApiRequestOptions = {}): Promise<ApiResponse> {
+  const normalizedPath = ensureApiPath(path);
+  return executeApiFetch(normalizedPath, init, 0);
+}
+
+function shouldAttachCsrf(path: string): boolean {
+  return path !== AUTH_CSRF;
+}
+
+async function executeApiFetch(
+  path: string,
+  init: ApiRequestOptions,
+  attempt: number
+): Promise<ApiResponse> {
   const { baseUrl, body, headers, method, ...rest } = init;
   const target = buildUrl(path, baseUrl);
-
-  // ——— helpers ———
-  const isBodyInit = (v: unknown): v is BodyInit => {
-    if (typeof v === 'string') return true;
-    if (typeof Blob !== 'undefined' && v instanceof Blob) return true;
-    if (typeof FormData !== 'undefined' && v instanceof FormData) return true;
-    if (typeof URLSearchParams !== 'undefined' && v instanceof URLSearchParams) return true;
-    if (v instanceof ArrayBuffer) return true;
-    // ArrayBufferView (e.g. Uint8Array)
-    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView?.(v as ArrayBufferView)) return true;
-    return false;
-  };
-
   const h = new Headers(headers ?? {});
-  if (!h.has('Accept')) h.set('Accept', 'application/json');
+  if (!h.has('Accept')) {
+    h.set('Accept', 'application/json');
+  }
 
   const upperMethod = (method ?? 'GET').toUpperCase();
-  let finalBody: BodyInit | undefined;
-  if (upperMethod !== 'GET' && upperMethod !== 'HEAD' && body !== undefined) {
-    if (isBodyInit(body)) {
-      finalBody = body;
-    } else {
-      if (!h.has('Content-Type')) h.set('Content-Type', 'application/json');
-      finalBody = JSON.stringify(body);
+  const finalBody = prepareRequestBody(upperMethod, body, h);
+
+  if (!h.has('X-CSRF-Token') && shouldAttachCsrf(path)) {
+    const token = cachedCsrfToken;
+    if (token) {
+      h.set('X-CSRF-Token', token);
     }
   }
 
-  const res = await fetch(target, {
+  const response = await fetch(target, {
     method: upperMethod,
     credentials: 'include',
     mode: 'cors',
     headers: h,
     body: finalBody,
-    ...rest,
+    ...rest
   });
 
-  if (res.status === 204) {
-    return { ok: true, status: 204, headers: res.headers };
+  rememberCsrfTokenFromHeaders(response.headers);
+
+  if (response.status === 401 && attempt === 0 && path !== AUTH_REFRESH) {
+    const refreshed = await attemptAuthRefresh(baseUrl);
+    if (refreshed) {
+      return executeApiFetch(path, init, attempt + 1);
+    }
   }
 
-  if (!res.ok) {
-    const errorBody = await parseErrorBody(res);
-    const message = extractErrorMessage(res.status, errorBody);
-    throw new ApiError(res.status, message, errorBody, res.headers);
+  if (response.status === 204) {
+    return { ok: true, status: 204, headers: response.headers };
   }
 
-  return res;
+  if (!response.ok) {
+    const errorBody = await parseErrorBody(response);
+    const message = extractErrorMessage(response.status, errorBody);
+    throw new ApiError(response.status, message, errorBody, response.headers);
+  }
+
+  return response;
+}
+
+function isBodyInitCandidate(value: unknown): value is BodyInit {
+  if (typeof value === 'string') return true;
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return true;
+  if (typeof FormData !== 'undefined' && value instanceof FormData) return true;
+  if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) return true;
+  if (value instanceof ArrayBuffer) return true;
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView?.(value as ArrayBufferView)) return true;
+  return false;
+}
+
+function prepareRequestBody(method: string, body: unknown, headers: Headers): BodyInit | undefined {
+  if (method === 'GET' || method === 'HEAD' || body === undefined) {
+    return undefined;
+  }
+
+  if (isBodyInitCandidate(body)) {
+    return body;
+  }
+
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  return JSON.stringify(body);
+}
+
+function extractHeaderCaseInsensitive(headers: Headers, name: string): string | null {
+  const target = name.toLowerCase();
+  for (const [key, value] of headers.entries()) {
+    if (key.toLowerCase() === target) {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
+
+function rememberCsrfTokenFromHeaders(headers: Headers): void {
+  const token = extractHeaderCaseInsensitive(headers, CSRF_HEADER_NAME);
+  if (token) {
+    cachedCsrfToken = token;
+  }
+}
+
+async function fetchCsrfToken(baseUrl?: string): Promise<string | null> {
+  if (ongoingCsrfFetch) {
+    return ongoingCsrfFetch;
+  }
+
+  ongoingCsrfFetch = (async () => {
+    try {
+      const headers = new Headers({ Accept: 'application/json' });
+      const response = await fetch(buildUrl(AUTH_CSRF, baseUrl), {
+        method: 'GET',
+        credentials: 'include',
+        mode: 'cors',
+        headers
+      });
+      rememberCsrfTokenFromHeaders(response.headers);
+      return cachedCsrfToken;
+    } catch {
+      return cachedCsrfToken;
+    }
+  })();
+
+  try {
+    return await ongoingCsrfFetch;
+  } finally {
+    ongoingCsrfFetch = null;
+  }
+}
+
+async function attemptAuthRefresh(baseUrl?: string): Promise<boolean> {
+  if (ongoingRefresh) {
+    return ongoingRefresh;
+  }
+
+  ongoingRefresh = (async () => {
+    try {
+      const token = await fetchCsrfToken(baseUrl);
+      const headers = new Headers({ Accept: 'application/json' });
+      const effectiveToken = token ?? cachedCsrfToken;
+      if (effectiveToken) {
+        headers.set('X-CSRF-Token', effectiveToken);
+      }
+
+      const response = await fetch(buildUrl(AUTH_REFRESH, baseUrl), {
+        method: 'POST',
+        credentials: 'include',
+        mode: 'cors',
+        headers
+      });
+      rememberCsrfTokenFromHeaders(response.headers);
+      if (response.status === 204 || response.ok) {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  })();
+
+  try {
+    return await ongoingRefresh;
+  } finally {
+    ongoingRefresh = null;
+  }
+}
+
+export function getCachedCsrfToken(): string | null {
+  return cachedCsrfToken;
+}
+
+export function resetCachedCsrfToken(): void {
+  cachedCsrfToken = null;
 }
 
 function buildUrl(path: string, overrideBase?: string): string {

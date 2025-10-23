@@ -62,7 +62,7 @@ describe('OnchainWalletsService', () => {
   } as unknown as BtcpayKeysService;
 
   const service = new OnchainWalletsService(
-    repository as Repository<ManagedStoreEntity>,
+    repository,
     walletRepository,
     paymentMethods,
     keysService

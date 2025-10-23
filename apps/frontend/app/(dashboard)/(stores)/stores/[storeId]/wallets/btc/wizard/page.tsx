@@ -22,11 +22,7 @@ type PreviewAddress = {
 type PreviewResponse = {
   storeId: string;
   currency: string;
-  cryptoCode: string;
   paymentMethodId: string;
-  derivationScheme: string | null;
-  accountKeyPath: string | null;
-  masterFingerprint: string | null;
   addresses: PreviewAddress[];
 };
 
@@ -69,10 +65,9 @@ function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null
   const record = value as Record<string, unknown>;
   const storeId = normalizeNonEmptyString(record.storeId);
   const currency = normalizeNonEmptyString(record.currency);
-  const cryptoCode = normalizeNonEmptyString(record.cryptoCode);
   const paymentMethodId = normalizeNonEmptyString(record.paymentMethodId);
 
-  if (!storeId || !currency || !cryptoCode || !paymentMethodId) {
+  if (!storeId || !currency || !paymentMethodId) {
     return null;
   }
 
@@ -84,11 +79,7 @@ function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null
   return {
     storeId,
     currency,
-    cryptoCode,
     paymentMethodId,
-    derivationScheme: normalizeNonEmptyString(record.derivationScheme),
-    accountKeyPath: normalizeNonEmptyString(record.accountKeyPath),
-    masterFingerprint: normalizeNonEmptyString(record.masterFingerprint),
     addresses,
   } satisfies PreviewResponse;
 }
@@ -224,11 +215,9 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setIsLoading(true);
     try {
       const csrfToken = await getCsrfToken();
-      const nextDerivation = preview.derivationScheme ?? derivationScheme;
-      const nextAccountPath = preview.accountKeyPath ?? accountKeyPath;
       const payload = {
-        derivationScheme: nextDerivation,
-        accountKeyPath: nextAccountPath ?? undefined,
+        derivationScheme,
+        accountKeyPath: accountKeyPath ?? undefined,
         enabled: true,
       };
       await api<unknown>(`/api/stores/${storeId}/wallets/btc`, {
@@ -395,15 +384,10 @@ export default function WalletWizardPage({ params }: WizardProps) {
               choice (Electrum, Wasabi, Ledger, Sparrow, Specter). Only confirm once the addresses match exactly.
             </CardDescription>
             <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
-              Derivation scheme: <span className="font-mono text-foreground">{preview.derivationScheme ?? derivationScheme}</span>
-              {preview.accountKeyPath && (
+              Derivation scheme: <span className="font-mono text-foreground">{derivationScheme}</span>
+              {accountKeyPath && (
                 <>
-                  <br />Account key path: <span className="font-mono text-foreground">{preview.accountKeyPath}</span>
-                </>
-              )}
-              {preview.masterFingerprint && (
-                <>
-                  <br />Master fingerprint: <span className="font-mono text-foreground">{preview.masterFingerprint}</span>
+                  <br />Account key path: <span className="font-mono text-foreground">{accountKeyPath}</span>
                 </>
               )}
             </div>

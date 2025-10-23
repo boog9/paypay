@@ -11,14 +11,11 @@ test.describe("Wallet wizard", () => {
       await route.fulfill({ status: 204, headers: { "X-Csrf-Token": "test-csrf" } });
     });
 
+    const derivationScheme = "wpkh([abcd1234/84'/0'/0']xpub-example/0/*)";
     const previewResponse = {
       storeId,
       currency: "BTC",
-      cryptoCode: "BTC",
       paymentMethodId: "BTC-CHAIN",
-      derivationScheme: "wpkh([abcd1234/84'/0'/0']xpub-example/0/*)",
-      accountKeyPath: "84'/0'/0'",
-      masterFingerprint: "abcd1234",
       addresses: Array.from({ length: 10 }, (_, index) => ({
         address: `bcrt1qexample${index}`,
         keyPath: `0/${index}`,
@@ -28,13 +25,15 @@ test.describe("Wallet wizard", () => {
 
     const saveResponse = {
       enabled: true,
-      derivationScheme: previewResponse.derivationScheme,
-      accountKeyPath: previewResponse.accountKeyPath,
-      masterFingerprint: previewResponse.masterFingerprint,
-      label: "Imported wallet",
       paymentMethodId: "BTC-CHAIN",
       currency: "BTC",
-      cryptoCode: "BTC",
+      storeId,
+      config: {
+        derivationScheme,
+        accountKeyPath: "84'/0'/0'",
+        masterFingerprint: "abcd1234",
+        label: "Imported wallet",
+      },
     };
 
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
@@ -60,7 +59,7 @@ test.describe("Wallet wizard", () => {
 
     await page.getByRole("button", { name: "Enter extended public key" }).click();
 
-    await page.fill("#derivationScheme", previewResponse.derivationScheme);
+    await page.fill("#derivationScheme", derivationScheme);
     await page.fill("#accountKeyPath", "m/84'/0'/0'");
     await page.getByRole("button", { name: "Preview addresses" }).click();
 
@@ -72,7 +71,7 @@ test.describe("Wallet wizard", () => {
 
     await page.waitForURL(`/stores/${storeId}/wallets/btc/settings?connected=1`);
     await expect(page.getByText("Bitcoin wallet settings")).toBeVisible();
-    await expect(page.getByText(previewResponse.derivationScheme)).toBeVisible();
+    await expect(page.getByText(derivationScheme)).toBeVisible();
     await expect(page.getByText("BTCPay wallet documentation")).toBeVisible();
   });
 });

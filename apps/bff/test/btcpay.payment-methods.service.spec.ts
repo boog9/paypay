@@ -90,15 +90,22 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    const result = await service.previewOnchain(store.btcpayStoreId, 'btc', {
-      derivationScheme: 'tpubDexample',
-      accountKeyPath: "1234abcd/84'/1'/0'"
-    }, { store });
+    const result = await service.previewOnchain(
+      store.btcpayStoreId,
+      'btc',
+      {
+        config: {
+          derivationScheme: 'tpubDexample',
+          accountKeyPath: "1234abcd/84'/1'/0'"
+        }
+      },
+      { store }
+    );
 
     expect(result.addresses).toHaveLength(10);
     expect(result.paymentMethodId).toBe('BTC-CHAIN');
     expect(result.currency).toBe('BTC');
-    expect(result.cryptoCode).toBe('BTC');
+    expect(Object.prototype.hasOwnProperty.call(result, 'derivationScheme')).toBe(false);
     expect(mockedAxios.create).toHaveBeenCalledWith(
       expect.objectContaining({
         baseURL: 'https://btcpay.example',
@@ -143,179 +150,7 @@ describe('BtcpayPaymentMethodsService', () => {
     });
   });
 
-  it('falls back to legacy preview when the modern endpoint is unavailable', async () => {
-    const previewError: AxiosError = {
-      isAxiosError: true,
-      name: 'AxiosError',
-      message: 'not found',
-      config: {},
-      toJSON: () => ({}),
-      response: {
-        status: 404,
-        statusText: 'Not Found',
-        headers: {},
-        config: {},
-        data: { message: 'not found' }
-      }
-    } as AxiosError;
-
-    const addresses = Array.from({ length: 10 }, (_, index) => ({
-      address: `bcrt1qlegacy${index}`,
-      keyPath: `0/${index}`,
-      index
-    }));
-
-    const postMock = jest.fn().mockImplementation((url: string) => {
-      if (url.includes('payment-methods/BTC-CHAIN/wallet/preview')) {
-        return Promise.reject(previewError);
-      }
-      throw new Error(`Unexpected POST to ${url}`);
-    });
-
-    const getMock = jest.fn().mockImplementation((url: string) => {
-      if (url.includes('payment-methods/OnChain/BTC/preview')) {
-        return Promise.resolve({
-          data: {
-            cryptoCode: 'BTC',
-            addresses
-          }
-        });
-      }
-      throw new Error(`Unexpected GET to ${url}`);
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock, post: postMock }));
-
-    const service = buildService();
-
-    const result = await service.previewOnchain(
-      store.btcpayStoreId,
-      'btc',
-      {
-        derivationScheme: 'tpubDexample',
-        accountKeyPath: "m/84'/0'/0'",
-        label: 'Demo label'
-      },
-      { store }
-    );
-
-    expect(result.currency).toBe('BTC');
-    expect(result.cryptoCode).toBe('BTC');
-    expect(postMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledTimes(1);
-    expect(postMock.mock.calls[0][0]).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
-    expect(postMock.mock.calls[0][1]).toEqual({
-      offset: 0,
-      amount: 10,
-      config: {
-        derivationScheme: 'tpubDexample',
-        accountKeyPath: "m/84'/0'/0'",
-        label: 'Demo label'
-      }
-    });
-    expect(getMock.mock.calls[0][0]).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(getMock.mock.calls[0][1]).toEqual({
-      params: {
-        offset: '0',
-        amount: '10',
-        derivationScheme: 'tpubDexample',
-        accountKeyPath: "m/84'/0'/0'"
-      }
-    });
-  });
-
-  it('falls back to legacy POST preview when legacy GET is not allowed', async () => {
-    const modernError: AxiosError = {
-      isAxiosError: true,
-      name: 'AxiosError',
-      message: 'not found',
-      config: {},
-      toJSON: () => ({}),
-      response: {
-        status: 404,
-        statusText: 'Not Found',
-        headers: {},
-        config: {},
-        data: { message: 'not found' }
-      }
-    } as AxiosError;
-
-    const legacyError: AxiosError = {
-      isAxiosError: true,
-      name: 'AxiosError',
-      message: 'method not allowed',
-      config: {},
-      toJSON: () => ({}),
-      response: {
-        status: 405,
-        statusText: 'Method Not Allowed',
-        headers: {},
-        config: {},
-        data: { message: 'method not allowed' }
-      }
-    } as AxiosError;
-
-    const addresses = Array.from({ length: 10 }, (_, index) => ({
-      address: `bcrt1qlegacy-post${index}`,
-      keyPath: `0/${index}`,
-      index
-    }));
-
-    const postMock = jest.fn().mockImplementation((url: string, data?: unknown) => {
-      if (url.includes('payment-methods/BTC-CHAIN/wallet/preview')) {
-        return Promise.reject(modernError);
-      }
-      if (url.includes('payment-methods/OnChain/BTC/preview')) {
-        return Promise.resolve({
-          data: {
-            cryptoCode: 'BTC',
-            addresses
-          }
-        });
-      }
-      throw new Error(`Unexpected POST to ${url} with data ${JSON.stringify(data)}`);
-    });
-
-    const getMock = jest.fn().mockImplementation((url: string) => {
-      if (url.includes('payment-methods/BTC-CHAIN/wallet/preview')) {
-        return Promise.reject(modernError);
-      }
-      return Promise.reject(legacyError);
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock, post: postMock }));
-
-    const service = buildService();
-
-    const result = await service.previewOnchain(store.btcpayStoreId, 'btc', {
-      derivationScheme: 'tpubDexample'
-    }, { store });
-
-    expect(result.addresses).toHaveLength(10);
-    expect(result.cryptoCode).toBe('BTC');
-    expect(getMock).toHaveBeenCalledTimes(1);
-    expect(postMock).toHaveBeenCalledTimes(2);
-    expect(postMock.mock.calls[0][0]).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
-    expect(postMock.mock.calls[0][1]).toEqual({
-      offset: 0,
-      amount: 10,
-      config: { derivationScheme: 'tpubDexample' }
-    });
-    expect(getMock.mock.calls[0][0]).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(getMock.mock.calls[0][1]).toEqual({
-      params: {
-        offset: '0',
-        amount: '10',
-        derivationScheme: 'tpubDexample'
-      }
-    });
-    expect(postMock.mock.calls[1][0]).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(postMock.mock.calls[1][1]).toEqual({
-      derivationScheme: 'tpubDexample',
-      offset: 0,
-      amount: 10
-    });
-  });
+  // legacy fallback behaviour has been removed; tests cover the modern endpoint exclusively.
 
   it('returns enabled flag and normalized key path after updating the on-chain method', async () => {
     const putMock = jest.fn().mockResolvedValue({
@@ -336,18 +171,25 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    const result = await service.updateOnchain(store.btcpayStoreId, 'BTC', {
-      enabled: true,
-      derivationScheme: 'xpub6Example',
-      accountKeyPath: "abcdef12/84'/0'/0'"
-    }, { store });
+    const result = await service.updateOnchain(
+      store.btcpayStoreId,
+      'BTC',
+      {
+        enabled: true,
+        config: {
+          derivationScheme: 'xpub6Example',
+          accountKeyPath: "abcdef12/84'/0'/0'"
+        }
+      },
+      { store }
+    );
 
     expect(result.enabled).toBe(true);
-    expect(result.accountKeyPath).toBe("84'/0'/0'");
-    expect(result.masterFingerprint).toBe('abcdef12');
     expect(result.paymentMethodId).toBe('BTC-CHAIN');
     expect(result.currency).toBe('BTC');
-    expect(result.cryptoCode).toBe('BTC');
+    expect(result.config.accountKeyPath).toBe("84'/0'/0'");
+    expect(result.config.masterFingerprint).toBe('abcdef12');
+    expect(result.config.derivationScheme).toBe('xpub6Example');
     expect(putMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
       expect.objectContaining({

@@ -15,7 +15,7 @@ test.describe("Wallet wizard", () => {
     const previewResponse = {
       storeId,
       currency: "BTC",
-      paymentMethodId: "BTC-CHAIN",
+      paymentMethodId: "BTC-OnChain",
       addresses: Array.from({ length: 10 }, (_, index) => ({
         address: `bcrt1qexample${index}`,
         keyPath: `0/${index}`,
@@ -25,7 +25,7 @@ test.describe("Wallet wizard", () => {
 
     const saveResponse = {
       enabled: true,
-      paymentMethodId: "BTC-CHAIN",
+      paymentMethodId: "BTC-OnChain",
       currency: "BTC",
       storeId,
       config: {

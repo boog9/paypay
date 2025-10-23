@@ -104,7 +104,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     expect(result.addresses).toHaveLength(10);
-    expect(result.paymentMethodId).toBe('BTC-CHAIN');
+    expect(result.paymentMethodId).toBe('BTC-OnChain');
     expect(result.currency).toBe('BTC');
     expect(Object.prototype.hasOwnProperty.call(result, 'derivationScheme')).toBe(false);
     expect(mockedAxios.create).toHaveBeenCalledWith(
@@ -115,7 +115,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
     expect(postMock).toHaveBeenCalledTimes(1);
     const [path, payload] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-OnChain/wallet/preview');
     expect(payload).toEqual({
       offset: 0,
       amount: 10,
@@ -157,7 +157,7 @@ describe('BtcpayPaymentMethodsService', () => {
     const putMock = jest.fn().mockResolvedValue({
       data: {
         enabled: true,
-        paymentMethodId: 'BTC-CHAIN',
+        paymentMethodId: 'BTC-OnChain',
         currency: 'btc',
         config: {
           derivationScheme: 'xpub6Example',
@@ -186,13 +186,13 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     expect(result.enabled).toBe(true);
-    expect(result.paymentMethodId).toBe('BTC-CHAIN');
+    expect(result.paymentMethodId).toBe('BTC-OnChain');
     expect(result.currency).toBe('BTC');
     expect(result.config.accountKeyPath).toBe("84'/0'/0'");
     expect(result.config.masterFingerprint).toBe('abcdef12');
     expect(result.config.derivationScheme).toBe('xpub6Example');
     expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
+      '/api/v1/stores/store-123/payment-methods/BTC-OnChain',
       expect.objectContaining({
         enabled: true,
         config: expect.objectContaining({
@@ -201,6 +201,57 @@ describe('BtcpayPaymentMethodsService', () => {
         })
       })
     );
+  });
+
+  it('retrieves on-chain status without requesting configuration payloads', async () => {
+    const getMock = jest.fn().mockResolvedValue({
+      data: [
+        {
+          paymentMethodId: 'BTC-OnChain',
+          enabled: true
+        }
+      ]
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getOnchainMethodStatus(store.btcpayStoreId, 'BTC-OnChain', { store });
+
+    expect(getMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods',
+      {
+        params: {
+          paymentMethodId: 'BTC-OnChain',
+          onlyEnabled: 'false',
+          includeConfig: 'false'
+        }
+      }
+    );
+    expect(result).toEqual({
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-OnChain',
+      enabled: true
+    });
+  });
+
+  it('treats missing on-chain methods as disabled when querying status', async () => {
+    const error = {
+      isAxiosError: true,
+      response: { status: 404 }
+    } as AxiosError;
+    const getMock = jest.fn().mockRejectedValue(error);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getOnchainMethodStatus(store.btcpayStoreId, 'BTC-OnChain', { store });
+
+    expect(result).toEqual({
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-OnChain',
+      enabled: false
+    });
   });
 
   it('updates an on-chain payment method with a temporary key', async () => {
@@ -232,7 +283,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
+      '/api/v1/stores/store-123/payment-methods/BTC-OnChain',
       {
         enabled: true,
         config: {

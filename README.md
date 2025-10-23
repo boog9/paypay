@@ -196,7 +196,17 @@ All runtime configuration is delivered via environment variables loaded from `in
 - `BTCPAY_WEBHOOK_URL` — public BFF endpoint for BTCPay webhooks, e.g. `https://paypay.iddqd.in/api/hooks/btcpay`
 - Optional health probe: `BTCPAY_HEALTH_STORE_ID`, `BTCPAY_HEALTH_API_KEY`
 - Wallet wizard operations issue a temporary per-store API key with only `btcpay.store.canmodifystoresettings:<STORE_ID>` permission to persist on-chain configuration and revoke it immediately after a successful save. See the [Greenfield authorization documentation](https://docs.btcpayserver.org/API/Greenfield/v1/#section/Authentication) for background.
-- Payment method identifiers follow BTCPay Server ≥ 2.x conventions (`BTC-CHAIN`, `BTC-LN`, `BTC-LNURL`).
+- Payment method identifiers follow BTCPay Server ≥ 2.x conventions (`BTC-OnChain`, `BTC-LightningNetwork`, `BTC-LightningLikeLNURLPay`).
+
+##### BTCPay on-chain status smoke test
+
+Validate the lightweight status endpoint using a minimal per-store API key (no `includeConfig` permissions required):
+
+```bash
+# On-chain payment method status without includeConfig
+curl -sS -H "Authorization: token <STORE_SCOPED_KEY>" \
+  "https://<btcpay>/api/v1/stores/<STORE_ID>/payment-methods?paymentMethodId=BTC-OnChain&onlyEnabled=false"
+```
 
 #### Domains / Origins
 - `PAYPAY_DOMAIN`, `PAYPAY_API_DOMAIN`, `FRONTEND_ORIGIN`, `NEXT_PUBLIC_BFF_URL`

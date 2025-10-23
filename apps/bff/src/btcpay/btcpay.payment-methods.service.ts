@@ -60,6 +60,12 @@ export interface OnchainPaymentMethodConfig {
   };
 }
 
+export interface OnchainPaymentMethodStatus {
+  storeId: string;
+  paymentMethodId: string;
+  enabled: boolean;
+}
+
 export interface UpdateOnchainPaymentMethodPayload {
   enabled: boolean;
   config: {
@@ -80,11 +86,11 @@ export function normalizePaymentMethodId(cryptoCode: string, type: BtcpayPayment
 
   switch (type) {
     case 'chain':
-      return `${code}-CHAIN`;
+      return `${code}-OnChain`;
     case 'ln':
-      return `${code}-LN`;
+      return `${code}-LightningNetwork`;
     case 'lnurl':
-      return `${code}-LNURL`;
+      return `${code}-LightningLikeLNURLPay`;
     default:
       throw new InternalServerErrorException('Unsupported payment method type.');
   }
@@ -201,6 +207,55 @@ export class BtcpayPaymentMethodsService {
     }
 
     throw new InternalServerErrorException('Failed to retrieve on-chain payment method.');
+  }
+
+  async getOnchainMethodStatus(
+    storeId: string,
+    paymentMethodId = 'BTC-OnChain',
+    options?: PaymentMethodRequestOptions
+  ): Promise<OnchainPaymentMethodStatus> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const normalizedId = typeof paymentMethodId === 'string' && paymentMethodId.trim()
+      ? paymentMethodId.trim()
+      : 'BTC-OnChain';
+    const storeIdentifier = context.store.btcpayStoreId;
+
+    try {
+      const response = await context.http.get(
+        this.buildModernPaymentMethodsCollectionPath(storeIdentifier),
+        {
+          params: {
+            paymentMethodId: normalizedId,
+            onlyEnabled: 'false',
+            includeConfig: 'false'
+          }
+        }
+      );
+      const match = this.extractPaymentMethodStatus(response.data, normalizedId);
+      if (!match) {
+        return { storeId: storeIdentifier, paymentMethodId: normalizedId, enabled: false };
+      }
+      const resolvedId = typeof match.paymentMethodId === 'string' && match.paymentMethodId.trim()
+        ? match.paymentMethodId.trim()
+        : normalizedId;
+      const enabled = typeof match.enabled === 'boolean' ? match.enabled : false;
+      return { storeId: storeIdentifier, paymentMethodId: resolvedId, enabled };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 404) {
+          return { storeId: storeIdentifier, paymentMethodId: normalizedId, enabled: false };
+        }
+        if (status === 401 || status === 403) {
+          throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        }
+      }
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    return { storeId: storeIdentifier, paymentMethodId: normalizedId, enabled: false };
   }
 
   // BTCPay Greenfield API v1 applies updates via PUT /payment-methods/{paymentMethodId}.
@@ -664,12 +719,52 @@ export class BtcpayPaymentMethodsService {
     return store;
   }
 
+  private buildModernPaymentMethodsCollectionPath(storeId: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods`;
+  }
+
   private buildModernPreviewPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
   private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
+  }
+
+  private extractPaymentMethodStatus(
+    payload: unknown,
+    fallbackPaymentMethodId: string
+  ): PaymentMethodRecord | null {
+    const candidates: PaymentMethodRecord[] = [];
+    if (Array.isArray(payload)) {
+      for (const entry of payload) {
+        if (entry && typeof entry === 'object') {
+          candidates.push(entry as PaymentMethodRecord);
+        }
+      }
+    } else if (payload && typeof payload === 'object') {
+      candidates.push(payload as PaymentMethodRecord);
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const fallback = fallbackPaymentMethodId.trim().toUpperCase();
+    const legacyFallback = fallback.replace(/ONCHAIN$/i, 'CHAIN');
+
+    const match = candidates.find((record) => {
+      if (typeof record.paymentMethodId !== 'string') {
+        return false;
+      }
+      const normalized = record.paymentMethodId.trim().toUpperCase();
+      if (!normalized) {
+        return false;
+      }
+      return normalized === fallback || normalized === legacyFallback;
+    });
+
+    return match ?? candidates[0] ?? null;
   }
 
   private handleBtcpayError(error: unknown): never {

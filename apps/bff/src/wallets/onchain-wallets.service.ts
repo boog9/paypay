@@ -10,7 +10,6 @@ import { Repository } from 'typeorm';
 import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
-  OnchainPaymentMethodConfig,
   OnchainPreviewRequest,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload
@@ -20,17 +19,37 @@ import { isBTCPayAuthError, isBTCPayUpstreamError } from '../btcpay/btcpay.error
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { INVALID_DERIVATION_MESSAGE, PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
 import { normalizeEmail } from '../auth/email.utils';
+import { ManagedStoreWalletEntity } from './entities/managed-store-wallet.entity';
 
 interface WalletUserContext {
   id: string | null;
   email: string | null;
 }
 
+export interface OnchainWalletStatusReadModel {
+  storeId: string;
+  currency: string;
+  paymentMethodId: string;
+  enabled: boolean;
+  connected: boolean;
+  missingLocalMeta: boolean;
+  config: {
+    derivationScheme: string | null;
+    accountKeyPath: string | null;
+    masterFingerprint: string | null;
+    label: string | null;
+  };
+}
+
+const BTC_ONCHAIN_PAYMENT_METHOD_ID = 'BTC-OnChain';
+
 @Injectable()
 export class OnchainWalletsService {
   constructor(
     @InjectRepository(ManagedStoreEntity)
     private readonly storesRepository: Repository<ManagedStoreEntity>,
+    @InjectRepository(ManagedStoreWalletEntity)
+    private readonly walletsRepository: Repository<ManagedStoreWalletEntity>,
     private readonly paymentMethods: BtcpayPaymentMethodsService,
     private readonly keysService: BtcpayKeysService
   ) {}
@@ -54,10 +73,27 @@ export class OnchainWalletsService {
   async getConfig(
     userContext: WalletUserContext,
     storeId: string
-  ): Promise<OnchainPaymentMethodConfig> {
+  ): Promise<OnchainWalletStatusReadModel> {
     const userId = this.requireUserId(userContext.id);
     const store = await this.requireStore(userId, storeId);
-    return this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true });
+    const paymentMethodId = BTC_ONCHAIN_PAYMENT_METHOD_ID;
+    const [status, wallet] = await Promise.all([
+      this.paymentMethods.getOnchainMethodStatus(store.btcpayStoreId, paymentMethodId, { store }),
+      this.walletsRepository.findOne({ where: { storeId: store.id, paymentMethodId } })
+    ]);
+
+    const enabled = Boolean(status?.enabled);
+    const resolvedPaymentMethodId = status?.paymentMethodId?.trim() || paymentMethodId;
+
+    return {
+      storeId: store.btcpayStoreId,
+      currency: 'BTC',
+      paymentMethodId: resolvedPaymentMethodId,
+      enabled,
+      connected: enabled,
+      missingLocalMeta: enabled && !wallet,
+      config: this.normalizeLocalWallet(wallet)
+    } satisfies OnchainWalletStatusReadModel;
   }
 
   async update(
@@ -89,6 +125,14 @@ export class OnchainWalletsService {
         },
         { host: store.btcpayHost }
       );
+
+      await this.saveWalletMetadata(store, {
+        paymentMethodId: BTC_ONCHAIN_PAYMENT_METHOD_ID,
+        derivationScheme: payload.config.derivationScheme,
+        accountKeyPath: payload.config.accountKeyPath ?? null,
+        masterFingerprint: payload.config.masterFingerprint ?? null,
+        label: payload.config.label ?? null
+      });
     } catch (error) {
       if (isBTCPayAuthError(error)) {
         throw new UnauthorizedException('BTCPay authentication failed');
@@ -98,6 +142,65 @@ export class OnchainWalletsService {
       }
       throw error;
     }
+  }
+
+  private normalizeLocalWallet(
+    wallet: ManagedStoreWalletEntity | null
+  ): OnchainWalletStatusReadModel['config'] {
+    if (!wallet) {
+      return {
+        derivationScheme: null,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      };
+    }
+
+    return {
+      derivationScheme: wallet.derivationScheme ?? null,
+      accountKeyPath: wallet.accountKeyPath ?? null,
+      masterFingerprint: wallet.masterFingerprint ?? null,
+      label: wallet.label ?? null
+    };
+  }
+
+  private async saveWalletMetadata(
+    store: ManagedStoreEntity,
+    metadata: {
+      paymentMethodId: string;
+      derivationScheme: string;
+      accountKeyPath: string | null;
+      masterFingerprint: string | null;
+      label: string | null;
+    }
+  ): Promise<void> {
+    const derivationScheme = metadata.derivationScheme.trim();
+    const accountKeyPath = metadata.accountKeyPath?.trim() || null;
+    const masterFingerprint = metadata.masterFingerprint?.trim().toUpperCase() || null;
+    const label = metadata.label?.trim() || null;
+
+    const existing = await this.walletsRepository.findOne({
+      where: { storeId: store.id, paymentMethodId: metadata.paymentMethodId }
+    });
+
+    if (!existing) {
+      const entity = this.walletsRepository.create({
+        storeId: store.id,
+        paymentMethodId: metadata.paymentMethodId,
+        derivationScheme,
+        accountKeyPath,
+        masterFingerprint,
+        label
+      });
+      await this.walletsRepository.save(entity);
+      return;
+    }
+
+    existing.derivationScheme = derivationScheme;
+    existing.accountKeyPath = accountKeyPath;
+    existing.masterFingerprint = masterFingerprint;
+    existing.label = label;
+    await this.walletsRepository.save(existing);
   }
 
   private buildPreviewRequest(dto: PreviewOnchainDto): OnchainPreviewRequest {

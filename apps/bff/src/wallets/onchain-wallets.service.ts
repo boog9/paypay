@@ -181,6 +181,9 @@ export class OnchainWalletsService {
         throw new UnauthorizedException('BTCPay authentication failed');
       }
       if (isBTCPayUpstreamError(error)) {
+        if (error.status === 422) {
+          throw new UnprocessableEntityException(error.message, { cause: error });
+        }
         throw new BadGatewayException('Upstream error');
       }
       throw error;
@@ -218,7 +221,9 @@ export class OnchainWalletsService {
     const remoteLabel = record ? this.sanitizeString(record.label) : null;
     const remoteAccountKeyPath = record ? this.sanitizeString(record.accountKeyPath) : null;
     const remoteDerivationScheme = record ? this.sanitizeString(record.derivationScheme) : null;
-    const remoteMasterFingerprint = record ? this.sanitizeString(record.masterFingerprint) : null;
+    const remoteRootFingerprint = record ? this.sanitizeString(record.rootFingerprint) : null;
+    const remoteMasterFingerprint =
+      remoteRootFingerprint ?? (record ? this.sanitizeString(record.masterFingerprint) : null);
 
     return {
       label: remoteLabel ?? local.label,
@@ -303,8 +308,9 @@ export class OnchainWalletsService {
       accountKeyPath: dto.accountKeyPath
     };
 
-    if (typeof dto.masterFingerprint === 'string' && dto.masterFingerprint.trim()) {
-      config.masterFingerprint = dto.masterFingerprint.trim();
+    const fingerprint = this.resolveFingerprint(dto);
+    if (fingerprint) {
+      config.masterFingerprint = fingerprint;
     }
 
     return {
@@ -320,9 +326,22 @@ export class OnchainWalletsService {
         derivationScheme: dto.derivationScheme,
         accountKeyPath: dto.accountKeyPath,
         label: dto.label,
-        masterFingerprint: dto.masterFingerprint
+        masterFingerprint: this.resolveFingerprint(dto)
       }
     };
+  }
+
+  private resolveFingerprint(
+    dto: Pick<PreviewOnchainDto, 'masterFingerprint' | 'rootFingerprint'>
+  ): string | undefined {
+    const master = this.sanitizeString(dto.masterFingerprint);
+    const root = this.sanitizeString(dto.rootFingerprint);
+
+    if (master && root && master.toUpperCase() !== root.toUpperCase()) {
+      throw new UnprocessableEntityException('Master and root fingerprint values must match.');
+    }
+
+    return root ?? master ?? undefined;
   }
 
   private requireUserId(userId: string | null): string {

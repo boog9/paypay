@@ -1,10 +1,10 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import type { Metadata } from "next";
 
 import { Badge } from "../../../../../../components/ui/badge";
 import { Button } from "../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../components/ui/card";
-import { fetchFromBff } from "../../../../../../lib/server-api";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -38,6 +38,23 @@ type SettingsPageProps = {
   params: Promise<{ storeId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const API_PREFIX = "/api";
+
+function resolveBffApiBaseUrl(): string | null {
+  const rawBaseUrl = process.env.NEXT_PUBLIC_BFF_URL;
+  if (!rawBaseUrl) {
+    return API_PREFIX;
+  }
+
+  try {
+    const parsed = new URL(rawBaseUrl);
+    const origin = parsed.origin.replace(/\/$/, "");
+    return `${origin}${API_PREFIX}`.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
 
 function normalizeOptionalString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -120,25 +137,75 @@ function normalizeWalletStatusPayload(value: unknown): WalletStatus | null {
   } satisfies WalletStatus;
 }
 
-async function loadWalletStatus(storeId: string): Promise<{ status: number; data: WalletStatus | null }> {
+async function readResponseBody(response: Response): Promise<string | null> {
   try {
-    const response = await fetchFromBff(`/stores/${storeId}/wallets/btc`, { method: "GET" });
-    const status = response.status;
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
 
-    let parsed: unknown = null;
-    try {
-      const raw = await response.text();
-      if (raw && raw.trim().length > 0) {
-        parsed = JSON.parse(raw);
-      }
-    } catch {
-      parsed = null;
+function parseJsonPayload(raw: string | null): unknown {
+  if (!raw) {
+    return null;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWalletStatusResponse(storeId: string): Promise<Response | null> {
+  const baseUrl = resolveBffApiBaseUrl();
+  if (!baseUrl) {
+    return null;
+  }
+
+  const url = `${baseUrl}/stores/${storeId}/wallets/btc`;
+
+  try {
+    const cookieStore = await cookies();
+    const serializedCookies = cookieStore
+      .getAll()
+      .map((cookie) => `${cookie.name}=${cookie.value}`)
+      .join("; ");
+
+    const headers = new Headers();
+    headers.set("Accept", "application/json");
+    if (serializedCookies) {
+      headers.set("Cookie", serializedCookies);
     }
 
-    return { status, data: normalizeWalletStatusPayload(parsed) };
+    return await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers,
+      credentials: "include",
+      mode: "cors",
+    });
   } catch {
+    return null;
+  }
+}
+
+async function loadWalletStatus(storeId: string): Promise<{ status: number; data: WalletStatus | null }> {
+  const response = await fetchWalletStatusResponse(storeId);
+  if (!response) {
     return { status: 0, data: null };
   }
+
+  const status = response.status;
+  const rawBody = await readResponseBody(response);
+  const parsed = parseJsonPayload(rawBody);
+
+  return { status, data: normalizeWalletStatusPayload(parsed) };
 }
 
 function resolveSearchParam(value: string | string[] | undefined): string | null {

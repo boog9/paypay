@@ -64,6 +64,7 @@ describe('OnchainWalletsService', () => {
 
   const paymentMethods = {
     previewOnchain: jest.fn().mockResolvedValue(previewResponse),
+    previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse),
     updateOnchainPaymentMethod: jest.fn(),
     getOnchainMethodStatus: jest.fn().mockResolvedValue({
       storeId: store.btcpayStoreId,
@@ -100,6 +101,7 @@ describe('OnchainWalletsService', () => {
     (repository.findOne as jest.Mock).mockResolvedValue(store);
     (walletRepository.findOne as jest.Mock).mockResolvedValue(null);
     (paymentMethods.previewOnchain as jest.Mock).mockResolvedValue(previewResponse);
+    (paymentMethods.previewOnchainPaymentMethod as jest.Mock).mockResolvedValue(previewResponse);
     (paymentMethods.getOnchainMethodStatus as jest.Mock).mockResolvedValue({
       storeId: store.btcpayStoreId,
       paymentMethodId: 'BTC-OnChain',
@@ -125,21 +127,32 @@ describe('OnchainWalletsService', () => {
   });
 
   it('limits preview addresses to the requested amount', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) => {
+        return handler('temp-preview-key');
+      }
+    );
+
     const result = await service.preview({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId, {
       derivationScheme: SAMPLE_ZPUB,
       amount: 5,
     } as any);
 
-    expect(paymentMethods.previewOnchain).toHaveBeenCalledWith(store.btcpayStoreId, 'BTC', expect.any(Object), {
-      store,
-    });
-    const [, , request] = (paymentMethods.previewOnchain as jest.Mock).mock.calls[0];
-    expect(request).toEqual({
-      amount: 5,
-      config: {
+    expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+      store.btcpayStoreId,
+      'merchant@example.com',
+      expect.any(Function),
+      { host: store.btcpayHost }
+    );
+    expect(paymentMethods.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      store.btcpayStoreId,
+      'BTC',
+      {
         derivationScheme: SAMPLE_ZPUB,
+        accountKeyPath: null,
       },
-    });
+      { store, apiKeyOverride: 'temp-preview-key' }
+    );
     expect(result.currency).toBe('BTC');
     expect(result.paymentMethodId).toBe('BTC-CHAIN');
     expect(result.addresses).toHaveLength(5);

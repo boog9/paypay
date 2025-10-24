@@ -6,7 +6,8 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  UnauthorizedException
+  UnauthorizedException,
+  UnprocessableEntityException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError, AxiosInstance } from 'axios';
@@ -22,6 +23,20 @@ const INVALID_DERIVATION_MESSAGE =
   "Unsupported format. Enter xpub/ypub/zpub/tpub/upub/vpub or descriptor like wpkh([FPR/84'/1'/0']tpub.../0/*).";
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
+
+export function mask(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.length <= 16) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 8)}…${trimmed.slice(-8)}`;
+}
 
 export interface OnchainPreviewConfig {
   derivationScheme?: string;
@@ -218,6 +233,44 @@ export class BtcpayPaymentMethodsService {
     }
 
     throw new InternalServerErrorException('Failed to preview on-chain payment method.');
+  }
+
+  async previewOnchainPaymentMethod(
+    storeId: string,
+    cryptoCode: 'BTC',
+    dto: { derivationScheme: string; accountKeyPath?: string | null },
+    options?: PaymentMethodRequestOptions
+  ): Promise<OnchainPreviewResponse> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const currency = cryptoCode.toUpperCase();
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
+    const derivationScheme = typeof dto.derivationScheme === 'string' ? dto.derivationScheme.trim() : '';
+    const accountKeyPath =
+      typeof dto.accountKeyPath === 'string' && dto.accountKeyPath.trim()
+        ? dto.accountKeyPath.trim()
+        : null;
+    const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, currency);
+    const body = {
+      derivationScheme,
+      accountKeyPath
+    };
+
+    try {
+      const response = await context.http.post(url, body);
+      return this.normalizePreviewResponse(
+        response.data,
+        context.store.btcpayStoreId,
+        currency,
+        paymentMethodId
+      );
+    } catch (error) {
+      const masked = mask(derivationScheme);
+      const keyPath = accountKeyPath ?? '';
+      this.logger.warn(`onchain preview failed: ${masked}${keyPath ? ` ${keyPath}` : ''}`);
+      throw this.mapPreviewError(error);
+    } finally {
+      context.cleanup();
+    }
   }
 
   // BTCPay Greenfield API v1 surfaces configuration at /payment-methods/{paymentMethodId}.
@@ -800,6 +853,10 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
+  private buildOnchainPostPreviewPath(storeId: string, cryptoCode: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode)}/preview`;
+  }
+
   private extractPaymentMethodStatus(
     payload: unknown,
     fallbackPaymentMethodId: string
@@ -902,6 +959,41 @@ export class BtcpayPaymentMethodsService {
       }
     }
     return this.rewriteValidationMessage(INVALID_DERIVATION_MESSAGE);
+  }
+
+  private mapPreviewError(error: unknown): Error {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 502;
+      const message = this.extractErrorMessage(error);
+      const payload = error.response?.data ?? message;
+      if (status === 401) {
+        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+      }
+      if (status === 403) {
+        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+      }
+      if (status === 400 || status === 422) {
+        return new UnprocessableEntityException(payload ?? INVALID_DERIVATION_MESSAGE, {
+          cause: error as Error
+        });
+      }
+      if (status >= 400 && status < 500) {
+        return new UnprocessableEntityException(message || INVALID_DERIVATION_MESSAGE, {
+          cause: error as Error
+        });
+      }
+      return new BadGatewayException('Failed to preview on-chain payment method.', {
+        cause: error as Error
+      });
+    }
+
+    if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
+      return error;
+    }
+
+    return new BadGatewayException('Failed to preview on-chain payment method.', {
+      cause: error instanceof Error ? error : undefined
+    });
   }
 
   private firstErrorMessage(errors: unknown[]): string | null {

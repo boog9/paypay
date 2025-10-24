@@ -1,4 +1,5 @@
-import axios, { AxiosError, AxiosInstance } from 'axios';
+import { HttpException } from '@nestjs/common';
+import axios, { AxiosError, AxiosHeaders, AxiosInstance } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
@@ -81,7 +82,7 @@ describe('BtcpayPaymentMethodsService', () => {
       index
     }));
 
-    const postMock = jest.fn().mockResolvedValue({
+    const getMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses,
@@ -92,7 +93,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
@@ -118,23 +119,21 @@ describe('BtcpayPaymentMethodsService', () => {
         headers: expect.objectContaining({ Authorization: 'token store-api-key' })
       })
     );
-    expect(postMock).toHaveBeenCalledTimes(1);
-    const [path, payload, options] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(payload).toEqual({
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "1234abcd/84'/1'/0'"
-    });
+    expect(getMock).toHaveBeenCalledTimes(1);
+    const [path, options] = getMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10'
+        count: '10',
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "1234abcd/84'/1'/0'"
       }
     });
   });
 
   it('omits empty config objects when previewing', async () => {
-    const postMock = jest.fn().mockResolvedValue({
+    const getMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses: [
@@ -144,16 +143,15 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
     await service.previewOnchain(store.btcpayStoreId, 'btc', undefined, { store });
 
-    expect(postMock).toHaveBeenCalledTimes(1);
-    const [path, payload, options] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(payload).toEqual({});
+    expect(getMock).toHaveBeenCalledTimes(1);
+    const [path, options] = getMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
@@ -162,15 +160,15 @@ describe('BtcpayPaymentMethodsService', () => {
     });
   });
 
-  it('uppercases and forwards master fingerprint when provided', async () => {
-    const postMock = jest.fn().mockResolvedValue({
+  it('does not include master fingerprint in preview parameters', async () => {
+    const getMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses: []
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
@@ -187,20 +185,63 @@ describe('BtcpayPaymentMethodsService', () => {
       { store }
     );
 
-    expect(postMock).toHaveBeenCalledTimes(1);
-    const [path, payload, options] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
-    expect(payload).toEqual({
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "1234abcd/84'/1'/0'",
-      rootFingerprint: 'ABCD1234'
-    });
+    expect(getMock).toHaveBeenCalledTimes(1);
+    const [path, options] = getMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10'
+        count: '10',
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "1234abcd/84'/1'/0'"
       }
     });
+  });
+
+  it('propagates BTCPay 422 payload without rewriting the message', async () => {
+    const payload = 'Descriptor checksum mismatch';
+    const response = {
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: payload
+    } as any;
+    const axiosError = new AxiosError(
+      'Invalid derivation',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response
+    );
+    axiosError.response = response;
+    axiosError.isAxiosError = true;
+
+    const getMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+
+    expect.assertions(5);
+
+    try {
+      await service.previewOnchain(
+        store.btcpayStoreId,
+        'btc',
+        { config: { derivationScheme: SAMPLE_TPUB } },
+        { store }
+      );
+    } catch (error) {
+      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(error).toBeInstanceOf(HttpException);
+      const httpError = error as HttpException;
+      expect(httpError.getStatus()).toBe(422);
+      expect(httpError.getResponse()).toBe(payload);
+      expect(httpError.cause).toBe(axiosError);
+      return;
+    }
+
+    throw new Error('Expected HttpException to be thrown');
   });
 
   it('sends rootFingerprint when updating payment method metadata', async () => {

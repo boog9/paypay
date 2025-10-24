@@ -95,6 +95,33 @@ function containsExtendedKeySnippet(value: string): boolean {
 
 function normalizePreviewErrorMessage(error: ApiError): string {
   const fallback = "Failed to preview derivation scheme.";
+  if (error.status === 422) {
+    const body = error.body;
+    if (typeof body === "string" && body.trim().length > 0) {
+      return body.trim();
+    }
+    if (body && typeof body === "object") {
+      const record = body as Record<string, unknown>;
+      const direct = typeof record.message === "string" && record.message.trim().length > 0
+        ? record.message.trim()
+        : null;
+      if (direct) {
+        return direct;
+      }
+      const errorField = typeof record.error === "string" && record.error.trim().length > 0
+        ? record.error.trim()
+        : null;
+      if (errorField) {
+        return errorField;
+      }
+      const asJson = JSON.stringify(record);
+      if (asJson.length > 2) {
+        return asJson;
+      }
+    }
+    const rawMessage = typeof error.message === "string" && error.message.trim().length > 0 ? error.message.trim() : "";
+    return rawMessage.length > 0 ? rawMessage : fallback;
+  }
   const rawMessage = typeof error.message === "string" && error.message.trim().length > 0 ? error.message.trim() : "";
   const message = rawMessage.length > 0 ? rawMessage : fallback;
   const lowered = message.toLowerCase();

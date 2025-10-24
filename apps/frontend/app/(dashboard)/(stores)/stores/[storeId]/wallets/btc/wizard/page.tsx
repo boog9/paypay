@@ -11,7 +11,6 @@ import { useToast } from "../../../../../../../../components/ui/toast";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
 import {
   FORMAT_ERROR_MESSAGE,
-  SENSITIVE_ERROR_MESSAGE,
   detectNetworkFromInput,
   resolveInstanceNetwork,
   walletWizardFormSchema

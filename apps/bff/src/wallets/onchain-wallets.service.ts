@@ -15,9 +15,9 @@ import {
   OnchainPreviewRequest,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload,
-  canonicalPaymentMethodId,
-  normalizePaymentMethodId
+  canonicalPaymentMethodId
 } from '../btcpay/btcpay.payment-methods.service';
+import { BTC_ONCHAIN_PMID } from '../btcpay/btcpay.constants';
 import { BtcpayKeysService } from '../btcpay/btcpay.keys.service';
 import { isBTCPayAuthError, isBTCPayUpstreamError } from '../btcpay/btcpay.errors';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
@@ -46,7 +46,7 @@ export interface OnchainWalletStatusReadModel {
   addressPreview: OnchainPreviewResponse['addresses'];
 }
 
-const BTC_ONCHAIN_PAYMENT_METHOD_ID = normalizePaymentMethodId('BTC', 'chain');
+const BTC_ONCHAIN_PAYMENT_METHOD_ID = BTC_ONCHAIN_PMID;
 
 @Injectable()
 export class OnchainWalletsService {
@@ -307,11 +307,6 @@ export class OnchainWalletsService {
       derivationScheme: dto.derivationScheme,
       accountKeyPath: dto.accountKeyPath
     };
-
-    const fingerprint = this.resolveFingerprint(dto);
-    if (fingerprint) {
-      config.masterFingerprint = fingerprint;
-    }
 
     return {
       amount: dto.amount,

@@ -42,3 +42,5 @@ export const BTCPAY_INVOICE_WEBHOOK_EVENTS = [
   'InvoiceInvalid',
   'InvoiceSettled'
 ] as const;
+
+export const BTC_ONCHAIN_PMID = 'BTC-CHAIN';

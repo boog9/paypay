@@ -6,8 +6,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  UnauthorizedException,
-  UnprocessableEntityException
+  UnauthorizedException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError, AxiosInstance } from 'axios';
@@ -185,8 +184,9 @@ export class BtcpayPaymentMethodsService {
   ) {}
 
   // BTCPay Greenfield API v1 (BTCPay Server ≥ 2.x) exposes previewing via
-  // POST /payment-methods/OnChain/{cryptoCode}/preview.
-  // Refer to the Swagger UI on the target instance (/docs) for the canonical schema.
+  // GET /stores/{storeId}/payment-methods/{paymentMethodId}/wallet/preview.
+  // See https://docs.btcpayserver.org/API/Greenfield/v1/#tag/Store-Payment-Methods/operation/Stores_PaymentMethods_PreviewWallet
+  // for the canonical schema.
   async previewOnchain(
     storeId: string,
     currencyCode = 'BTC',
@@ -200,11 +200,9 @@ export class BtcpayPaymentMethodsService {
       this.logger.debug(
         `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
-      const payload = this.buildPreviewRequestBody(body);
       const params = this.buildPreviewRequestParams(body);
-      const response = await context.http.post(
-        this.buildOnchainPreviewPath(context.store.btcpayStoreId, currency),
-        Object.keys(payload).length > 0 ? payload : {},
+      const response = await context.http.get(
+        this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
         { params }
       );
       return this.normalizePreviewResponse(
@@ -379,26 +377,17 @@ export class BtcpayPaymentMethodsService {
     params.offset = String(offset);
     params.count = String(amount);
 
-    return params;
-  }
-
-  private buildPreviewRequestBody(body?: OnchainPreviewRequest): Record<string, unknown> {
     const config = this.normalizePreviewConfig(body?.config);
-    const payload: Record<string, unknown> = {};
 
     if (config.derivationScheme) {
-      payload.derivationScheme = config.derivationScheme;
+      params.derivationScheme = config.derivationScheme;
     }
 
     if (config.accountKeyPath) {
-      payload.accountKeyPath = config.accountKeyPath;
+      params.accountKeyPath = config.accountKeyPath;
     }
 
-    if (config.masterFingerprint) {
-      payload.rootFingerprint = config.masterFingerprint;
-    }
-
-    return payload;
+    return params;
   }
 
   private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
@@ -803,8 +792,8 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods`;
   }
 
-  private buildOnchainPreviewPath(storeId: string, cryptoCode: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode)}/preview`;
+  private buildOnchainPreviewPath(storeId: string, paymentMethodId: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
   private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
@@ -849,6 +838,7 @@ export class BtcpayPaymentMethodsService {
   private handleBtcpayError(error: unknown): never {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 502;
+      const data = error.response?.data;
       const message = this.extractErrorMessage(error);
       if (status === 401) {
         throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
@@ -860,7 +850,10 @@ export class BtcpayPaymentMethodsService {
         throw new NotFoundException(message, { cause: error as Error });
       }
       if (status === 422) {
-        throw new UnprocessableEntityException(message, { cause: error as Error });
+        const payload = data ?? message;
+        throw new HttpException(payload ?? INVALID_DERIVATION_MESSAGE, 422, {
+          cause: error as Error
+        });
       }
       if (status >= 400 && status < 500) {
         throw new HttpException(message, status, { cause: error as Error });

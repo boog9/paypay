@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -27,6 +28,7 @@ export interface OnchainPreviewConfig {
   derivationScheme?: string;
   accountKeyPath?: string | null;
   label?: string | null;
+  masterFingerprint?: string | null;
 }
 
 export interface OnchainPreviewRequest {
@@ -179,7 +181,8 @@ export class BtcpayPaymentMethodsService {
     private readonly btcpayService: BtcpayService
   ) {}
 
-  // BTCPay Greenfield API v1 (BTCPay Server ≥ 2.x) exposes previewing via GET /payment-methods/{paymentMethodId}/wallet/preview.
+  // BTCPay Greenfield API v1 (BTCPay Server ≥ 2.x) exposes previewing via
+  // POST /payment-methods/OnChain/{cryptoCode}/preview.
   // Refer to the Swagger UI on the target instance (/docs) for the canonical schema.
   async previewOnchain(
     storeId: string,
@@ -194,10 +197,12 @@ export class BtcpayPaymentMethodsService {
       this.logger.debug(
         `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
-      const payload = this.buildPreviewRequestParams(body);
-      const response = await context.http.get(
-        this.buildModernPreviewPath(context.store.btcpayStoreId, paymentMethodId),
-        { params: payload }
+      const payload = this.buildPreviewRequestBody(body);
+      const params = this.buildPreviewRequestParams(body);
+      const response = await context.http.post(
+        this.buildOnchainPreviewPath(context.store.btcpayStoreId, currency),
+        Object.keys(payload).length > 0 ? payload : {},
+        { params }
       );
       return this.normalizePreviewResponse(
         response.data,
@@ -368,16 +373,28 @@ export class BtcpayPaymentMethodsService {
       : DEFAULT_PREVIEW_ADDRESS_COUNT;
 
     params.offset = String(offset);
-    params.amount = String(amount);
-
-    const config = this.normalizePreviewConfig(body?.config);
-    for (const [key, value] of Object.entries(config)) {
-      if (typeof value === 'string' && value.trim()) {
-        params[key] = value.trim();
-      }
-    }
+    params.count = String(amount);
 
     return params;
+  }
+
+  private buildPreviewRequestBody(body?: OnchainPreviewRequest): Record<string, unknown> {
+    const config = this.normalizePreviewConfig(body?.config);
+    const payload: Record<string, unknown> = {};
+
+    if (config.derivationScheme) {
+      payload.derivationScheme = config.derivationScheme;
+    }
+
+    if (config.accountKeyPath) {
+      payload.accountKeyPath = config.accountKeyPath;
+    }
+
+    if (config.masterFingerprint) {
+      payload.masterFingerprint = config.masterFingerprint;
+    }
+
+    return payload;
   }
 
   private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
@@ -385,12 +402,14 @@ export class BtcpayPaymentMethodsService {
     return { enabled: payload.enabled, config };
   }
 
-  private normalizePreviewConfig(config: OnchainPreviewConfig | null | undefined): Record<string, string> {
+  private normalizePreviewConfig(
+    config: OnchainPreviewConfig | null | undefined
+  ): { derivationScheme?: string; accountKeyPath?: string; masterFingerprint?: string } {
     if (!config || typeof config !== 'object') {
       return {};
     }
 
-    const payload: Record<string, string> = {};
+    const payload: { derivationScheme?: string; accountKeyPath?: string; masterFingerprint?: string } = {};
 
     if (typeof config.derivationScheme === 'string' && config.derivationScheme.trim()) {
       payload.derivationScheme = config.derivationScheme.trim();
@@ -402,8 +421,8 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    if (typeof config.label === 'string' && config.label.trim()) {
-      payload.label = config.label.trim();
+    if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
+      payload.masterFingerprint = config.masterFingerprint.trim().toUpperCase();
     }
 
     return payload;
@@ -773,8 +792,8 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods`;
   }
 
-  private buildModernPreviewPath(storeId: string, paymentMethodId: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
+  private buildOnchainPreviewPath(storeId: string, cryptoCode: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode)}/preview`;
   }
 
   private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
@@ -820,14 +839,20 @@ export class BtcpayPaymentMethodsService {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 502;
       const message = this.extractErrorMessage(error);
-      if ([400, 409, 422].includes(status)) {
-        throw new UnprocessableEntityException(message, { cause: error as Error });
-      }
       if (status === 401) {
         throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
       if (status === 403) {
         throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+      }
+      if (status === 404) {
+        throw new NotFoundException(message, { cause: error as Error });
+      }
+      if (status === 422) {
+        throw new UnprocessableEntityException(message, { cause: error as Error });
+      }
+      if (status >= 400 && status < 500) {
+        throw new HttpException(message, status, { cause: error as Error });
       }
       throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
     }

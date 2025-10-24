@@ -76,7 +76,7 @@ describe('BtcpayPaymentMethodsService', () => {
       index
     }));
 
-    const getMock = jest.fn().mockResolvedValue({
+    const postMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses,
@@ -87,7 +87,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -113,21 +113,23 @@ describe('BtcpayPaymentMethodsService', () => {
         headers: expect.objectContaining({ Authorization: 'token store-api-key' })
       })
     );
-    expect(getMock).toHaveBeenCalledTimes(1);
-    const [path, options] = getMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [path, payload, options] = postMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
+    expect(payload).toEqual({
+      derivationScheme: 'tpubDexample',
+      accountKeyPath: "1234abcd/84'/1'/0'"
+    });
     expect(options).toEqual({
       params: {
         offset: '0',
-        amount: '10',
-        derivationScheme: 'tpubDexample',
-        accountKeyPath: "1234abcd/84'/1'/0'"
+        count: '10'
       }
     });
   });
 
   it('omits empty config objects when previewing', async () => {
-    const getMock = jest.fn().mockResolvedValue({
+    const postMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses: [
@@ -137,18 +139,61 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
     await service.previewOnchain(store.btcpayStoreId, 'btc', undefined, { store });
 
-    expect(getMock).toHaveBeenCalledTimes(1);
-    const [, options] = getMock.mock.calls[0];
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [path, payload, options] = postMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
+    expect(payload).toEqual({});
     expect(options).toEqual({
       params: {
         offset: '0',
-        amount: '10'
+        count: '10'
+      }
+    });
+  });
+
+  it('uppercases and forwards master fingerprint when provided', async () => {
+    const postMock = jest.fn().mockResolvedValue({
+      data: {
+        currency: 'btc',
+        addresses: []
+      }
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await service.previewOnchain(
+      store.btcpayStoreId,
+      'btc',
+      {
+        config: {
+          derivationScheme: 'tpubDexample',
+          accountKeyPath: "1234abcd/84'/1'/0'",
+          masterFingerprint: 'abcd1234'
+        }
+      },
+      { store }
+    );
+
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [path, payload, options] = postMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
+    expect(payload).toEqual({
+      derivationScheme: 'tpubDexample',
+      accountKeyPath: "1234abcd/84'/1'/0'",
+      masterFingerprint: 'ABCD1234'
+    });
+    expect(options).toEqual({
+      params: {
+        offset: '0',
+        count: '10'
       }
     });
   });

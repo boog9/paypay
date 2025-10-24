@@ -352,10 +352,16 @@ export class OnchainWalletsService {
   }
 
   private requireUserEmail(email: string | null): string {
-    const normalized = normalizeEmail(email);
-    if (!normalized) {
+    const sanitized = this.sanitizeString(email);
+    if (!sanitized) {
       throw new UnauthorizedException('User email is required');
     }
+
+    const normalized = normalizeEmail(sanitized);
+    if (!normalized) {
+      throw new UnauthorizedException('User email is invalid');
+    }
+
     return normalized;
   }
 

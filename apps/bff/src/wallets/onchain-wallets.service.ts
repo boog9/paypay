@@ -298,12 +298,18 @@ export class OnchainWalletsService {
   }
 
   private buildPreviewRequest(dto: PreviewOnchainDto): OnchainPreviewRequest {
+    const config: OnchainPreviewRequest['config'] = {
+      derivationScheme: dto.derivationScheme,
+      accountKeyPath: dto.accountKeyPath
+    };
+
+    if (typeof dto.masterFingerprint === 'string' && dto.masterFingerprint.trim()) {
+      config.masterFingerprint = dto.masterFingerprint.trim();
+    }
+
     return {
       amount: dto.amount,
-      config: {
-        derivationScheme: dto.derivationScheme,
-        accountKeyPath: dto.accountKeyPath
-      }
+      config
     };
   }
 

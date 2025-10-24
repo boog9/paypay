@@ -107,6 +107,13 @@ export class PreviewOnchainDto {
   masterFingerprint?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => typeof value === 'string')
+  @IsString()
+  @Transform(({ value }) => normalizeString(value))
+  @Matches(/^[0-9a-fA-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
+  rootFingerprint?: string;
+
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) => {
     if (value === undefined || value === null || value === '') {
       return undefined;

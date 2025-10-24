@@ -188,12 +188,42 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(payload).toEqual({
       derivationScheme: 'tpubDexample',
       accountKeyPath: "1234abcd/84'/1'/0'",
-      masterFingerprint: 'ABCD1234'
+      rootFingerprint: 'ABCD1234'
     });
     expect(options).toEqual({
       params: {
         offset: '0',
         count: '10'
+      }
+    });
+  });
+
+  it('sends rootFingerprint when updating payment method metadata', async () => {
+    const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        cryptoCode: 'BTC',
+        derivationScheme: 'xpubExample',
+        accountKeyPath: "abcd1234/84'/0'/0'",
+        masterFingerprint: 'abcd1234'
+      },
+      { store, apiKey: 'scoped-key' }
+    );
+
+    expect(putMock).toHaveBeenCalledTimes(1);
+    const [, body] = putMock.mock.calls[0];
+    expect(body).toEqual({
+      enabled: true,
+      config: {
+        derivationScheme: 'xpubExample',
+        accountKeyPath: "abcd1234/84'/0'/0'",
+        rootFingerprint: 'ABCD1234'
       }
     });
   });
@@ -336,7 +366,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: 'xpubTemp',
           accountKeyPath: "m/84'/0'/0'",
-          masterFingerprint: 'ABCD1234',
+          rootFingerprint: 'ABCD1234',
           label: 'Temporary import'
         }
       }

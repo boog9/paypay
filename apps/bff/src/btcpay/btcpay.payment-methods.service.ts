@@ -29,6 +29,7 @@ export interface OnchainPreviewConfig {
   accountKeyPath?: string | null;
   label?: string | null;
   masterFingerprint?: string | null;
+  rootFingerprint?: string | null;
 }
 
 export interface OnchainPreviewRequest {
@@ -76,6 +77,7 @@ export interface UpdateOnchainPaymentMethodPayload {
     accountKeyPath?: string | null;
     label?: string | null;
     masterFingerprint?: string | null;
+    rootFingerprint?: string | null;
   };
 }
 
@@ -139,6 +141,7 @@ export interface UpdateOnchainPaymentMethodRequest {
   derivationScheme: string;
   accountKeyPath?: string | null;
   masterFingerprint?: string | null;
+  rootFingerprint?: string | null;
   label?: string | null;
   enabled?: boolean;
 }
@@ -348,6 +351,7 @@ export class BtcpayPaymentMethodsService {
         derivationScheme: params.derivationScheme,
         accountKeyPath: params.accountKeyPath,
         masterFingerprint: params.masterFingerprint,
+        rootFingerprint: params.rootFingerprint,
         label: params.label
       }
     });
@@ -391,7 +395,7 @@ export class BtcpayPaymentMethodsService {
     }
 
     if (config.masterFingerprint) {
-      payload.masterFingerprint = config.masterFingerprint;
+      payload.rootFingerprint = config.masterFingerprint;
     }
 
     return payload;
@@ -421,8 +425,9 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
-      payload.masterFingerprint = config.masterFingerprint.trim().toUpperCase();
+    const fingerprint = this.firstString([config.rootFingerprint, config.masterFingerprint]);
+    if (fingerprint) {
+      payload.masterFingerprint = fingerprint.toUpperCase();
     }
 
     return payload;
@@ -447,11 +452,17 @@ export class BtcpayPaymentMethodsService {
       payload.label = config.label;
     }
 
-    if (config.masterFingerprint !== undefined) {
-      if (config.masterFingerprint === null) {
-        payload.masterFingerprint = null;
-      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
-        payload.masterFingerprint = config.masterFingerprint.trim().toUpperCase();
+    const fingerprintProvided =
+      config.rootFingerprint !== undefined || config.masterFingerprint !== undefined;
+
+    if (fingerprintProvided) {
+      if (config.rootFingerprint === null || config.masterFingerprint === null) {
+        payload.rootFingerprint = null;
+      } else {
+        const fingerprint = this.firstString([config.rootFingerprint, config.masterFingerprint]);
+        if (fingerprint) {
+          payload.rootFingerprint = fingerprint.toUpperCase();
+        }
       }
     }
 
@@ -874,7 +885,8 @@ export class BtcpayPaymentMethodsService {
       if (status === 401 || status === 403) {
         throw new BTCPayAuthError('BTCPay authentication failed', error);
       }
-      throw new BTCPayUpstreamError('Upstream error', error, status);
+      const message = this.extractErrorMessage(error);
+      throw new BTCPayUpstreamError(message, error, status);
     }
 
     throw new BTCPayUpstreamError('Upstream error', error);

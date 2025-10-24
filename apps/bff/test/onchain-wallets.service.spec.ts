@@ -1,6 +1,10 @@
-import { BadGatewayException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ForbiddenException,
+  UnauthorizedException,
+  UnprocessableEntityException
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { ForbiddenException } from '@nestjs/common';
 import { OnchainWalletStatusReadModel, OnchainWalletsService } from '../src/wallets/onchain-wallets.service';
 import { ManagedStoreWalletEntity } from '../src/wallets/entities/managed-store-wallet.entity';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
@@ -182,6 +186,29 @@ describe('OnchainWalletsService', () => {
     );
   });
 
+  it('accepts rootFingerprint alias when updating the on-chain payment method', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) => {
+        await handler('temp-key');
+      }
+    );
+
+    await service.update(
+      { id: 'tenant-user', email: 'merchant@example.com' },
+      store.btcpayStoreId,
+      {
+        derivationScheme: 'xpubExample',
+        accountKeyPath: "m/84'/0'/0'",
+        rootFingerprint: 'abcdef12'
+      } as any
+    );
+
+    expect(paymentMethods.updateOnchainPaymentMethod).toHaveBeenCalledWith(
+      expect.objectContaining({ masterFingerprint: 'abcdef12' }),
+      expect.any(Object)
+    );
+  });
+
   it('persists metadata during the wizard flow and exposes the aggregated status', async () => {
     (walletRepository.findOne as jest.Mock).mockResolvedValueOnce(null);
     (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
@@ -254,6 +281,41 @@ describe('OnchainWalletsService', () => {
       },
       addressPreview: previewResponse.addresses
     });
+  });
+
+  it('returns 422 with the upstream validation message when BTCPay rejects the update', async () => {
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) => {
+        await handler('temp-key');
+      }
+    );
+
+    (paymentMethods.updateOnchainPaymentMethod as jest.Mock).mockRejectedValue(
+      new BTCPayUpstreamError('Invalid derivation scheme', undefined, 422)
+    );
+
+    expect.assertions(3);
+
+    try {
+      await service.update(
+        { id: 'tenant-user', email: 'merchant@example.com' },
+        store.btcpayStoreId,
+        {
+          derivationScheme: 'xpubExample',
+          accountKeyPath: "m/84'/0'/0'",
+          masterFingerprint: 'abcdef12'
+        } as any
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      expect((error as UnprocessableEntityException).getStatus()).toBe(422);
+      const response = (error as UnprocessableEntityException).getResponse();
+      const message = typeof response === 'string' ? response : (response as { message?: string })?.message;
+      expect(message).toBe('Invalid derivation scheme');
+      return;
+    }
+
+    throw new Error('Expected UnprocessableEntityException');
   });
 
   it('throws UnauthorizedException when BTCPay rejects the temporary key', async () => {

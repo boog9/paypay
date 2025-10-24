@@ -12,7 +12,6 @@ import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
   OnchainPaymentMethodConfig,
-  OnchainPreviewRequest,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload,
   canonicalPaymentMethodId
@@ -65,9 +64,23 @@ export class OnchainWalletsService {
     dto: PreviewOnchainDto
   ): Promise<OnchainPreviewResponse> {
     const userId = this.requireUserId(userContext.id);
+    const userEmail = this.requireUserEmail(userContext.email);
     const store = await this.requireStore(userId, storeId);
-    const previewRequest = this.buildPreviewRequest(dto);
-    const preview = await this.paymentMethods.previewOnchain(store.btcpayStoreId, 'BTC', previewRequest, { store });
+    const preview = await this.keysService.withStoreSettingsWriteKey(
+      store.btcpayStoreId,
+      userEmail,
+      async (apiKey) =>
+        this.paymentMethods.previewOnchainPaymentMethod(
+          store.btcpayStoreId,
+          'BTC',
+          {
+            derivationScheme: dto.derivationScheme,
+            accountKeyPath: dto.accountKeyPath ?? null
+          },
+          { store, apiKeyOverride: apiKey }
+        ),
+      { host: store.btcpayHost }
+    );
     const requestedAmount = this.normalizeRequestedAmount(dto.amount);
     return {
       ...preview,
@@ -302,18 +315,6 @@ export class OnchainWalletsService {
     await this.walletsRepository.save(existing);
   }
 
-  private buildPreviewRequest(dto: PreviewOnchainDto): OnchainPreviewRequest {
-    const config: OnchainPreviewRequest['config'] = {
-      derivationScheme: dto.derivationScheme,
-      accountKeyPath: dto.accountKeyPath
-    };
-
-    return {
-      amount: dto.amount,
-      config
-    };
-  }
-
   private buildUpdatePayload(dto: UpdateOnchainDto): UpdateOnchainPaymentMethodPayload {
     return {
       enabled: dto.enabled ?? true,
@@ -351,12 +352,9 @@ export class OnchainWalletsService {
   }
 
   private requireUserEmail(email: string | null): string {
-    if (!email) {
-      throw new UnauthorizedException('Authenticated user context is required.');
-    }
     const normalized = normalizeEmail(email);
     if (!normalized) {
-      throw new UnauthorizedException('Authenticated user context is required.');
+      throw new UnauthorizedException('User email is required');
     }
     return normalized;
   }
@@ -383,7 +381,7 @@ export class OnchainWalletsService {
       ? Math.max(1, Math.trunc(expectedCount))
       : DEFAULT_PREVIEW_ADDRESS_COUNT;
     const limited = Array.isArray(addresses) ? addresses.slice(0, normalizedCount) : [];
-    if (limited.length < normalizedCount) {
+    if (limited.length === 0) {
       throw new UnprocessableEntityException(INVALID_DERIVATION_MESSAGE);
     }
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "../../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { Input } from "../../../../../../../../components/ui/input";
-import { ApiError, api, isApiError } from "../../../../../../../../lib/api";
+import { ApiError, api, apiPost, isApiError } from "../../../../../../../../lib/api";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
 import {
@@ -138,7 +138,14 @@ function normalizePreviewErrorMessage(error: ApiError): string {
     return fallback;
   }
 
-  return message;
+  if (error.status === 400) {
+    return fallback;
+  }
+  if (error.status === 403) {
+    return "You do not have sufficient permissions to preview this wallet.";
+  }
+
+  return fallback;
 }
 
 const INSTANCE_NETWORK = resolveInstanceNetwork(process.env.NEXT_PUBLIC_BTCPAY_NETWORK);
@@ -219,12 +226,13 @@ export default function WalletWizardPage({ params }: WizardProps) {
 
     try {
       const csrfToken = await getCsrfToken();
-      const response = await api<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, {
-        method: "POST",
-        body: parsed.data,
+      const payload = await apiPost<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, parsed.data, {
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
       });
-      const normalized = normalizePreviewResponsePayload(response);
+      if (payload === undefined) {
+        throw new Error("No preview payload returned by the server.");
+      }
+      const normalized = normalizePreviewResponsePayload(payload);
       if (!normalized) {
         throw new Error("Invalid preview payload returned by the server.");
       }
@@ -232,6 +240,22 @@ export default function WalletWizardPage({ params }: WizardProps) {
       setStep("confirm");
     } catch (error: unknown) {
       if (isApiError(error)) {
+        if (error.status === 422 || error.status === 400) {
+          const message = normalizePreviewErrorMessage(error);
+          setFormErrors({
+            derivationScheme: message,
+            accountKeyPath: undefined,
+          });
+          setFormError(null);
+          return;
+        }
+        if (error.status === 403) {
+          const message = "You do not have permission to modify this store.";
+          setFormError(message);
+          toastContext.toast({ title: "Insufficient permissions", description: message, variant: "destructive" });
+          return;
+        }
+
         const message = normalizePreviewErrorMessage(error);
         setFormError(message);
         toastContext.toast({ title: "Preview failed", description: message, variant: "destructive" });
@@ -471,7 +495,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
                 onClick={() => {
                   void handleConfirm();
                 }}
-                disabled={isLoading}
+                disabled={isLoading || !preview}
               >
                 {isLoading ? "Saving…" : "Confirm and save"}
               </Button>

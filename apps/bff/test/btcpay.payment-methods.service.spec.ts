@@ -1,5 +1,5 @@
 import { HttpException } from '@nestjs/common';
-import axios, { AxiosError, AxiosHeaders, AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
@@ -74,6 +74,44 @@ describe('BtcpayPaymentMethodsService', () => {
       ...overrides
     } as unknown as AxiosInstance;
   }
+
+  it('previews on-chain payment method proposals using POST preview endpoint', async () => {
+    const postMock = jest.fn().mockResolvedValue({
+      data: {
+        currency: 'btc',
+        paymentMethodId: 'BTC-OnChain',
+        addresses: [
+          { address: 'tb1qexample0', keyPath: '0/0', index: 0 },
+          { address: 'tb1qexample1', keyPath: '0/1', index: 1 }
+        ]
+      }
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    const result = await service.previewOnchainPaymentMethod(
+      store.btcpayStoreId,
+      'BTC',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      { store, apiKeyOverride: 'scoped-key' }
+    );
+
+    expect(result.paymentMethodId).toBe('BTC-CHAIN');
+    expect(result.currency).toBe('BTC');
+    expect(result.addresses).toHaveLength(2);
+    expect(postMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      }
+    );
+  });
 
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
     const addresses = Array.from({ length: 10 }, (_, index) => ({
@@ -238,6 +276,53 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(httpError.getStatus()).toBe(422);
       expect(httpError.getResponse()).toBe(payload);
       expect(httpError.cause).toBe(axiosError);
+      return;
+    }
+
+    throw new Error('Expected HttpException to be thrown');
+  });
+
+  it('maps preview validation errors to UnprocessableEntityException', async () => {
+    const response = {
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: 'Invalid derivation'
+    } as any;
+    const axiosError = new AxiosError(
+      'Invalid derivation',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response
+    );
+    axiosError.response = response;
+    axiosError.isAxiosError = true;
+
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    expect.assertions(4);
+
+    try {
+      await service.previewOnchainPaymentMethod(
+        store.btcpayStoreId,
+        'BTC',
+        { derivationScheme: SAMPLE_TPUB },
+        { store }
+      );
+    } catch (error) {
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(error).toBeInstanceOf(HttpException);
+      const httpError = error as HttpException;
+      expect(httpError.getStatus()).toBe(422);
+      expect(httpError.getResponse()).toEqual({
+        statusCode: 422,
+        message: 'Invalid derivation'
+      });
       return;
     }
 

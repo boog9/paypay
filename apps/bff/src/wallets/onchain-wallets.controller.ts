@@ -1,51 +1,38 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
-import type { Request } from 'express';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CsrfGuard } from '../security/csrf.guard';
+import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
 import { OnchainWalletsService } from './onchain-wallets.service';
 import { PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('stores/:storeId/wallets/btc')
 export class OnchainWalletsController {
   constructor(private readonly walletsService: OnchainWalletsService) {}
 
   @Post('preview')
+  @UseGuards(JwtAuthGuard, CsrfGuard)
   preview(
+    @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
-    @Body() dto: PreviewOnchainDto,
-    @Req() req: Request
+    @Body() dto: PreviewOnchainDto
   ) {
-    return this.walletsService.preview(this.resolveUserContext(req), storeId, dto);
+    return this.walletsService.preview({ id: user.id ?? null, email: user.email ?? null }, storeId, dto);
   }
 
   @Get()
-  getConfig(@Param('storeId') storeId: string, @Req() req: Request) {
-    return this.walletsService.getConfig(this.resolveUserContext(req), storeId);
+  @UseGuards(JwtAuthGuard)
+  getConfig(@ReqUser() user: RequestUser, @Param('storeId') storeId: string) {
+    return this.walletsService.getConfig({ id: user.id ?? null, email: user.email ?? null }, storeId);
   }
 
   @Put()
   @HttpCode(204)
+  @UseGuards(JwtAuthGuard, CsrfGuard)
   update(
+    @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
-    @Body() dto: UpdateOnchainDto,
-    @Req() req: Request
+    @Body() dto: UpdateOnchainDto
   ) {
-    return this.walletsService.update(this.resolveUserContext(req), storeId, dto);
-  }
-
-  private resolveUserContext(req: Request): { id: string | null; email: string | null } {
-    const user = (req as { user?: unknown }).user;
-    let id: string | null = null;
-    let email: string | null = null;
-    if (user && typeof user === 'object') {
-      const candidate = user as { id?: unknown; email?: unknown };
-      if (typeof candidate.id === 'string') {
-        id = candidate.id;
-      }
-      if (typeof candidate.email === 'string') {
-        email = candidate.email;
-      }
-    }
-    return { id, email };
+    return this.walletsService.update({ id: user.id ?? null, email: user.email ?? null }, storeId, dto);
   }
 }

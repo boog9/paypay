@@ -48,13 +48,15 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-export function isApiNoContent(response: unknown): response is ApiNoContent {
-  return Boolean(
-    response &&
-      typeof response === 'object' &&
-      (response as ApiNoContent).ok === true &&
-      (response as ApiNoContent).status === 204 &&
-      (response as ApiNoContent).headers instanceof Headers
+export function isApiNoContent(response: Response | ApiNoContent): response is ApiNoContent {
+  if (response instanceof Response) {
+    return response.status === 204;
+  }
+
+  return (
+    response?.ok === true &&
+    response.status === 204 &&
+    response.headers instanceof Headers
   );
 }
 
@@ -62,16 +64,16 @@ export async function apiGet(path: string, init: ApiRequestOptions = {}): Promis
   return apiFetch(path, { ...init, method: 'GET' });
 }
 
-export async function apiPost(
+export function apiPost<T = unknown>(
   path: string,
-  body?: unknown,
+  body: unknown,
   init: ApiRequestOptions = {}
-): Promise<ApiResponse> {
-  const requestInit: ApiRequestOptions = { ...init, method: 'POST' };
-  if (body !== undefined) {
-    requestInit.body = body;
-  }
-  return apiFetch(path, requestInit);
+): Promise<T> {
+  return api<T>(path, {
+    ...init,
+    method: 'POST',
+    body,
+  });
 }
 
 export async function api<T>(path: string, init: ApiRequestOptions = {}): Promise<T> {

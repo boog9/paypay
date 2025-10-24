@@ -1,0 +1,199 @@
+import { INestApplication, UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AppModule } from '../src/app.module';
+import { configureApp, configureCors } from '../src/bootstrap/app-configuration';
+import { getEnv } from '../src/config/env.validation';
+import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
+import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
+import { UserEntity } from '../src/auth/entities/user.entity';
+import {
+  BtcpayPaymentMethodsService,
+  OnchainPreviewResponse
+} from '../src/btcpay/btcpay.payment-methods.service';
+import { BtcpayKeysService } from '../src/btcpay/btcpay.keys.service';
+
+function readCsrfToken(response: request.Response): string {
+  const token = response.headers['x-csrf-token'];
+  if (typeof token !== 'string') {
+    throw new Error('Expected x-csrf-token header to be present.');
+  }
+  return token;
+}
+
+describe('On-chain wallet preview (e2e)', () => {
+  let app: INestApplication;
+  let server: any;
+  let agent: request.SuperAgentTest;
+  let usersRepository: Repository<UserEntity>;
+  let storesRepository: Repository<ManagedStoreEntity>;
+  let userId: string;
+
+  const previewResponse: OnchainPreviewResponse = {
+    storeId: 'store-123',
+    currency: 'BTC',
+    paymentMethodId: 'BTC-CHAIN',
+    addresses: Array.from({ length: 5 }, (_, index) => ({
+      address: `bcrt1qpreview${index}`,
+      keyPath: `0/${index}`,
+      index
+    }))
+  };
+
+  const SAMPLE_TPUB =
+    "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
+
+  const paymentMethodsMock = {
+    previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse)
+  } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
+
+  const keysServiceMock = {
+    withStoreSettingsWriteKey: jest.fn()
+  } as unknown as jest.Mocked<BtcpayKeysService>;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule]
+    })
+      .overrideProvider(BtcpayPaymentMethodsService)
+      .useValue(paymentMethodsMock)
+      .overrideProvider(BtcpayKeysService)
+      .useValue(keysServiceMock)
+      .overrideProvider(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    const env = getEnv();
+    configureApp(app, env);
+    configureCors(app, env);
+    app.use((req: any, _res: any, next: () => void) => {
+      req.user = {
+        id: 'user-1',
+        email: 'merchant@example.com'
+      };
+      next();
+    });
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true })
+    );
+    app.setGlobalPrefix('api');
+    await app.init();
+
+    server = app.getHttpServer();
+    agent = request.agent(server);
+
+    usersRepository = moduleRef.get<Repository<UserEntity>>(getRepositoryToken(UserEntity));
+    storesRepository = moduleRef.get<Repository<ManagedStoreEntity>>(getRepositoryToken(ManagedStoreEntity));
+
+    const user = usersRepository.create({
+      email: 'merchant@example.com',
+      passwordHash: 'hash',
+      btcpayUserId: 'btcpay-user-id',
+      btcpayApiKeyHash: null,
+      btcpayApiKeyLabel: null,
+      btcpayApiKeyPermissions: null
+    });
+    const persistedUser = await usersRepository.save(user);
+    userId = persistedUser.id;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    await storesRepository.clear();
+    const store = storesRepository.create({
+      userId,
+      btcpayStoreId: 'store-123',
+      btcpayHost: 'https://btcpay.example',
+      storeName: 'Demo store',
+      defaultCurrency: 'USD',
+      apiKeyCiphertext: 'cipher',
+      apiKeyDekWrapped: 'dek',
+      webhookId: null,
+      webhookSecretCiphertext: null,
+      webhookSecretDekWrapped: null,
+      storeKeyLastFour: null,
+      lastActiveAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    await storesRepository.save(store);
+
+    keysServiceMock.withStoreSettingsWriteKey.mockImplementation(async (_storeId, _email, handler) => {
+      return handler('scoped-key');
+    });
+    paymentMethodsMock.previewOnchainPaymentMethod.mockResolvedValue(previewResponse);
+  });
+
+  async function fetchCsrf(): Promise<string> {
+    const response = await agent.get('/api/auth/csrf').expect(204);
+    return readCsrfToken(response);
+  }
+
+  it('returns preview addresses for proposed derivation scheme', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      })
+      .expect(200);
+
+    expect(keysServiceMock.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+      'store-123',
+      'merchant@example.com',
+      expect.any(Function),
+      { host: 'https://btcpay.example' }
+    );
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      expect.objectContaining({
+        store: expect.objectContaining({ btcpayStoreId: 'store-123' }),
+        apiKeyOverride: 'scoped-key'
+      })
+    );
+    expect(response.body).toEqual({
+      storeId: 'store-123',
+      currency: 'BTC',
+      paymentMethodId: 'BTC-CHAIN',
+      addresses: previewResponse.addresses
+    });
+  });
+
+  it('propagates BTCPay validation errors as 422 responses', async () => {
+    paymentMethodsMock.previewOnchainPaymentMethod.mockRejectedValueOnce(
+      new UnprocessableEntityException('Descriptor checksum mismatch')
+    );
+
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        derivationScheme: `wpkh([abcd1234/84'/1'/0']${SAMPLE_TPUB}/0/*)`,
+        accountKeyPath: "m/84'/1'/0'"
+      })
+      .expect(422);
+
+    expect(response.body).toEqual({
+      statusCode: 422,
+      message: 'Descriptor checksum mismatch',
+      error: 'Unprocessable Entity'
+    });
+  });
+});

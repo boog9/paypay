@@ -2,9 +2,9 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import type { Metadata } from "next";
 
-import { Badge } from "../../../../../../components/ui/badge";
-import { Button } from "../../../../../../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../components/ui/card";
+import { Badge } from "../../../../../../../components/ui/badge";
+import { Button } from "../../../../../../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../components/ui/card";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",

@@ -56,6 +56,12 @@ describe('OnchainWalletsService', () => {
     })),
   };
 
+  const SAMPLE_XPUB =
+    "xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx";
+  const SAMPLE_ZPUB = `zpub${SAMPLE_XPUB.slice(4)}`;
+  const SAMPLE_DESCRIPTOR =
+    "wpkh([abcd1234/84'/0'/0']xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx/0/*)";
+
   const paymentMethods = {
     previewOnchain: jest.fn().mockResolvedValue(previewResponse),
     updateOnchainPaymentMethod: jest.fn(),
@@ -70,7 +76,7 @@ describe('OnchainWalletsService', () => {
       paymentMethodId: 'BTC-OnChain',
       enabled: true,
       config: {
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "m/84'/0'/0'",
         masterFingerprint: 'abcdef12',
         label: 'Desk wallet'
@@ -105,7 +111,7 @@ describe('OnchainWalletsService', () => {
       paymentMethodId: 'BTC-OnChain',
       enabled: true,
       config: {
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "m/84'/0'/0'",
         masterFingerprint: 'abcdef12',
         label: 'Desk wallet'
@@ -120,7 +126,7 @@ describe('OnchainWalletsService', () => {
 
   it('limits preview addresses to the requested amount', async () => {
     const result = await service.preview({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId, {
-      derivationScheme: 'zpubExample',
+      derivationScheme: SAMPLE_ZPUB,
       amount: 5,
     } as any);
 
@@ -131,7 +137,7 @@ describe('OnchainWalletsService', () => {
     expect(request).toEqual({
       amount: 5,
       config: {
-        derivationScheme: 'zpubExample',
+        derivationScheme: SAMPLE_ZPUB,
       },
     });
     expect(result.currency).toBe('BTC');
@@ -152,7 +158,7 @@ describe('OnchainWalletsService', () => {
       { id: 'tenant-user', email: 'merchant@example.com' },
       store.btcpayStoreId,
       {
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "m/84'/0'/0'",
         masterFingerprint: 'abcdef12'
       } as any
@@ -169,7 +175,7 @@ describe('OnchainWalletsService', () => {
       expect.objectContaining({
         storeId: store.btcpayStoreId,
         cryptoCode: 'BTC',
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         masterFingerprint: 'abcdef12'
       }),
       { store, apiKey: 'temp-key' }
@@ -197,7 +203,7 @@ describe('OnchainWalletsService', () => {
       { id: 'tenant-user', email: 'merchant@example.com' },
       store.btcpayStoreId,
       {
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "m/84'/0'/0'",
         rootFingerprint: 'abcdef12'
       } as any
@@ -221,7 +227,7 @@ describe('OnchainWalletsService', () => {
       { id: 'tenant-user', email: 'merchant@example.com' },
       store.btcpayStoreId,
       {
-        derivationScheme: 'wpkh([abcd1234/84\'/0\'/0\']xpubExample/0/*)',
+        derivationScheme: SAMPLE_DESCRIPTOR,
         accountKeyPath: "m/84'/0'/0'",
         masterFingerprint: 'abcd1234',
         label: 'Desk wallet'
@@ -301,7 +307,7 @@ describe('OnchainWalletsService', () => {
         { id: 'tenant-user', email: 'merchant@example.com' },
         store.btcpayStoreId,
         {
-          derivationScheme: 'xpubExample',
+          derivationScheme: SAMPLE_XPUB,
           accountKeyPath: "m/84'/0'/0'",
           masterFingerprint: 'abcdef12'
         } as any
@@ -326,7 +332,7 @@ describe('OnchainWalletsService', () => {
         { id: 'tenant-user', email: 'merchant@example.com' },
         store.btcpayStoreId,
         {
-          derivationScheme: 'xpubExample',
+          derivationScheme: SAMPLE_XPUB,
           accountKeyPath: "m/84'/0'/0'"
         } as any
       )
@@ -342,7 +348,7 @@ describe('OnchainWalletsService', () => {
         { id: 'tenant-user', email: 'merchant@example.com' },
         store.btcpayStoreId,
         {
-          derivationScheme: 'xpubExample',
+          derivationScheme: SAMPLE_XPUB,
           accountKeyPath: "m/84'/0'/0'"
         } as any
       )

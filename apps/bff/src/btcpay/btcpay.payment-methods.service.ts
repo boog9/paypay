@@ -20,7 +20,7 @@ import { BTCPayAuthError, BTCPayUpstreamError } from './btcpay.errors';
 type Maybe<T> = T | null | undefined;
 
 const INVALID_DERIVATION_MESSAGE =
-  "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
+  "Unsupported format. Enter xpub/ypub/zpub/tpub/upub/vpub or descriptor like wpkh([FPR/84'/1'/0']tpub.../0/*).";
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
 
@@ -931,9 +931,9 @@ export class BtcpayPaymentMethodsService {
       return INVALID_DERIVATION_MESSAGE;
     }
     if (/mnemonic|seed|xprv|yprv|zprv/i.test(normalized)) {
-      return 'Seeds or private keys must never be uploaded. Provide an xpub/ypub/zpub or NBX expression only.';
+      return "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
     }
-    if (/derivation|config|xpub|ypub|zpub|wpkh|account/i.test(normalized)) {
+    if (/derivation|config|xpub|ypub|zpub|tpub|upub|vpub|wpkh|pkh|wsh|tr|descriptor|account/i.test(normalized)) {
       return normalized;
     }
     if (normalized.length <= 160) {

@@ -41,6 +41,11 @@ describe('BtcpayPaymentMethodsService', () => {
     resolveBaseUrl: jest.fn().mockImplementation((host?: string) => (host ? host.replace(/\/$/, '') : 'https://btcpay.example'))
   } as unknown as BtcpayService;
 
+  const SAMPLE_TPUB =
+    "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
+  const SAMPLE_XPUB =
+    "xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx";
+
   beforeEach(() => {
     jest.clearAllMocks();
     (encryptionService.decrypt as jest.Mock).mockClear();
@@ -81,7 +86,7 @@ describe('BtcpayPaymentMethodsService', () => {
         currency: 'btc',
         addresses,
         config: {
-          derivationScheme: 'tpubDexample',
+          derivationScheme: SAMPLE_TPUB,
           accountKeyPath: "1234abcd/84'/1'/0'"
         }
       }
@@ -96,7 +101,7 @@ describe('BtcpayPaymentMethodsService', () => {
       'btc',
       {
         config: {
-          derivationScheme: 'tpubDexample',
+          derivationScheme: SAMPLE_TPUB,
           accountKeyPath: "1234abcd/84'/1'/0'"
         }
       },
@@ -117,7 +122,7 @@ describe('BtcpayPaymentMethodsService', () => {
     const [path, payload, options] = postMock.mock.calls[0];
     expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
     expect(payload).toEqual({
-      derivationScheme: 'tpubDexample',
+      derivationScheme: SAMPLE_TPUB,
       accountKeyPath: "1234abcd/84'/1'/0'"
     });
     expect(options).toEqual({
@@ -174,7 +179,7 @@ describe('BtcpayPaymentMethodsService', () => {
       'btc',
       {
         config: {
-          derivationScheme: 'tpubDexample',
+          derivationScheme: SAMPLE_TPUB,
           accountKeyPath: "1234abcd/84'/1'/0'",
           masterFingerprint: 'abcd1234'
         }
@@ -186,7 +191,7 @@ describe('BtcpayPaymentMethodsService', () => {
     const [path, payload, options] = postMock.mock.calls[0];
     expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
     expect(payload).toEqual({
-      derivationScheme: 'tpubDexample',
+      derivationScheme: SAMPLE_TPUB,
       accountKeyPath: "1234abcd/84'/1'/0'",
       rootFingerprint: 'ABCD1234'
     });
@@ -209,7 +214,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         storeId: store.btcpayStoreId,
         cryptoCode: 'BTC',
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
         masterFingerprint: 'abcd1234'
       },
@@ -221,7 +226,7 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(body).toEqual({
       enabled: true,
       config: {
-        derivationScheme: 'xpubExample',
+        derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
         rootFingerprint: 'ABCD1234'
       }
@@ -237,7 +242,7 @@ describe('BtcpayPaymentMethodsService', () => {
         paymentMethodId: 'BTC-OnChain',
         currency: 'btc',
         config: {
-          derivationScheme: 'xpub6Example',
+          derivationScheme: SAMPLE_XPUB,
           accountKeySettings: [
             { accountKeyPath: "84'/0'/0'", rootFingerprint: 'abcdef12' }
           ]
@@ -255,7 +260,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         enabled: true,
         config: {
-          derivationScheme: 'xpub6Example',
+          derivationScheme: SAMPLE_XPUB,
           accountKeyPath: "abcdef12/84'/0'/0'"
         }
       },
@@ -267,13 +272,13 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(result.currency).toBe('BTC');
     expect(result.config.accountKeyPath).toBe("84'/0'/0'");
     expect(result.config.masterFingerprint).toBe('abcdef12');
-    expect(result.config.derivationScheme).toBe('xpub6Example');
+    expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
     expect(putMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
       expect.objectContaining({
         enabled: true,
         config: expect.objectContaining({
-          derivationScheme: 'xpub6Example',
+          derivationScheme: SAMPLE_XPUB,
           accountKeyPath: "abcdef12/84'/0'/0'"
         })
       })

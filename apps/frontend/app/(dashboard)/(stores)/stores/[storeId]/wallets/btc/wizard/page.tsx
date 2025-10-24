@@ -2,14 +2,20 @@
 
 import { ChangeEvent, FormEvent, use, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { z } from "zod";
 
 import { Button } from "../../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { Input } from "../../../../../../../../components/ui/input";
-import { api, isApiError } from "../../../../../../../../lib/api";
+import { ApiError, api, isApiError } from "../../../../../../../../lib/api";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
+import {
+  FORMAT_ERROR_MESSAGE,
+  SENSITIVE_ERROR_MESSAGE,
+  detectNetworkFromInput,
+  resolveInstanceNetwork,
+  walletWizardFormSchema
+} from "./validation";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -84,35 +90,32 @@ function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null
   } satisfies PreviewResponse;
 }
 
-const INVALID_DERIVATION_MESSAGE =
-  "Invalid derivation scheme. Examples: xpub..., ypub..., wpkh([FPR/...']xpub.../0/*). Set AccountKeyPath like m/84'/0'/0'.";
-const DERIVATION_PATTERN = /^[A-Za-z0-9[\]()'/*_,:-]+$/u;
-const SENSITIVE_PATTERN = /(seed|mnemonic|xprv|yprv|zprv|privatekey)/i;
+function containsExtendedKeySnippet(value: string): boolean {
+  return /(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{10,}/i.test(value);
+}
 
-const formSchema = z.object({
-  derivationScheme: z
-    .string({ required_error: INVALID_DERIVATION_MESSAGE })
-    .trim()
-    .min(8, INVALID_DERIVATION_MESSAGE)
-    .max(512, INVALID_DERIVATION_MESSAGE)
-    .refine((value) => DERIVATION_PATTERN.test(value), {
-      message: INVALID_DERIVATION_MESSAGE,
-    })
-    .refine((value) => !SENSITIVE_PATTERN.test(value), {
-      message: INVALID_DERIVATION_MESSAGE,
-    }),
-  accountKeyPath: z
-    .string()
-    .optional()
-    .transform((value) => (value ? value.trim() : ""))
-    .transform((value) => (value.length === 0 ? undefined : value))
-    .refine((value) => (value ? /^(?:m|[0-9a-fA-F]{8})(\/\d+'?){2,8}$/i.test(value) : true), {
-      message: INVALID_DERIVATION_MESSAGE,
-    })
-    .refine((value) => (value ? !SENSITIVE_PATTERN.test(value) : true), {
-      message: INVALID_DERIVATION_MESSAGE,
-    }),
-});
+function normalizePreviewErrorMessage(error: ApiError): string {
+  const fallback = "Failed to preview derivation scheme.";
+  const rawMessage = typeof error.message === "string" && error.message.trim().length > 0 ? error.message.trim() : "";
+  const message = rawMessage.length > 0 ? rawMessage : fallback;
+  const lowered = message.toLowerCase();
+
+  if (/invalid derivation|unsupported format|descriptor|extended key/.test(lowered)) {
+    return FORMAT_ERROR_MESSAGE;
+  }
+
+  if (/network|mainnet|testnet/.test(lowered)) {
+    return "The provided key seems to target a different network (mainnet vs testnet). Use the matching key type for this store.";
+  }
+
+  if (containsExtendedKeySnippet(message)) {
+    return fallback;
+  }
+
+  return message;
+}
+
+const INSTANCE_NETWORK = resolveInstanceNetwork(process.env.NEXT_PUBLIC_BTCPAY_NETWORK);
 
 type FormErrors = Partial<Record<"derivationScheme" | "accountKeyPath", string>>;
 
@@ -134,6 +137,16 @@ export default function WalletWizardPage({ params }: WizardProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const addresses = useMemo(() => preview?.addresses ?? [], [preview]);
+  const derivedNetwork = useMemo(() => detectNetworkFromInput(derivationScheme), [derivationScheme]);
+  const networkWarning = useMemo(() => {
+    if (!INSTANCE_NETWORK || !derivedNetwork) {
+      return null;
+    }
+    if (INSTANCE_NETWORK === derivedNetwork) {
+      return null;
+    }
+    return `This key looks like it belongs to ${derivedNetwork}, but the BTCPay instance is ${INSTANCE_NETWORK}. Preview may fail if they do not match.`;
+  }, [derivedNetwork]);
 
   const handleDerivationChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setDerivationScheme(event.currentTarget.value);
@@ -160,7 +173,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setFormError(null);
     setFormErrors({});
 
-    const parsed = formSchema.safeParse({ derivationScheme, accountKeyPath });
+    const parsed = walletWizardFormSchema.safeParse({ derivationScheme, accountKeyPath });
     if (!parsed.success) {
       const nextErrors: FormErrors = {};
       const fieldErrors = parsed.error.flatten().fieldErrors;
@@ -193,7 +206,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
       setStep("confirm");
     } catch (error: unknown) {
       if (isApiError(error)) {
-        const message = error.message || "Failed to preview derivation scheme.";
+        const message = normalizePreviewErrorMessage(error);
         setFormError(message);
         toastContext.toast({ title: "Preview failed", description: message, variant: "destructive" });
         return;
@@ -310,9 +323,13 @@ export default function WalletWizardPage({ params }: WizardProps) {
           <CardHeader>
             <CardTitle className="text-lg">Enter your derivation information</CardTitle>
             <CardDescription>
-              Paste the extended public key (xpub/ypub/zpub) or NBX expression from your wallet. Optionally
-              include the account key path, such as <code>m/84&apos;/0&apos;/0&apos;</code> for mainnet or
-              <code>m/84&apos;/1&apos;/0&apos;</code> for testnet. Never paste seeds or private keys.
+              Paste the extended public key (xpub/ypub/zpub for mainnet or tpub/upub/vpub for testnet) or a
+              descriptor expression such as <code>wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub…/0/*)[#checksum]</code>. Checksums are
+              optional but commonly exported by wallets (see the Bitcoin Core descriptor checksum reference). Multisig
+              descriptors like
+              <code>wsh(sortedmulti(2,[FPR/.../2]xpub…/0/*,[FPR/.../2]xpub…/0/*))</code> are also supported. Account key
+              path is optional at this stage and is only required later for PSBT signing. Never paste seeds or
+              private keys.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -324,14 +341,14 @@ export default function WalletWizardPage({ params }: WizardProps) {
             >
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="derivationScheme">
-                  Derivation scheme (xpub/ypub/zpub or NBX)
+                  Derivation scheme (extended key or descriptor)
                 </label>
                 <Input
                   id="derivationScheme"
                   name="derivationScheme"
                   value={derivationScheme}
                   onChange={handleDerivationChange}
-                  placeholder="wpkh([FPR/84&apos;/0&apos;/0&apos;]xpub.../0/*)"
+                  placeholder="xpub... | tpub... | wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub.../0/*)[#checksum]"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
@@ -339,6 +356,9 @@ export default function WalletWizardPage({ params }: WizardProps) {
                 />
                 {formErrors.derivationScheme && (
                   <p className="text-sm text-destructive">{formErrors.derivationScheme}</p>
+                )}
+                {networkWarning && !formErrors.derivationScheme && (
+                  <p className="text-sm text-amber-600">{networkWarning}</p>
                 )}
               </div>
 
@@ -357,8 +377,8 @@ export default function WalletWizardPage({ params }: WizardProps) {
                   spellCheck={false}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use the fingerprint-prefixed form (<code>FPR/84&apos;/0&apos;/0&apos;</code>) if your wallet provides it. The
-                  account key path is required for PSBT signing and should match your wallet configuration.
+                  Optional. Needed only for PSBT signing in Wallet settings. Use the path from your wallet, for
+                  example <code>m/84&apos;/0&apos;/0&apos;</code> on mainnet or <code>m/84&apos;/1&apos;/0&apos;</code> on testnet.
                 </p>
                 {formErrors.accountKeyPath && (
                   <p className="text-sm text-destructive">{formErrors.accountKeyPath}</p>

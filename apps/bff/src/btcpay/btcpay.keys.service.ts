@@ -7,6 +7,10 @@ interface WithStoreKeyOptions {
   host?: string;
 }
 
+interface InternalStoreKeyOptions extends WithStoreKeyOptions {
+  labelPrefix?: string;
+}
+
 @Injectable()
 export class BtcpayKeysService {
   private readonly logger = new Logger(BtcpayKeysService.name, { timestamp: false });
@@ -16,19 +20,56 @@ export class BtcpayKeysService {
     private readonly encryptionService: EnvelopeEncryptionService
   ) {}
 
+  async withStoreSettingsReadKey<T>(
+    storeId: string,
+    userEmail: string,
+    handler: (apiKey: string) => Promise<T>,
+    options?: WithStoreKeyOptions
+  ): Promise<T> {
+    return this.withTemporaryStoreKey(
+      storeId,
+      userEmail,
+      (normalizedStoreId) => [`btcpay.store.canviewstoresettings:${normalizedStoreId}`],
+      handler,
+      { ...options, labelPrefix: 'portal-preview' }
+    );
+  }
+
   async withStoreSettingsWriteKey<T>(
     storeId: string,
     userEmail: string,
     handler: (apiKey: string) => Promise<T>,
     options?: WithStoreKeyOptions
   ): Promise<T> {
+    return this.withTemporaryStoreKey(
+      storeId,
+      userEmail,
+      (normalizedStoreId) => [`btcpay.store.canmodifystoresettings:${normalizedStoreId}`],
+      handler,
+      { ...options, labelPrefix: 'portal-setup' }
+    );
+  }
+
+  private async withTemporaryStoreKey<T>(
+    storeId: string,
+    userEmail: string,
+    permissionFactory: (normalizedStoreId: string) => string[],
+    handler: (apiKey: string) => Promise<T>,
+    options?: InternalStoreKeyOptions
+  ): Promise<T> {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const normalizedEmail = this.normalizeEmail(userEmail);
-    const permission = `btcpay.store.canmodifystoresettings:${normalizedStoreId}`;
+    const permissions = permissionFactory(normalizedStoreId);
+    const labelPrefix = options?.labelPrefix ?? 'portal';
 
-    const issuedKey = await this.btcpayService.issueUserApiKey(options?.host, normalizedEmail, [permission], {
-      label: `portal-setup-${normalizedStoreId}`
-    });
+    const issuedKey = await this.btcpayService.issueUserApiKey(
+      options?.host,
+      normalizedEmail,
+      permissions,
+      {
+        label: `${labelPrefix}-${normalizedStoreId}`
+      }
+    );
 
     const keyIdentifier = issuedKey.id ?? issuedKey.apiKey;
     const encrypted = this.encryptionService.encrypt(issuedKey.apiKey);

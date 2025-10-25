@@ -66,21 +66,36 @@ export class OnchainWalletsService {
     const userId = this.requireUserId(userContext.id);
     const userEmail = this.requireUserEmail(userContext.email);
     const store = await this.requireStore(userId, storeId);
-    const preview = await this.keysService.withStoreSettingsWriteKey(
-      store.btcpayStoreId,
-      userEmail,
-      async (apiKey) =>
-        this.paymentMethods.previewOnchainPaymentMethod(
-          store.btcpayStoreId,
-          'BTC',
-          {
-            derivationScheme: dto.derivationScheme,
-            accountKeyPath: dto.accountKeyPath ?? null
-          },
-          { store, apiKeyOverride: apiKey }
-        ),
-      { host: store.btcpayHost }
-    );
+    const handler = async (apiKey: string) =>
+      this.paymentMethods.previewOnchainPaymentMethod(
+        store.btcpayStoreId,
+        'BTC',
+        {
+          derivationScheme: dto.derivationScheme,
+          accountKeyPath: dto.accountKeyPath ?? null
+        },
+        { store, apiKeyOverride: apiKey }
+      );
+
+    const requestPreview = (mode: 'read' | 'write') =>
+      mode === 'write'
+        ? this.keysService.withStoreSettingsWriteKey(store.btcpayStoreId, userEmail, handler, {
+            host: store.btcpayHost
+          })
+        : this.keysService.withStoreSettingsReadKey(store.btcpayStoreId, userEmail, handler, {
+            host: store.btcpayHost
+          });
+
+    let preview: OnchainPreviewResponse;
+    try {
+      preview = await requestPreview('read');
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        preview = await requestPreview('write');
+      } else {
+        throw error;
+      }
+    }
     const requestedAmount = this.normalizeRequestedAmount(dto.amount);
     return {
       ...preview,

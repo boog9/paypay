@@ -7,6 +7,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
   registerDecorator,
   ValidationOptions,
   ValidatorConstraint,
@@ -20,12 +21,11 @@ export const INVALID_DERIVATION_MESSAGE =
   "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional.";
 export const SENSITIVE_ERROR_MESSAGE =
   "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
-export const ACCOUNT_KEY_PATH_MESSAGE = "Invalid BIP32 account key path (e.g., m/84'/1'/0').";
+export const ACCOUNT_KEY_PATH_MESSAGE = 'Account key path must be 1 to 255 characters long.';
 
-const EXTENDED_KEY_RE = /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/;
-const DESCRIPTOR_RE = /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)$/;
-const DERIVATION_RE = new RegExp(`${EXTENDED_KEY_RE.source}|${DESCRIPTOR_RE.source}`);
-const ACCOUNT_KEY_PATH_RE = /^m\/(44|49|84|86)'\/(0|1)'\/\d+'$/;
+const MIN_DERIVATION_LENGTH = 7;
+const MAX_DERIVATION_LENGTH = 5000;
+const MAX_ACCOUNT_KEY_PATH_LENGTH = 255;
 
 function resolveEnglishWordlist(): string[] {
   const candidate = wordlists.english;
@@ -97,9 +97,8 @@ export class PreviewOnchainDto {
     return String(value).trim();
   })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  @Matches(DERIVATION_RE, {
-    message: INVALID_DERIVATION_MESSAGE
-  })
+  @MinLength(MIN_DERIVATION_LENGTH, { message: INVALID_DERIVATION_MESSAGE })
+  @MaxLength(MAX_DERIVATION_LENGTH, { message: INVALID_DERIVATION_MESSAGE })
   derivationScheme!: string;
 
   @IsOptional()
@@ -111,8 +110,9 @@ export class PreviewOnchainDto {
     const trimmed = String(value).trim();
     return trimmed.length === 0 ? undefined : trimmed;
   })
-  @Matches(ACCOUNT_KEY_PATH_RE, { message: ACCOUNT_KEY_PATH_MESSAGE })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
+  @MinLength(1, { message: ACCOUNT_KEY_PATH_MESSAGE })
+  @MaxLength(MAX_ACCOUNT_KEY_PATH_LENGTH, { message: ACCOUNT_KEY_PATH_MESSAGE })
   accountKeyPath?: string;
 
   @IsOptional()

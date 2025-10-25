@@ -1,4 +1,4 @@
-import { HttpException } from '@nestjs/common';
+import { HttpException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
@@ -133,6 +133,12 @@ describe('BtcpayPaymentMethodsService', () => {
       '/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview',
       { derivationScheme: SAMPLE_TPUB }
     );
+  });
+
+  it('builds the OnChain preview path with canonical casing', () => {
+    const service = buildService();
+    const path = (service as any).buildOnchainPostPreviewPath('store-123', 'btc');
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
   });
 
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
@@ -338,14 +344,19 @@ describe('BtcpayPaymentMethodsService', () => {
       );
     } catch (error) {
       expect(postMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(HttpException);
-      const httpError = error as HttpException;
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      const httpError = error as UnprocessableEntityException;
       expect(httpError.getStatus()).toBe(422);
-      expect(httpError.getResponse()).toBe('Invalid derivation');
+      const responsePayload = httpError.getResponse();
+      if (typeof responsePayload === 'string') {
+        expect(responsePayload).toBe('Invalid derivation');
+      } else {
+        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
+      }
       return;
     }
 
-    throw new Error('Expected HttpException to be thrown');
+    throw new Error('Expected UnprocessableEntityException to be thrown');
   });
 
   it('sends rootFingerprint when updating payment method metadata', async () => {

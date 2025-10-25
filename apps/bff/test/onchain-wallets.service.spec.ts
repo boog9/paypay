@@ -86,6 +86,7 @@ describe('OnchainWalletsService', () => {
   } as unknown as BtcpayPaymentMethodsService;
 
   const keysService = {
+    withStoreSettingsReadKey: jest.fn(),
     withStoreSettingsWriteKey: jest.fn()
   } as unknown as BtcpayKeysService;
 
@@ -119,6 +120,7 @@ describe('OnchainWalletsService', () => {
         label: 'Desk wallet'
       }
     } as OnchainPaymentMethodConfig);
+    (keysService.withStoreSettingsReadKey as jest.Mock).mockReset();
     (keysService.withStoreSettingsWriteKey as jest.Mock).mockReset();
     (paymentMethods.updateOnchainPaymentMethod as jest.Mock).mockReset();
     (paymentMethods.updateOnchainPaymentMethod as jest.Mock).mockResolvedValue(undefined);
@@ -127,7 +129,7 @@ describe('OnchainWalletsService', () => {
   });
 
   it('limits preview addresses to the requested amount', async () => {
-    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+    (keysService.withStoreSettingsReadKey as jest.Mock).mockImplementation(
       async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) => {
         return handler('temp-preview-key');
       }
@@ -138,7 +140,7 @@ describe('OnchainWalletsService', () => {
       amount: 5,
     } as any);
 
-    expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+    expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledWith(
       store.btcpayStoreId,
       'merchant@example.com',
       expect.any(Function),
@@ -158,6 +160,31 @@ describe('OnchainWalletsService', () => {
     expect(result.addresses).toHaveLength(5);
     expect(result.addresses[0]?.address).toBe('bcrt1qpreview0');
     expect(result.addresses[4]?.index).toBe(4);
+  });
+
+  it('attempts preview with elevated scope when read permissions are insufficient', async () => {
+    (keysService.withStoreSettingsReadKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) =>
+        handler('preview-read')
+    );
+    (keysService.withStoreSettingsWriteKey as jest.Mock).mockImplementation(
+      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) =>
+        handler('preview-write')
+    );
+    (paymentMethods.previewOnchainPaymentMethod as jest.Mock)
+      .mockRejectedValueOnce(new ForbiddenException('BTCPay returned limited permissions'))
+      .mockResolvedValueOnce(previewResponse);
+
+    const result = await service.preview(
+      { id: 'tenant-user', email: 'merchant@example.com' },
+      store.btcpayStoreId,
+      { derivationScheme: SAMPLE_ZPUB } as any
+    );
+
+    expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledTimes(1);
+    expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
+    expect(paymentMethods.previewOnchainPaymentMethod).toHaveBeenCalledTimes(2);
+    expect(result.addresses).toEqual(previewResponse.addresses);
   });
 
   it('updates the on-chain payment method using a temporary key', async () => {

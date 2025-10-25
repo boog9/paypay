@@ -245,11 +245,12 @@ export class BtcpayPaymentMethodsService {
     const currency = cryptoCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
     const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, currency);
-    const derivationScheme = typeof dto.derivationScheme === 'string' ? dto.derivationScheme : '';
+    const derivationScheme =
+      typeof dto.derivationScheme === 'string' ? dto.derivationScheme.trim() : '';
     const accountKeyPath =
-      typeof dto.accountKeyPath === 'string' ? dto.accountKeyPath : undefined;
+      typeof dto.accountKeyPath === 'string' ? dto.accountKeyPath.trim() : undefined;
     const body: Record<string, string> = { derivationScheme };
-    if (accountKeyPath && accountKeyPath.trim().length > 0) {
+    if (accountKeyPath) {
       body.accountKeyPath = accountKeyPath;
     }
 
@@ -853,7 +854,8 @@ export class BtcpayPaymentMethodsService {
   }
 
   private buildOnchainPostPreviewPath(storeId: string, cryptoCode: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(cryptoCode)}/preview`;
+    const normalizedCode = typeof cryptoCode === 'string' ? cryptoCode.trim().toUpperCase() : '';
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(normalizedCode)}/preview`;
   }
 
   private extractPaymentMethodStatus(
@@ -958,7 +960,7 @@ export class BtcpayPaymentMethodsService {
 
   private mapPreviewError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
-      const status = error.response?.status ?? 502;
+      const status = error.response?.status;
       const payload = this.normalizeErrorPayload(this.getResponseData(error));
       const message = this.extractErrorMessage(error);
       if (status === 401) {
@@ -967,13 +969,11 @@ export class BtcpayPaymentMethodsService {
       if (status === 403) {
         return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
-      if (status >= 400 && status < 600) {
-        const responsePayload = payload ?? message;
-        return new HttpException(responsePayload ?? message, status, {
-          cause: error as Error
-        });
+      if (status === 422) {
+        const responsePayload = payload ?? message ?? 'BTCPay validation failed';
+        return new UnprocessableEntityException(responsePayload, { cause: error as Error });
       }
-      return new BadGatewayException(message, {
+      return new BadGatewayException('BTCPay preview failed', {
         cause: error as Error
       });
     }
@@ -982,7 +982,7 @@ export class BtcpayPaymentMethodsService {
       return error;
     }
 
-    return new BadGatewayException('Failed to preview on-chain payment method.', {
+    return new BadGatewayException('BTCPay preview failed', {
       cause: error instanceof Error ? error : undefined
     });
   }

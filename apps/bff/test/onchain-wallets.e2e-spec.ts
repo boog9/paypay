@@ -1,4 +1,9 @@
-import { INestApplication, UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
+import {
+  ForbiddenException,
+  INestApplication,
+  UnprocessableEntityException,
+  ValidationPipe
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -52,6 +57,7 @@ describe('On-chain wallet preview (e2e)', () => {
   } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
 
   const keysServiceMock = {
+    withStoreSettingsReadKey: jest.fn(),
     withStoreSettingsWriteKey: jest.fn()
   } as unknown as jest.Mocked<BtcpayKeysService>;
 
@@ -127,7 +133,7 @@ describe('On-chain wallet preview (e2e)', () => {
     });
     await storesRepository.save(store);
 
-    keysServiceMock.withStoreSettingsWriteKey.mockImplementation(async (_storeId, _email, handler) => {
+    keysServiceMock.withStoreSettingsReadKey.mockImplementation(async (_storeId, _email, handler) => {
       return handler('scoped-key');
     });
     paymentMethodsMock.previewOnchainPaymentMethod.mockResolvedValue(previewResponse);
@@ -150,7 +156,7 @@ describe('On-chain wallet preview (e2e)', () => {
       })
       .expect(200);
 
-    expect(keysServiceMock.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+    expect(keysServiceMock.withStoreSettingsReadKey).toHaveBeenCalledWith(
       'store-123',
       'merchant@example.com',
       expect.any(Function),
@@ -265,13 +271,77 @@ describe('On-chain wallet preview (e2e)', () => {
     });
   });
 
-  it('rejects invalid extended public keys with detailed message', async () => {
+  it('trims derivation scheme before forwarding to BTCPay', async () => {
+    const csrfToken = await fetchCsrf();
+
+    await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme: `  ${SAMPLE_DESCRIPTOR}  ` })
+      .expect(200);
+
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_DESCRIPTOR,
+        accountKeyPath: null
+      },
+      expect.any(Object)
+    );
+  });
+
+  it('accepts arbitrary account key paths when provided', async () => {
+    const csrfToken = await fetchCsrf();
+
+    await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "  m/custom/path  "
+      })
+      .expect(200);
+
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: 'm/custom/path'
+      },
+      expect.any(Object)
+    );
+  });
+
+  it('escalates to write-scope preview if BTCPay rejects with 403', async () => {
+    paymentMethodsMock.previewOnchainPaymentMethod
+      .mockRejectedValueOnce(new ForbiddenException('BTCPay returned limited permissions'))
+      .mockResolvedValueOnce(previewResponse);
+    keysServiceMock.withStoreSettingsWriteKey.mockImplementationOnce(
+      async (_storeId, _email, handler) => handler('elevated-key')
+    );
+
+    const csrfToken = await fetchCsrf();
+
+    await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme: SAMPLE_DESCRIPTOR })
+      .expect(200);
+
+    expect(keysServiceMock.withStoreSettingsReadKey).toHaveBeenCalledTimes(1);
+    expect(keysServiceMock.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects empty derivation schemes', async () => {
     const csrfToken = await fetchCsrf();
 
     const response = await agent
       .post('/api/stores/store-123/wallets/btc/preview')
       .set('X-CSRF-Token', csrfToken)
-      .send({ derivationScheme: 'not-a-valid-key' })
+      .send({ derivationScheme: '   ' })
       .expect(422);
 
     expect(response.body).toEqual({
@@ -279,25 +349,6 @@ describe('On-chain wallet preview (e2e)', () => {
       message: [
         "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional."
       ],
-      error: 'Unprocessable Entity'
-    });
-  });
-
-  it('rejects invalid account key paths with clear feedback', async () => {
-    const csrfToken = await fetchCsrf();
-
-    const response = await agent
-      .post('/api/stores/store-123/wallets/btc/preview')
-      .set('X-CSRF-Token', csrfToken)
-      .send({
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/85'/1'/0'"
-      })
-      .expect(422);
-
-    expect(response.body).toEqual({
-      statusCode: 422,
-      message: ["Invalid BIP32 account key path (e.g., m/84'/1'/0')."],
       error: 'Unprocessable Entity'
     });
   });

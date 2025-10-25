@@ -16,7 +16,16 @@ export class OnchainWalletsController {
     @Param('storeId') storeId: string,
     @Body() dto: PreviewOnchainDto
   ) {
-    return this.walletsService.preview({ id: user.id ?? null, email: user.email ?? null }, storeId, dto);
+    const payload = {
+      ...dto,
+      accountKeyPath: dto.accountKeyPath ?? null
+    } as PreviewOnchainDto;
+
+    return this.walletsService.preview(
+      { id: user.id ?? null, email: user.email ?? null },
+      storeId,
+      payload
+    );
   }
 
   @Get()

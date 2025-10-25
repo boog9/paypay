@@ -20,7 +20,7 @@ import { BTCPayAuthError, BTCPayUpstreamError } from './btcpay.errors';
 type Maybe<T> = T | null | undefined;
 
 const INVALID_DERIVATION_MESSAGE =
-  "Unsupported format. Enter xpub/ypub/zpub/tpub/upub/vpub or descriptor like wpkh([FPR/84'/1'/0']tpub.../0/*).";
+  "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional.";
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
 
@@ -244,16 +244,14 @@ export class BtcpayPaymentMethodsService {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = cryptoCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const derivationScheme = typeof dto.derivationScheme === 'string' ? dto.derivationScheme.trim() : '';
-    const accountKeyPath =
-      typeof dto.accountKeyPath === 'string' && dto.accountKeyPath.trim()
-        ? dto.accountKeyPath.trim()
-        : null;
     const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, currency);
-    const body = {
-      derivationScheme,
-      accountKeyPath
-    };
+    const derivationScheme = typeof dto.derivationScheme === 'string' ? dto.derivationScheme : '';
+    const accountKeyPath =
+      typeof dto.accountKeyPath === 'string' ? dto.accountKeyPath : undefined;
+    const body: Record<string, string> = { derivationScheme };
+    if (accountKeyPath && accountKeyPath.trim().length > 0) {
+      body.accountKeyPath = accountKeyPath;
+    }
 
     try {
       const response = await context.http.post(url, body);
@@ -265,8 +263,9 @@ export class BtcpayPaymentMethodsService {
       );
     } catch (error) {
       const masked = mask(derivationScheme);
-      const keyPath = accountKeyPath ?? '';
-      this.logger.warn(`onchain preview failed: ${masked}${keyPath ? ` ${keyPath}` : ''}`);
+      this.logger.warn(
+        `onchain preview failed: ${masked}${accountKeyPath && accountKeyPath.trim() ? ' (account key path provided)' : ''}`
+      );
       throw this.mapPreviewError(error);
     } finally {
       context.cleanup();
@@ -944,44 +943,37 @@ export class BtcpayPaymentMethodsService {
 
   private extractErrorMessage(error: AxiosError<unknown>): string {
     const data = this.getResponseData(error);
-    if (typeof data === 'string' && data.trim()) {
-      return this.rewriteValidationMessage(data.trim());
+    const payloadMessage = this.resolveErrorMessage(data);
+    if (payloadMessage) {
+      return payloadMessage;
     }
-    if (this.isRecord(data)) {
-      const message = this.firstString([
-        data.message,
-        data.error,
-        Array.isArray(data.errors) ? this.firstErrorMessage(data.errors) : null
-      ]);
-      if (message) {
-        return this.rewriteValidationMessage(message);
-      }
+
+    const fallback = typeof error.message === 'string' ? this.sanitizeMessage(error.message) : '';
+    if (fallback) {
+      return fallback;
     }
-    return this.rewriteValidationMessage(INVALID_DERIVATION_MESSAGE);
+
+    return 'BTCPay request failed';
   }
 
   private mapPreviewError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 502;
+      const payload = this.normalizeErrorPayload(this.getResponseData(error));
       const message = this.extractErrorMessage(error);
-      const payload = this.normalizeErrorPayload(this.getResponseData(error)) ?? message;
       if (status === 401) {
         return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
       if (status === 403) {
         return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
-      if (status === 400 || status === 422) {
-        return new UnprocessableEntityException(payload ?? INVALID_DERIVATION_MESSAGE, {
+      if (status >= 400 && status < 600) {
+        const responsePayload = payload ?? message;
+        return new HttpException(responsePayload ?? message, status, {
           cause: error as Error
         });
       }
-      if (status >= 400 && status < 500) {
-        return new UnprocessableEntityException(message || INVALID_DERIVATION_MESSAGE, {
-          cause: error as Error
-        });
-      }
-      return new BadGatewayException('Failed to preview on-chain payment method.', {
+      return new BadGatewayException(message, {
         cause: error as Error
       });
     }
@@ -1014,11 +1006,37 @@ export class BtcpayPaymentMethodsService {
 
   private normalizeErrorPayload(data: unknown): string | Record<string, unknown> | null {
     if (typeof data === 'string') {
-      const trimmed = data.trim();
-      return trimmed ? trimmed : null;
+      const sanitized = this.sanitizeMessage(data);
+      return sanitized ? sanitized : null;
     }
     if (this.isRecord(data)) {
-      return data;
+      const sanitized: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (typeof value === 'string') {
+          sanitized[key] = this.sanitizeMessage(value);
+        } else {
+          sanitized[key] = value;
+        }
+      }
+      return sanitized;
+    }
+    return null;
+  }
+
+  private resolveErrorMessage(data: unknown): string | null {
+    if (typeof data === 'string') {
+      const sanitized = this.sanitizeMessage(data);
+      return sanitized || null;
+    }
+    if (this.isRecord(data)) {
+      const message = this.firstString([
+        data.message,
+        data.error,
+        Array.isArray(data.errors) ? this.firstErrorMessage(data.errors) : null
+      ]);
+      if (message) {
+        return this.sanitizeMessage(message);
+      }
     }
     return null;
   }
@@ -1027,21 +1045,8 @@ export class BtcpayPaymentMethodsService {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
-  private rewriteValidationMessage(message: string): string {
-    const normalized = message.trim();
-    if (!normalized) {
-      return INVALID_DERIVATION_MESSAGE;
-    }
-    if (/mnemonic|seed|xprv|yprv|zprv/i.test(normalized)) {
-      return "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
-    }
-    if (/derivation|config|xpub|ypub|zpub|tpub|upub|vpub|wpkh|pkh|wsh|tr|descriptor|account/i.test(normalized)) {
-      return normalized;
-    }
-    if (normalized.length <= 160) {
-      return normalized;
-    }
-    return `${normalized.slice(0, 157)}...`;
+  private sanitizeMessage(value: string): string {
+    return value.replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ').trim();
   }
 
   private clearBuffer(value: string | null | undefined): void {

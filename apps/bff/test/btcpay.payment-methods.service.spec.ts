@@ -113,6 +113,28 @@ describe('BtcpayPaymentMethodsService', () => {
     );
   });
 
+  it('omits account key path when previewing with a bare extended key', async () => {
+    const postMock = jest.fn().mockResolvedValue({
+      data: { currency: 'btc', paymentMethodId: 'BTC-OnChain', addresses: [] }
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await service.previewOnchainPaymentMethod(
+      store.btcpayStoreId,
+      'BTC',
+      { derivationScheme: SAMPLE_TPUB, accountKeyPath: null },
+      { store }
+    );
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview',
+      { derivationScheme: SAMPLE_TPUB }
+    );
+  });
+
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
     const addresses = Array.from({ length: 10 }, (_, index) => ({
       address: `bcrt1qaddress${index}`,
@@ -319,10 +341,7 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(error).toBeInstanceOf(HttpException);
       const httpError = error as HttpException;
       expect(httpError.getStatus()).toBe(422);
-      expect(httpError.getResponse()).toEqual({
-        statusCode: 422,
-        message: 'Invalid derivation'
-      });
+      expect(httpError.getResponse()).toBe('Invalid derivation');
       return;
     }
 

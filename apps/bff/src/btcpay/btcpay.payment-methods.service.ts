@@ -893,9 +893,9 @@ export class BtcpayPaymentMethodsService {
   }
 
   private handleBtcpayError(error: unknown): never {
-    if (axios.isAxiosError(error)) {
+    if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 502;
-      const data = error.response?.data;
+      const data = this.getResponseData(error);
       const message = this.extractErrorMessage(error);
       if (status === 401) {
         throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
@@ -907,7 +907,7 @@ export class BtcpayPaymentMethodsService {
         throw new NotFoundException(message, { cause: error as Error });
       }
       if (status === 422) {
-        const payload = data ?? message;
+        const payload = this.normalizeErrorPayload(data) ?? message;
         throw new HttpException(payload ?? INVALID_DERIVATION_MESSAGE, 422, {
           cause: error as Error
         });
@@ -930,7 +930,7 @@ export class BtcpayPaymentMethodsService {
   }
 
   private handleUpdatePaymentMethodError(error: unknown): never {
-    if (axios.isAxiosError(error)) {
+    if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status;
       if (status === 401 || status === 403) {
         throw new BTCPayAuthError('BTCPay authentication failed', error);
@@ -942,17 +942,16 @@ export class BtcpayPaymentMethodsService {
     throw new BTCPayUpstreamError('Upstream error', error);
   }
 
-  private extractErrorMessage(error: AxiosError): string {
-    const data = error.response?.data;
+  private extractErrorMessage(error: AxiosError<unknown>): string {
+    const data = this.getResponseData(error);
     if (typeof data === 'string' && data.trim()) {
       return this.rewriteValidationMessage(data.trim());
     }
-    if (data && typeof data === 'object') {
-      const record = data as Record<string, unknown>;
+    if (this.isRecord(data)) {
       const message = this.firstString([
-        record.message,
-        record.error,
-        Array.isArray(record.errors) ? this.firstErrorMessage(record.errors) : null
+        data.message,
+        data.error,
+        Array.isArray(data.errors) ? this.firstErrorMessage(data.errors) : null
       ]);
       if (message) {
         return this.rewriteValidationMessage(message);
@@ -962,10 +961,10 @@ export class BtcpayPaymentMethodsService {
   }
 
   private mapPreviewError(error: unknown): Error {
-    if (axios.isAxiosError(error)) {
+    if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 502;
       const message = this.extractErrorMessage(error);
-      const payload = error.response?.data ?? message;
+      const payload = this.normalizeErrorPayload(this.getResponseData(error)) ?? message;
       if (status === 401) {
         return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
@@ -998,16 +997,34 @@ export class BtcpayPaymentMethodsService {
 
   private firstErrorMessage(errors: unknown[]): string | null {
     for (const entry of errors) {
-      if (!entry || typeof entry !== 'object') {
+      if (!this.isRecord(entry)) {
         continue;
       }
-      const record = entry as Record<string, unknown>;
-      const message = this.firstString([record.message, record.error]);
+      const message = this.firstString([entry.message, entry.error]);
       if (message) {
         return message;
       }
     }
     return null;
+  }
+
+  private getResponseData(error: AxiosError<unknown>): unknown {
+    return error.response?.data;
+  }
+
+  private normalizeErrorPayload(data: unknown): string | Record<string, unknown> | null {
+    if (typeof data === 'string') {
+      const trimmed = data.trim();
+      return trimmed ? trimmed : null;
+    }
+    if (this.isRecord(data)) {
+      return data;
+    }
+    return null;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private rewriteValidationMessage(message: string): string {

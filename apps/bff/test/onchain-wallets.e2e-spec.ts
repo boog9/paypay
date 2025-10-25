@@ -44,6 +44,8 @@ describe('On-chain wallet preview (e2e)', () => {
 
   const SAMPLE_TPUB =
     "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
+  const SAMPLE_VPUB = SAMPLE_TPUB.replace(/^tpub/, 'vpub');
+  const SAMPLE_DESCRIPTOR = `wpkh([f00dbabe/84'/1'/0']${SAMPLE_TPUB}/0/*)`;
 
   const paymentMethodsMock = {
     previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse)
@@ -174,6 +176,72 @@ describe('On-chain wallet preview (e2e)', () => {
     });
   });
 
+  it('returns preview addresses for testnet key without account path', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme: SAMPLE_TPUB })
+      .expect(200);
+
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null
+      },
+      expect.any(Object)
+    );
+    expect(response.body.addresses).toEqual(previewResponse.addresses);
+  });
+
+  it('returns preview addresses for vpub key with account path', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        derivationScheme: SAMPLE_VPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      })
+      .expect(200);
+
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_VPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      expect.any(Object)
+    );
+    expect(response.body.addresses).toEqual(previewResponse.addresses);
+  });
+
+  it('returns preview addresses for descriptor inputs', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme: SAMPLE_DESCRIPTOR })
+      .expect(200);
+
+    expect(paymentMethodsMock.previewOnchainPaymentMethod).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      {
+        derivationScheme: SAMPLE_DESCRIPTOR,
+        accountKeyPath: null
+      },
+      expect.any(Object)
+    );
+    expect(response.body.addresses).toEqual(previewResponse.addresses);
+  });
+
   it('propagates BTCPay validation errors as 422 responses', async () => {
     paymentMethodsMock.previewOnchainPaymentMethod.mockRejectedValueOnce(
       new UnprocessableEntityException('Descriptor checksum mismatch')
@@ -193,6 +261,43 @@ describe('On-chain wallet preview (e2e)', () => {
     expect(response.body).toEqual({
       statusCode: 422,
       message: 'Descriptor checksum mismatch',
+      error: 'Unprocessable Entity'
+    });
+  });
+
+  it('rejects invalid extended public keys with detailed message', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme: 'not-a-valid-key' })
+      .expect(422);
+
+    expect(response.body).toEqual({
+      statusCode: 422,
+      message: [
+        "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional."
+      ],
+      error: 'Unprocessable Entity'
+    });
+  });
+
+  it('rejects invalid account key paths with clear feedback', async () => {
+    const csrfToken = await fetchCsrf();
+
+    const response = await agent
+      .post('/api/stores/store-123/wallets/btc/preview')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/85'/1'/0'"
+      })
+      .expect(422);
+
+    expect(response.body).toEqual({
+      statusCode: 422,
+      message: ["Invalid BIP32 account key path (e.g., m/84'/1'/0')."],
       error: 'Unprocessable Entity'
     });
   });

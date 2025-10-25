@@ -3,7 +3,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Length,
   Matches,
   Max,
   MaxLength,
@@ -18,18 +17,15 @@ import { Transform } from 'class-transformer';
 import { wordlists } from 'bip39';
 
 export const INVALID_DERIVATION_MESSAGE =
-  "Unsupported format. Enter xpub/ypub/zpub/tpub/upub/vpub or descriptor like wpkh([FPR/84'/1'/0']tpub.../0/*)[#checksum].";
+  "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional.";
 export const SENSITIVE_ERROR_MESSAGE =
   "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
-export const ACCOUNT_KEY_PATH_MESSAGE = "Account key path must match your wallet's derivation path (e.g. m/84'/0'/0').";
+export const ACCOUNT_KEY_PATH_MESSAGE = "Invalid BIP32 account key path (e.g., m/84'/1'/0').";
 
-const EXTENDED_KEY_BODY_RE = '[1-9A-HJ-NP-Za-km-z]{79,111}';
-const EXTENDED_KEY_RE = new RegExp(`^([xyYzZtuUvV]pub${EXTENDED_KEY_BODY_RE})$`);
-const DESCRIPTOR_KEY_RE = new RegExp(`([xtyuZvV]pub${EXTENDED_KEY_BODY_RE})`, 'i');
-const DESCRIPTOR_WILDCARD_RE = /(\/(?:0|1)\/\*|\/\*\*)/;
-const DESCRIPTOR_CHECKSUM_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-const DESCRIPTOR_SUFFIX_RE = new RegExp(`\\)+(?:#[${DESCRIPTOR_CHECKSUM_CHARSET}]{8})?$`, 'i');
-const SUPPORTED_DESCRIPTOR_PREFIXES = ['wpkh(', 'pkh(', 'tr(', 'wsh(', 'sh(wpkh(', 'sh(wsh('];
+const EXTENDED_KEY_RE = /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/;
+const DESCRIPTOR_RE = /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)$/;
+const DERIVATION_RE = new RegExp(`${EXTENDED_KEY_RE.source}|${DESCRIPTOR_RE.source}`);
+const ACCOUNT_KEY_PATH_RE = /^m\/(44|49|84|86)'\/(0|1)'\/\d+'$/;
 
 function resolveEnglishWordlist(): string[] {
   const candidate = wordlists.english;
@@ -47,58 +43,6 @@ function normalizeString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
-}
-
-function hasSupportedDescriptorPrefix(value: string): boolean {
-  const lower = value.toLowerCase();
-  return SUPPORTED_DESCRIPTOR_PREFIXES.some((prefix) => lower.startsWith(prefix));
-}
-
-function isExtendedPublicKey(value: string): boolean {
-  return EXTENDED_KEY_RE.test(value.trim());
-}
-
-function isSupportedDescriptor(value: string): boolean {
-  const trimmed = value.trim();
-  if (!hasSupportedDescriptorPrefix(trimmed)) {
-    return false;
-  }
-  if (!DESCRIPTOR_KEY_RE.test(trimmed)) {
-    return false;
-  }
-  if (!DESCRIPTOR_WILDCARD_RE.test(trimmed)) {
-    return false;
-  }
-  if (!DESCRIPTOR_SUFFIX_RE.test(trimmed)) {
-    return false;
-  }
-  return true;
-}
-
-@ValidatorConstraint({ name: 'supportedDerivation', async: false })
-class SupportedDerivationConstraint implements ValidatorConstraintInterface {
-  validate(value: unknown): boolean {
-    if (typeof value !== 'string') {
-      return false;
-    }
-    return isExtendedPublicKey(value) || isSupportedDescriptor(value);
-  }
-
-  defaultMessage(): string {
-    return INVALID_DERIVATION_MESSAGE;
-  }
-}
-
-export function SupportedDerivation(validationOptions?: ValidationOptions) {
-  return function (object: object, propertyName: string) {
-    registerDecorator({
-      name: 'supportedDerivation',
-      target: object.constructor,
-      propertyName,
-      options: validationOptions,
-      validator: SupportedDerivationConstraint
-    });
-  };
 }
 
 @ValidatorConstraint({ name: 'noSensitiveSecrets', async: false })
@@ -146,18 +90,28 @@ export function NoSensitiveSecrets(validationOptions?: ValidationOptions) {
 
 export class PreviewOnchainDto {
   @IsString()
-  @Transform(({ value }: { value: unknown }) => normalizeString(value))
-  @Length(8, 512, { message: INVALID_DERIVATION_MESSAGE })
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === undefined || value === null) {
+      return '';
+    }
+    return String(value).trim();
+  })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  @SupportedDerivation({ message: INVALID_DERIVATION_MESSAGE })
+  @Matches(DERIVATION_RE, {
+    message: INVALID_DERIVATION_MESSAGE
+  })
   derivationScheme!: string;
 
   @IsOptional()
-  @ValidateIf((_obj, value) => typeof value === 'string')
   @IsString()
-  @Transform(({ value }: { value: unknown }) => normalizeString(value))
-  @MaxLength(200, { message: INVALID_DERIVATION_MESSAGE })
-  @Matches(/^(?:m|[0-9a-fA-F]{8})(\/\d+'?){2,8}$/i, { message: ACCOUNT_KEY_PATH_MESSAGE })
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    const trimmed = String(value).trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+  })
+  @Matches(ACCOUNT_KEY_PATH_RE, { message: ACCOUNT_KEY_PATH_MESSAGE })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   accountKeyPath?: string;
 

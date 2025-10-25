@@ -93,56 +93,48 @@ function containsExtendedKeySnippet(value: string): boolean {
   return /(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{10,}/i.test(value);
 }
 
+function sanitizePreviewMessage(value: string): string {
+  return value.replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ").trim();
+}
+
+function extractMessageFromBody(body: unknown): string | null {
+  if (typeof body === "string") {
+    const sanitized = sanitizePreviewMessage(body);
+    return sanitized.length > 0 ? sanitized : null;
+  }
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    const candidates: unknown[] = [record.message, record.error];
+    if (Array.isArray(record.errors)) {
+      for (const entry of record.errors) {
+        if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+          const candidate = (entry as Record<string, unknown>).message ?? (entry as Record<string, unknown>).error;
+          candidates.push(candidate);
+        }
+      }
+    }
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const sanitized = sanitizePreviewMessage(candidate);
+        if (sanitized.length > 0) {
+          return sanitized;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function normalizePreviewErrorMessage(error: ApiError): string {
   const fallback = "Failed to preview derivation scheme.";
-  if (error.status === 422) {
-    const body = error.body;
-    if (typeof body === "string" && body.trim().length > 0) {
-      return body.trim();
-    }
-    if (body && typeof body === "object") {
-      const record = body as Record<string, unknown>;
-      const direct = typeof record.message === "string" && record.message.trim().length > 0
-        ? record.message.trim()
-        : null;
-      if (direct) {
-        return direct;
-      }
-      const errorField = typeof record.error === "string" && record.error.trim().length > 0
-        ? record.error.trim()
-        : null;
-      if (errorField) {
-        return errorField;
-      }
-      const asJson = JSON.stringify(record);
-      if (asJson.length > 2) {
-        return asJson;
-      }
-    }
-    const rawMessage = typeof error.message === "string" && error.message.trim().length > 0 ? error.message.trim() : "";
-    return rawMessage.length > 0 ? rawMessage : fallback;
-  }
-  const rawMessage = typeof error.message === "string" && error.message.trim().length > 0 ? error.message.trim() : "";
-  const message = rawMessage.length > 0 ? rawMessage : fallback;
-  const lowered = message.toLowerCase();
-
-  if (/invalid derivation|unsupported format|descriptor|extended key/.test(lowered)) {
-    return FORMAT_ERROR_MESSAGE;
+  const bodyMessage = extractMessageFromBody(error.body);
+  if (bodyMessage && !containsExtendedKeySnippet(bodyMessage)) {
+    return bodyMessage;
   }
 
-  if (/network|mainnet|testnet/.test(lowered)) {
-    return "The provided key seems to target a different network (mainnet vs testnet). Use the matching key type for this store.";
-  }
-
-  if (containsExtendedKeySnippet(message)) {
-    return fallback;
-  }
-
-  if (error.status === 400) {
-    return fallback;
-  }
-  if (error.status === 403) {
-    return "You do not have sufficient permissions to preview this wallet.";
+  const sanitized = typeof error.message === "string" ? sanitizePreviewMessage(error.message) : "";
+  if (sanitized.length > 0 && !containsExtendedKeySnippet(sanitized)) {
+    return sanitized;
   }
 
   return fallback;
@@ -190,6 +182,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setAccountKeyPath(nextValue.length > 0 ? nextValue : undefined);
   }, []);
 
+  const showTestnetAccountHint = useMemo(() => {
+    const trimmedScheme = derivationScheme.trim().toLowerCase();
+    const hasAccountPath = typeof accountKeyPath === "string" && accountKeyPath.trim().length > 0;
+    return trimmedScheme.startsWith("tpub") && !hasAccountPath;
+  }, [accountKeyPath, derivationScheme]);
+
   const handleStart = useCallback(() => {
     setStep("enter");
     setFormError(null);
@@ -226,7 +224,10 @@ export default function WalletWizardPage({ params }: WizardProps) {
 
     try {
       const csrfToken = await getCsrfToken();
-      const payload = await apiPost<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, parsed.data, {
+      const requestBody = parsed.data.accountKeyPath
+        ? { derivationScheme: parsed.data.derivationScheme, accountKeyPath: parsed.data.accountKeyPath }
+        : { derivationScheme: parsed.data.derivationScheme };
+      const payload = await apiPost<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, requestBody, {
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
       });
       if (payload === undefined) {
@@ -421,7 +422,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
                   name="accountKeyPath"
                   value={accountKeyPath ?? ""}
                   onChange={handleAccountKeyPathChange}
-                  placeholder="m/84&apos;/0&apos;/0&apos;"
+                  placeholder="m/84&apos;/1&apos;/0&apos;"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
@@ -430,6 +431,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
                   Optional. Needed only for PSBT signing in Wallet settings. Use the path from your wallet, for
                   example <code>m/84&apos;/0&apos;/0&apos;</code> on mainnet or <code>m/84&apos;/1&apos;/0&apos;</code> on testnet.
                 </p>
+                {showTestnetAccountHint && !formErrors.accountKeyPath && (
+                  <p className="text-xs text-sky-600">
+                    For testnet BIP84 you usually want m/84&apos;/1&apos;/0&apos;. Alternatively, paste a descriptor like
+                    wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub.../0/*).
+                  </p>
+                )}
                 {formErrors.accountKeyPath && (
                   <p className="text-sm text-destructive">{formErrors.accountKeyPath}</p>
                 )}

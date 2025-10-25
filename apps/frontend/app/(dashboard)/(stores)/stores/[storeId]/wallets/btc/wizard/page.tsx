@@ -9,12 +9,7 @@ import { Input } from "../../../../../../../../components/ui/input";
 import { ApiError, api, apiPost, isApiError } from "../../../../../../../../lib/api";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
-import {
-  FORMAT_ERROR_MESSAGE,
-  detectNetworkFromInput,
-  resolveInstanceNetwork,
-  walletWizardFormSchema
-} from "./validation";
+import { detectNetworkFromInput, resolveInstanceNetwork, walletWizardFormSchema } from "./validation";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -94,7 +89,7 @@ function containsExtendedKeySnippet(value: string): boolean {
 }
 
 function sanitizePreviewMessage(value: string): string {
-  return value.replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ").trim();
+  return value.replace(/\p{Cc}+/gu, " ").trim();
 }
 
 function extractMessageFromBody(body: unknown): string | null {

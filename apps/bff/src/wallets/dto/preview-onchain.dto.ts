@@ -45,6 +45,24 @@ function normalizeString(value: unknown): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
+function coerceTrimmedString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  if (value instanceof String) {
+    return value.valueOf().trim();
+  }
+  return '';
+}
+
+function coerceOptionalTrimmedString(value: unknown): string | undefined {
+  const normalized = coerceTrimmedString(value);
+  return normalized.length === 0 ? undefined : normalized;
+}
+
 @ValidatorConstraint({ name: 'noSensitiveSecrets', async: false })
 class NoSensitiveSecretsConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
@@ -94,7 +112,7 @@ export class PreviewOnchainDto {
     if (value === undefined || value === null) {
       return '';
     }
-    return String(value).trim();
+    return coerceTrimmedString(value);
   })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   @MinLength(MIN_DERIVATION_LENGTH, { message: INVALID_DERIVATION_MESSAGE })
@@ -107,8 +125,7 @@ export class PreviewOnchainDto {
     if (value === undefined || value === null) {
       return undefined;
     }
-    const trimmed = String(value).trim();
-    return trimmed.length === 0 ? undefined : trimmed;
+    return coerceOptionalTrimmedString(value);
   })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   @MinLength(1, { message: ACCOUNT_KEY_PATH_MESSAGE })

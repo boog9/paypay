@@ -1046,7 +1046,7 @@ export class BtcpayPaymentMethodsService {
   }
 
   private sanitizeMessage(value: string): string {
-    return value.replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ').trim();
+    return value.replace(/\p{Cc}+/gu, ' ').trim();
   }
 
   private clearBuffer(value: string | null | undefined): void {

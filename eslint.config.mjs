@@ -78,6 +78,25 @@ export default tseslint.config(
         tsconfigRootDir: __dirname,
       },
     },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/server-api",
+              message: "Use apps/frontend/lib/bff-fetch.ts instead of the deprecated server-api helper.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["**/lib/server-api", "**/lib/server-api.ts"],
+              message: "Use apps/frontend/lib/bff-fetch.ts instead of the deprecated server-api helper.",
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     files: ["apps/bff/src/**/*.{ts,tsx}"],

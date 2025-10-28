@@ -11,7 +11,7 @@ import {
   AUTH_REFRESH,
 } from './api';
 
-export const ACCESS_TOKEN_COOKIE_NAME = '__Host-pp.access-token';
+export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
 
 export async function getCsrfToken(): Promise<string> {
   const cached = getCachedCsrfToken();

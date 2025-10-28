@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchFromBff } from "../../../../../lib/server-api";
+import { bffFetch } from "../../../../../lib/bff-fetch";
 import { Button } from "../../../../../components/ui/button";
 import { StoreLayoutProvider } from "./store-layout-context";
 import { StoreSidebar, StoreSidebarSection } from "./store-sidebar";
@@ -18,7 +18,7 @@ interface StoreSettingsResponse {
 }
 
 async function loadStoreSettings(tenantId: string, storeId: string): Promise<StoreSettingsResponse> {
-  const response = await fetchFromBff(`/tenants/${tenantId}/stores/${storeId}`);
+  const response = await bffFetch(`/api/tenants/${tenantId}/stores/${storeId}`);
   if (response.status === 404) {
     notFound();
   }

@@ -3,7 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSourceOptions } from 'typeorm';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, seconds } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { BtcpayModule } from './btcpay/btcpay.module';
 import { AuthModule } from './auth/auth.module';
@@ -23,6 +23,7 @@ import { WalletsModule } from './wallets/wallets.module';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { SecurityModule } from './security/security.module';
 import { CsrfGuard } from './security/csrf.guard';
+import { AppThrottlerGuard } from './app.throttler.guard';
 
 @Module({
   imports: [
@@ -89,7 +90,15 @@ import { CsrfGuard } from './security/csrf.guard';
         })
       }
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        { name: 'default', ttl: seconds(30), limit: 120 },
+        { name: 'login', ttl: seconds(60), limit: 5 },
+        { name: 'refresh', ttl: seconds(60), limit: 30 }
+      ],
+      skipIf: (ctx) => ctx.switchToHttp().getRequest()?.method === 'OPTIONS',
+      ...({ generateLimitHeaders: true } as Record<string, unknown>)
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
@@ -173,7 +182,7 @@ import { CsrfGuard } from './security/csrf.guard';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard
+      useClass: AppThrottlerGuard
     },
     {
       provide: APP_GUARD,

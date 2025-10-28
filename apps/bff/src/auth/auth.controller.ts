@@ -11,7 +11,7 @@ import {
   UnauthorizedException,
   UseGuards
 } from '@nestjs/common';
-import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, seconds } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
@@ -56,7 +56,7 @@ export class AuthController {
 
   @Post('register')
   @UseGuards(CsrfGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
     const user = await this.authService.register(dto);
@@ -66,7 +66,7 @@ export class AuthController {
 
   @Post('signup')
   @UseGuards(CsrfGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response): Promise<SignupResponseDto> {
     const result: SignupServiceResultDto = await this.authService.signup(dto);
     setAuthCookies(res, {
@@ -83,7 +83,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('login')
   @UseGuards(CsrfGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ login: { limit: 5, ttl: seconds(60) } })
   async login(
     @Req() req: Request,
     @Body() dto: LoginDto,
@@ -118,7 +118,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   @UseGuards(CsrfGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ refresh: { limit: 30, ttl: seconds(60) } })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
@@ -140,7 +140,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('logout')
   @UseGuards(CsrfGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   async logout(
     @Req() req: Request,
     @Body() dto: LogoutDto,

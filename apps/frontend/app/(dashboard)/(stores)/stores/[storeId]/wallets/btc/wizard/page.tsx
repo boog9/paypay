@@ -183,6 +183,14 @@ export default function WalletWizardPage({ params }: WizardProps) {
     return trimmedScheme.startsWith("tpub") && !hasAccountPath;
   }, [accountKeyPath, derivationScheme]);
 
+  const showTestnetAddressHint = useMemo(() => {
+    if (INSTANCE_NETWORK === "testnet" || derivedNetwork === "testnet") {
+      return true;
+    }
+
+    return addresses.some((item) => item.address.toLowerCase().startsWith("tb1"));
+  }, [addresses, derivedNetwork]);
+
   const handleStart = useCallback(() => {
     setStep("enter");
     setFormError(null);
@@ -317,18 +325,27 @@ export default function WalletWizardPage({ params }: WizardProps) {
     if (!addresses.length) {
       return null;
     }
+
     return (
       <ol className="space-y-2">
         {addresses.map((item, index) => {
-          const displayIndex = typeof item.index === "number" ? item.index : index;
-          const keyPath = item.keyPath ?? `0/${displayIndex}`;
+          const metadata: string[] = [];
+          if (item.keyPath) {
+            metadata.push(`Key path: ${item.keyPath}`);
+          }
+          if (typeof item.index === "number") {
+            metadata.push(`Index: ${item.index}`);
+          }
+
           return (
             <li
-              key={`${item.address}-${displayIndex}`}
+              key={`${item.address}-${item.keyPath ?? item.index ?? index}`}
               className="rounded-md border border-muted bg-muted/40 px-4 py-3 text-sm"
             >
               <div className="font-medium text-foreground">{item.address}</div>
-              <div className="text-xs text-muted-foreground">Key path: {keyPath}</div>
+              {metadata.length > 0 && (
+                <div className="text-xs text-muted-foreground">{metadata.join(" • ")}</div>
+              )}
             </li>
           );
         })}
@@ -471,16 +488,22 @@ export default function WalletWizardPage({ params }: WizardProps) {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
-              <h2 className="text-sm font-medium text-foreground">First 10 deposit addresses (branch 0)</h2>
+              <h2 className="text-sm font-medium text-foreground">Deposit addresses returned by BTCPay</h2>
               {addressList ?? (
                 <p className="text-sm text-muted-foreground">No addresses were returned by BTCPay.</p>
+              )}
+              {showTestnetAddressHint && (
+                <p className="text-xs text-sky-700">
+                  On Bitcoin testnet, receiving addresses commonly start with <span className="font-mono text-foreground">tb1…</span>.
+                  If your wallet displays another prefix, double-check the selected network before proceeding.
+                </p>
               )}
             </div>
 
             <div className="space-y-2 text-sm text-muted-foreground">
               <p>
-                BTCPay derives these addresses using NBXplorer. Confirm that your wallet shows the same
-                0/0…0/9 addresses before enabling this payment method. If the addresses differ, double-check
+                BTCPay derives these addresses using NBXplorer. Confirm that your wallet shows the same key paths
+                and receiving addresses before enabling this payment method. If the addresses differ, double-check
                 the derivation scheme and account key path in your wallet configuration.
               </p>
               <p className="font-medium text-foreground">

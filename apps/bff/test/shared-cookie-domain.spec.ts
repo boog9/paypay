@@ -1,11 +1,12 @@
+type CookiesUtilModule = typeof import('../src/auth/cookies.util');
+
 // We test the side-effectful cookies.util module under different environments.
-function freshImportWithEnv(env: Record<string, string | undefined>) {
+function freshImportWithEnv(env: Record<string, string | undefined>): CookiesUtilModule {
   const saved = { ...process.env };
   Object.assign(process.env, env);
   // Reset the module cache so top-level code executes again
   jest.resetModules();
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require('../src/auth/cookies.util');
+  const mod = jest.requireActual<CookiesUtilModule>('../src/auth/cookies.util');
   Object.assign(process.env, saved);
   return mod;
 }

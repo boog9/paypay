@@ -23,7 +23,6 @@ export const sharedCookieDomain = resolveCookieDomain();
       throw new Error(msg);
     } else {
       // Single-shot warning in dev/test
-      // eslint-disable-next-line no-console
       console.warn(`[paypay:bff:cookies] ${msg}`);
     }
   }

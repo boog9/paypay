@@ -1,8 +1,10 @@
 import { Controller, Get, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { BtcpayService } from './btcpay/btcpay.service';
 
+@SkipThrottle()
 @Controller()
 export class HealthController {
   constructor(

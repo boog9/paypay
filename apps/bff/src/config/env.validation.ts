@@ -41,7 +41,7 @@ export const EnvSchema = z
   .object({
     NODE_ENV: z.string().default('production'),
     PORT: z.coerce.number().default(3000),
-    TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('loopback'),
+    TRUST_PROXY: z.union([z.coerce.number(), z.string()]).default('1'),
 
     COOKIE_SECRET: z.string().min(32, 'must be at least 32 chars or Base64'),
     CSRF_PEPPER: base64Min32,

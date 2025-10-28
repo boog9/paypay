@@ -10,7 +10,7 @@ type TrustProxySetting = string | number | boolean;
 
 function parseTrustProxy(value?: string | number | boolean): TrustProxySetting {
   if (value === undefined) {
-    return 'loopback';
+    return 1;
   }
   if (typeof value === 'number' || typeof value === 'boolean') {
     return value;
@@ -70,8 +70,7 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
   if (adapterType === 'express') {
     const expressInstance = instance as Application;
     const trustProxyValue = parseTrustProxy(env.TRUST_PROXY);
-    const effectiveTrustProxy =
-      trustProxyValue === undefined || trustProxyValue === null ? 'loopback' : trustProxyValue;
+    const effectiveTrustProxy = trustProxyValue ?? 1;
     expressInstance.set('trust proxy', effectiveTrustProxy);
   }
 

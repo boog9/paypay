@@ -56,9 +56,6 @@ describe('OnchainWalletsService', () => {
   const SAMPLE_XPUB =
     "xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx";
   const SAMPLE_ZPUB = `zpub${SAMPLE_XPUB.slice(4)}`;
-  const SAMPLE_DESCRIPTOR =
-    "wpkh([abcd1234/84'/0'/0']xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx/0/*)";
-
   const paymentMethods = {
     previewOnchain: jest.fn().mockResolvedValue(previewResponse),
     previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse),

@@ -142,6 +142,6 @@ test.describe("Wallet transactions page", () => {
     await page.getByRole("button", { name: "Export transactions" }).click();
     await page.getByRole("menuitem", { name: "CSV" }).click();
     const download = await downloadPromise;
-    await expect(download.suggestedFilename()).toMatch(/btc-transactions-.*\.csv$/);
+    expect(download.suggestedFilename()).toMatch(/btc-transactions-.*\.csv$/);
   });
 });

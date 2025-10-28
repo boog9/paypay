@@ -128,7 +128,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
       return [];
     }
     return Array.isArray(transactions.items)
-      ? (transactions.items as WalletTransaction[])
+      ? transactions.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
       : [];
   }, [transactions]);
 
@@ -499,7 +499,9 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
                         <span className="font-mono text-sm">{truncated}</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(tx.txId)}
+                          onClick={() => {
+                            void handleCopy(tx.txId);
+                          }}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-input text-muted-foreground transition hover:bg-muted"
                           aria-label="Copy transaction ID"
                         >

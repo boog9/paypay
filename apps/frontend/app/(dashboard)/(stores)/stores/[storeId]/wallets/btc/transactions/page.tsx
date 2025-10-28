@@ -147,7 +147,7 @@ function normalizeTransactionsPayload(payload: unknown): WalletTransactionsRespo
   const total = typeof totalValue === "number" ? totalValue : Number(totalValue);
 
   return {
-    total: Number.isFinite(total) ? (total as number) : undefined,
+    total: Number.isFinite(total) ? total : undefined,
     items: items.filter((item): item is WalletTransactionsResponse["items"][number] => typeof item === "object" && item !== null)
   };
 }

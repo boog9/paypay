@@ -1,4 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../security/csrf.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
@@ -30,6 +31,7 @@ export class OnchainWalletsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
+  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
   getSummary(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,

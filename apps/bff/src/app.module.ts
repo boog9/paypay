@@ -95,7 +95,8 @@ import { AppThrottlerGuard } from './app.throttler.guard';
       throttlers: [
         { name: 'default', ttl: seconds(30), limit: 120 },
         { name: 'login', ttl: seconds(60), limit: 5 },
-        { name: 'refresh', ttl: seconds(60), limit: 30 }
+        { name: 'refresh', ttl: seconds(60), limit: 30 },
+        { name: 'uiBurst', ttl: seconds(30), limit: 600 }
       ],
       skipIf: (ctx) => {
         const req = ctx.switchToHttp().getRequest<Request>();

@@ -148,8 +148,15 @@ function NavItem({ href, isActive, onNavigate, children, className }: NavItemPro
     );
   }
 
+  const shouldDisablePrefetch = href.includes("/wallets/");
+
   return (
-    <Link href={href} onClick={onNavigate} className={composedClassName}>
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className={composedClassName}
+      prefetch={shouldDisablePrefetch ? false : undefined}
+    >
       {children}
     </Link>
   );

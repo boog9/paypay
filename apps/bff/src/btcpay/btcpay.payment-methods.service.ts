@@ -24,6 +24,8 @@ const INVALID_DERIVATION_MESSAGE =
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
 
+export const BTC_CHAIN = 'BTC-CHAIN';
+
 export function mask(value: string | null | undefined): string {
   if (!value) {
     return '';
@@ -187,6 +189,21 @@ interface PaymentMethodRecord {
   label?: unknown;
 }
 
+interface WalletPreviewRequestDto {
+  config: {
+    derivationScheme: string;
+    accountKeyPath?: string;
+    label?: string;
+    enabled: boolean;
+  };
+}
+
+interface PaymentMethodCollectionQueryParams {
+  paymentMethodId?: string;
+  onlyEnabled?: boolean;
+  includeConfig?: boolean;
+}
+
 @Injectable()
 export class BtcpayPaymentMethodsService {
   private readonly logger = new Logger(BtcpayPaymentMethodsService.name, { timestamp: false });
@@ -238,21 +255,23 @@ export class BtcpayPaymentMethodsService {
   async previewOnchainPaymentMethod(
     storeId: string,
     cryptoCode: 'BTC',
-    dto: { derivationScheme: string; accountKeyPath?: string | null },
+    dto: { derivationScheme: string; accountKeyPath?: string | null; label?: string | null },
     options?: PaymentMethodRequestOptions
   ): Promise<OnchainPreviewResponse> {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = cryptoCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, currency);
+    const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, paymentMethodId);
     const derivationScheme =
       typeof dto.derivationScheme === 'string' ? dto.derivationScheme.trim() : '';
     const accountKeyPath =
       typeof dto.accountKeyPath === 'string' ? dto.accountKeyPath.trim() : undefined;
-    const body: Record<string, string> = { derivationScheme };
-    if (accountKeyPath) {
-      body.accountKeyPath = accountKeyPath;
-    }
+    const label = typeof dto.label === 'string' ? dto.label.trim() : undefined;
+    const body = this.buildWalletPreviewRequestBody({
+      derivationScheme,
+      accountKeyPath,
+      label
+    });
 
     try {
       const response = await context.http.post(url, body);
@@ -283,9 +302,9 @@ export class BtcpayPaymentMethodsService {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const params: Record<string, string> = {};
+    const params: PaymentMethodCollectionQueryParams = {};
     if (options?.includeConfig === true) {
-      params.includeConfig = 'true';
+      params.includeConfig = true;
     }
 
     try {
@@ -310,7 +329,7 @@ export class BtcpayPaymentMethodsService {
 
   async getOnchainMethodStatus(
     storeId: string,
-    paymentMethodId = 'BTC-OnChain',
+    paymentMethodId = BTC_CHAIN,
     options?: PaymentMethodRequestOptions
   ): Promise<OnchainPaymentMethodStatus> {
     const context = await this.prepareStoreContext(storeId, options);
@@ -326,9 +345,9 @@ export class BtcpayPaymentMethodsService {
         {
           params: {
             paymentMethodId: normalizedId,
-            onlyEnabled: 'false',
-            includeConfig: 'false'
-          }
+            onlyEnabled: false,
+            includeConfig: false
+          } satisfies PaymentMethodCollectionQueryParams
         }
       );
       const match = this.extractPaymentMethodStatus(response.data, normalizedId);
@@ -443,8 +462,27 @@ export class BtcpayPaymentMethodsService {
     return params;
   }
 
+  private buildWalletPreviewRequestBody(
+    dto: { derivationScheme: string; accountKeyPath?: string | null; label?: string | null }
+  ): WalletPreviewRequestDto {
+    const config: WalletPreviewRequestDto['config'] = {
+      derivationScheme: dto.derivationScheme,
+      enabled: true
+    };
+
+    if (dto.accountKeyPath) {
+      config.accountKeyPath = dto.accountKeyPath;
+    }
+
+    if (dto.label) {
+      config.label = dto.label;
+    }
+
+    return { config };
+  }
+
   private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
-    const config = this.buildUpdateConfigPayload(payload.config);
+    const config = this.buildUpdateConfigPayload(payload.config, payload.enabled ?? true);
     return { enabled: payload.enabled, config };
   }
 
@@ -476,11 +514,14 @@ export class BtcpayPaymentMethodsService {
   }
 
   private buildUpdateConfigPayload(
-    config: UpdateOnchainPaymentMethodPayload['config']
+    config: UpdateOnchainPaymentMethodPayload['config'],
+    enabled: boolean
   ): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
 
     payload.derivationScheme = config.derivationScheme;
+
+    payload.enabled = enabled;
 
     if (config.accountKeyPath !== undefined) {
       if (config.accountKeyPath === null) {
@@ -853,9 +894,9 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
-  private buildOnchainPostPreviewPath(storeId: string, cryptoCode: string): string {
-    const normalizedCode = typeof cryptoCode === 'string' ? cryptoCode.trim().toUpperCase() : '';
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(normalizedCode)}/preview`;
+  private buildOnchainPostPreviewPath(storeId: string, paymentMethodId: string): string {
+    const normalizedId = canonicalPaymentMethodId(paymentMethodId, 'chain') || paymentMethodId;
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(normalizedId)}/wallet/preview`;
   }
 
   private extractPaymentMethodStatus(

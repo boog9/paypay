@@ -97,7 +97,6 @@ import { AppThrottlerGuard } from './app.throttler.guard';
         { name: 'login', ttl: seconds(60), limit: 5 },
         { name: 'refresh', ttl: seconds(60), limit: 30 }
       ],
-      generateLimitHeaders: true,
       skipIf: (ctx) => {
         const req = ctx.switchToHttp().getRequest<Request>();
         const m = req.method;

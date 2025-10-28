@@ -86,6 +86,14 @@ export interface OnchainPaymentMethodStatus {
   enabled: boolean;
 }
 
+export interface OnchainWalletSummary {
+  storeId: string;
+  paymentMethodId: string;
+  enabled: boolean;
+  currency: string;
+  previewAddresses?: string[];
+}
+
 export interface UpdateOnchainPaymentMethodPayload {
   enabled: boolean;
   config: {
@@ -149,6 +157,7 @@ export function canonicalPaymentMethodId(paymentMethodId: string, type: BtcpayPa
 interface PaymentMethodRequestOptions {
   store?: ManagedStoreEntity;
   apiKeyOverride?: string | null;
+  host?: string | null;
 }
 
 export interface UpdateOnchainPaymentMethodRequest {
@@ -299,6 +308,13 @@ export class BtcpayPaymentMethodsService {
     currencyCode = 'BTC',
     options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
   ): Promise<OnchainPaymentMethodConfig> {
+    if (options?.includeConfig === true) {
+      const apiKey = this.normalizeApiKey(options.apiKeyOverride);
+      if (!apiKey) {
+        throw new ForbiddenException('Requesting payment method configuration requires elevated permissions.');
+      }
+      options = { ...options, apiKeyOverride: apiKey };
+    }
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
@@ -376,6 +392,88 @@ export class BtcpayPaymentMethodsService {
     }
 
     return { storeId: storeIdentifier, paymentMethodId: normalizedId, enabled: false };
+  }
+
+  async getOnchainWalletSummary(
+    storeId: string,
+    host?: string,
+    options?: PaymentMethodRequestOptions
+  ): Promise<OnchainWalletSummary> {
+    const context = await this.prepareStoreContext(storeId, { ...options, host });
+    const currency = 'BTC';
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
+
+    try {
+      const response = await context.http.get(
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
+      );
+      const normalized = this.normalizePaymentMethodResponse(
+        response.data,
+        context.store.btcpayStoreId,
+        currency,
+        paymentMethodId
+      );
+      const previewFromPayload = this.extractPreviewAddresses(response.data)
+        .map((item) => item.address)
+        .filter((value) => typeof value === 'string' && value.trim());
+      const previewAddresses = await this.resolvePreviewAddresses(
+        context,
+        paymentMethodId,
+        previewFromPayload
+      );
+
+      return {
+        storeId: normalized.storeId,
+        paymentMethodId: normalized.paymentMethodId,
+        enabled: normalized.enabled,
+        currency: normalized.currency,
+        previewAddresses: previewAddresses.length > 0 ? previewAddresses : undefined
+      } satisfies OnchainWalletSummary;
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    throw new InternalServerErrorException('Failed to retrieve on-chain wallet summary.');
+  }
+
+  async getOnchainWalletConfigInternal(
+    storeId: string,
+    host?: string,
+    options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
+  ): Promise<OnchainPaymentMethodConfig> {
+    const apiKey = this.normalizeApiKey(options?.apiKeyOverride);
+    if (!apiKey) {
+      throw new ForbiddenException('Elevated BTCPay permissions are required for configuration access.');
+    }
+
+    const context = await this.prepareStoreContext(storeId, {
+      ...options,
+      apiKeyOverride: apiKey,
+      host
+    });
+    const currency = 'BTC';
+    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
+
+    try {
+      const response = await context.http.get(
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
+        { params: { includeConfig: true } }
+      );
+      return this.normalizePaymentMethodResponse(
+        response.data,
+        context.store.btcpayStoreId,
+        currency,
+        paymentMethodId
+      );
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    throw new InternalServerErrorException('Failed to retrieve on-chain wallet configuration.');
   }
 
   // BTCPay Greenfield API v1 applies updates via PUT /payment-methods/{paymentMethodId}.
@@ -818,7 +916,7 @@ export class BtcpayPaymentMethodsService {
 
     const overrideApiKey = this.normalizeApiKey(options?.apiKeyOverride);
     const apiKey = overrideApiKey ?? this.decryptStoreApiKey(store);
-    const baseUrl = this.resolveBaseUrl(store);
+    const baseUrl = this.resolveBaseUrl(store, options?.host ?? undefined);
     const http = this.createHttp(baseUrl, apiKey);
     return {
       store,
@@ -837,9 +935,70 @@ export class BtcpayPaymentMethodsService {
     return trimmed ? trimmed : null;
   }
 
-  private resolveBaseUrl(store: ManagedStoreEntity): string {
-    const host = store.btcpayHost && store.btcpayHost.trim() ? store.btcpayHost.trim() : undefined;
+  private resolveBaseUrl(store: ManagedStoreEntity, hostOverride?: string | null): string {
+    const overrideHost = typeof hostOverride === 'string' && hostOverride.trim() ? hostOverride.trim() : undefined;
+    const host = overrideHost ?? (store.btcpayHost && store.btcpayHost.trim() ? store.btcpayHost.trim() : undefined);
     return this.btcpayService.resolveBaseUrl(host);
+  }
+
+  private async resolvePreviewAddresses(
+    context: StoreContext,
+    paymentMethodId: string,
+    initial: string[]
+  ): Promise<string[]> {
+    const normalized = this.normalizePreviewAddressesList(initial);
+    if (normalized.length >= 1) {
+      return normalized.slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT);
+    }
+
+    try {
+      const response = await context.http.get(
+        this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
+        { params: { count: DEFAULT_PREVIEW_ADDRESS_COUNT } }
+      );
+      const preview = this.normalizePreviewResponse(
+        response.data,
+        context.store.btcpayStoreId,
+        'BTC',
+        paymentMethodId
+      );
+      const derived = preview.addresses
+        .map((item) => item.address)
+        .filter((value) => typeof value === 'string' && value.trim());
+      return this.normalizePreviewAddressesList(derived).slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT);
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 0;
+        if (status === 401) {
+          throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        }
+        if (status === 403 || status === 404) {
+          return [];
+        }
+      }
+      this.logger.warn('Failed to load preview addresses for on-chain summary.');
+      return [];
+    }
+  }
+
+  private normalizePreviewAddressesList(addresses: string[]): string[] {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const entry of addresses) {
+      if (typeof entry !== 'string') {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (seen.has(trimmed)) {
+        continue;
+      }
+      seen.add(trimmed);
+      normalized.push(trimmed);
+    }
+    return normalized;
   }
 
   private decryptStoreApiKey(store: ManagedStoreEntity): string {

@@ -11,7 +11,6 @@ import { Repository } from 'typeorm';
 import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
-  OnchainPaymentMethodConfig,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload,
   canonicalPaymentMethodId
@@ -29,20 +28,12 @@ interface WalletUserContext {
   email: string | null;
 }
 
-export interface OnchainWalletStatusReadModel {
+export interface OnchainWalletSummaryReadModel {
   storeId: string;
-  currency: string;
   paymentMethodId: string;
   enabled: boolean;
-  connected: boolean;
-  missingLocalMeta: boolean;
-  metadata: {
-    label: string | null;
-    accountKeyPath: string | null;
-    hasDerivationScheme: boolean;
-    hasMasterFingerprint: boolean;
-  };
-  addressPreview: OnchainPreviewResponse['addresses'];
+  currency: string;
+  previewAddresses: string[];
 }
 
 const BTC_ONCHAIN_PAYMENT_METHOD_ID = BTC_ONCHAIN_PMID;
@@ -104,67 +95,63 @@ export class OnchainWalletsService {
     };
   }
 
-  async getConfig(
+  async getSummary(
     userContext: WalletUserContext,
     storeId: string
-  ): Promise<OnchainWalletStatusReadModel> {
+  ): Promise<OnchainWalletSummaryReadModel> {
     const userId = this.requireUserId(userContext.id);
     const store = await this.requireStore(userId, storeId);
-    const paymentMethodId = BTC_ONCHAIN_PAYMENT_METHOD_ID;
-    const [status, wallet] = await Promise.all([
-      this.paymentMethods.getOnchainMethodStatus(store.btcpayStoreId, paymentMethodId, { store }),
-      this.walletsRepository.findOne({
-        where: [
-          { storeId: store.id, paymentMethodId },
-          { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
-        ]
-      })
-    ]);
 
-    const enabled = Boolean(status?.enabled);
-    if (!enabled) {
-      throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
-    }
-
-    let remoteConfig: OnchainPaymentMethodConfig | null = null;
-    let limitedView = false;
     try {
-      remoteConfig = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
-        store,
-        includeConfig: true
-      });
+      const summary = await this.paymentMethods.getOnchainWalletSummary(
+        store.btcpayStoreId,
+        store.btcpayHost,
+        { store }
+      );
+
+      if (!summary.enabled) {
+        throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
+      }
+
+      const normalizedCurrency =
+        typeof summary.currency === 'string' && summary.currency.trim()
+          ? summary.currency.trim().toUpperCase()
+          : 'BTC';
+      const previewAddresses = Array.isArray(summary.previewAddresses)
+        ? summary.previewAddresses.slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT)
+        : [];
+
+      return {
+        storeId: summary.storeId,
+        paymentMethodId: canonicalPaymentMethodId(summary.paymentMethodId, 'chain') || summary.paymentMethodId,
+        enabled: true,
+        currency: normalizedCurrency,
+        previewAddresses
+      } satisfies OnchainWalletSummaryReadModel;
     } catch (error) {
-      if (error instanceof ForbiddenException) {
-        limitedView = true;
-      } else {
+      if (error instanceof UnauthorizedException) {
         throw error;
       }
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      if (isBTCPayAuthError(error)) {
+        throw new UnauthorizedException('BTCPay authentication failed');
+      }
+      if (isBTCPayUpstreamError(error)) {
+        if (error.status === 404) {
+          throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
+        }
+        if (error.status === 403) {
+          throw new ForbiddenException('BTCPay returned limited permissions.');
+        }
+        throw new BadGatewayException('Upstream error');
+      }
+      throw error;
     }
-
-    const resolvedPaymentMethodId = canonicalPaymentMethodId(
-      remoteConfig?.paymentMethodId ?? status?.paymentMethodId ?? paymentMethodId,
-      'chain'
-    ) || paymentMethodId;
-
-    const preview = limitedView ? [] : await this.safePreviewAddresses(store);
-    const metadata = this.buildMetadata(remoteConfig, wallet);
-
-    const readModel: OnchainWalletStatusReadModel = {
-      storeId: store.btcpayStoreId,
-      currency: 'BTC',
-      paymentMethodId: resolvedPaymentMethodId,
-      enabled: true,
-      connected: true,
-      missingLocalMeta: !wallet,
-      metadata,
-      addressPreview: preview
-    };
-
-    if (limitedView) {
-      throw new ForbiddenException(readModel);
-    }
-
-    return readModel;
   }
 
   async update(
@@ -215,74 +202,6 @@ export class OnchainWalletsService {
         throw new BadGatewayException('Upstream error');
       }
       throw error;
-    }
-  }
-
-  private normalizeLocalWallet(
-    wallet: ManagedStoreWalletEntity | null
-  ): OnchainWalletStatusReadModel['metadata'] {
-    if (!wallet) {
-      return {
-        accountKeyPath: null,
-        label: null,
-        hasDerivationScheme: false,
-        hasMasterFingerprint: false
-      };
-    }
-
-    return {
-      accountKeyPath: this.sanitizeString(wallet.accountKeyPath),
-      label: this.sanitizeString(wallet.label),
-      hasDerivationScheme: Boolean(this.sanitizeString(wallet.derivationScheme)),
-      hasMasterFingerprint: Boolean(this.sanitizeString(wallet.masterFingerprint))
-    };
-  }
-
-  private buildMetadata(
-    remoteConfig: OnchainPaymentMethodConfig | null,
-    wallet: ManagedStoreWalletEntity | null
-  ): OnchainWalletStatusReadModel['metadata'] {
-    const local = this.normalizeLocalWallet(wallet);
-    const config = remoteConfig?.config ?? null;
-
-    const record = config && typeof config === 'object' ? (config as Record<string, unknown>) : null;
-    const remoteLabel = record ? this.sanitizeString(record.label) : null;
-    const remoteAccountKeyPath = record ? this.sanitizeString(record.accountKeyPath) : null;
-    const remoteDerivationScheme = record ? this.sanitizeString(record.derivationScheme) : null;
-    const remoteRootFingerprint = record ? this.sanitizeString(record.rootFingerprint) : null;
-    const remoteMasterFingerprint =
-      remoteRootFingerprint ?? (record ? this.sanitizeString(record.masterFingerprint) : null);
-
-    return {
-      label: remoteLabel ?? local.label,
-      accountKeyPath: remoteAccountKeyPath ?? local.accountKeyPath,
-      hasDerivationScheme: Boolean(remoteDerivationScheme) || local.hasDerivationScheme,
-      hasMasterFingerprint: Boolean(remoteMasterFingerprint) || local.hasMasterFingerprint
-    };
-  }
-
-  private async safePreviewAddresses(
-    store: ManagedStoreEntity
-  ): Promise<OnchainPreviewResponse['addresses']> {
-    try {
-      const preview = await this.paymentMethods.previewOnchain(
-        store.btcpayStoreId,
-        'BTC',
-        { amount: DEFAULT_PREVIEW_ADDRESS_COUNT },
-        { store }
-      );
-      return Array.isArray(preview.addresses) ? preview.addresses.slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT) : [];
-    } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error;
-      }
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      if (error instanceof ForbiddenException) {
-        return [];
-      }
-      return [];
     }
   }
 

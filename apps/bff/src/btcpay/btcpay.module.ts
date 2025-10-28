@@ -10,6 +10,7 @@ import { BtcpayPaymentMethodsService } from './btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { BtcpayKeysService } from './btcpay.keys.service';
 import { BtcpayServerInfoService } from './btcpay.server-info.service';
+import { BtcpayWalletService } from './btcpay.wallets.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([StoreEntity, ManagedStoreEntity]), SecurityModule],
@@ -17,6 +18,7 @@ import { BtcpayServerInfoService } from './btcpay.server-info.service';
     BtcpayService,
     BtcpayProvisioningService,
     BtcpayPaymentMethodsService,
+    BtcpayWalletService,
     BtcpayKeysService,
     BtcpayServerInfoService,
     {
@@ -63,6 +65,7 @@ import { BtcpayServerInfoService } from './btcpay.server-info.service';
     BtcpayService,
     BtcpayProvisioningService,
     BtcpayPaymentMethodsService,
+    BtcpayWalletService,
     BtcpayKeysService,
     BtcpayServerInfoService
   ]

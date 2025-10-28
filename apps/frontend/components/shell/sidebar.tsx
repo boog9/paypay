@@ -31,8 +31,23 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
     { label: "Settings", href: baseStorePath ? `${baseStorePath}/settings` : null },
   ];
 
-  const walletNav = [
-    { label: "Bitcoin", href: baseStorePath ? `${baseStorePath}/wallets/btc` : null },
+  const walletNav: {
+    label: string;
+    href: string | null;
+    baseHref: string | null;
+    children: { label: string; href: string | null }[];
+  }[] = [
+    {
+      label: "Bitcoin",
+      href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null,
+      baseHref: baseStorePath ? `${baseStorePath}/wallets/btc` : null,
+      children: [
+        { label: "Transactions", href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null },
+        { label: "Send", href: baseStorePath ? `${baseStorePath}/wallets/btc/send` : null },
+        { label: "Receive", href: baseStorePath ? `${baseStorePath}/wallets/btc/receive` : null },
+        { label: "Settings", href: baseStorePath ? `${baseStorePath}/wallets/btc/settings` : null },
+      ],
+    },
   ];
 
   return (
@@ -68,17 +83,33 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
         </div>
         <div className="flex flex-col gap-2">
           <span className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Wallets</span>
-          <div className="flex flex-col gap-1">
-            {walletNav.map((item) => (
-              <NavItem
-                key={item.label}
-                href={item.href}
-                isActive={Boolean(item.href && pathname.startsWith(item.href))}
-                onNavigate={onNavigate}
-              >
-                {item.label}
-              </NavItem>
-            ))}
+          <div className="flex flex-col gap-2">
+            {walletNav.map((item) => {
+              const parentIsActive = Boolean(
+                (item.baseHref ?? item.href) && pathname.startsWith(item.baseHref ?? item.href ?? "")
+              );
+
+              return (
+                <div key={item.label} className="flex flex-col gap-1">
+                  <NavItem href={item.href} isActive={parentIsActive} onNavigate={onNavigate}>
+                    {item.label}
+                  </NavItem>
+                  <div className="ml-3 flex flex-col gap-1 border-l border-border/40 pl-3">
+                    {item.children.map((child) => (
+                      <NavItem
+                        key={child.label}
+                        href={child.href}
+                        isActive={Boolean(child.href && pathname.startsWith(child.href))}
+                        onNavigate={onNavigate}
+                        className="text-xs"
+                      >
+                        {child.label}
+                      </NavItem>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="flex flex-col gap-2 text-muted-foreground">
@@ -98,25 +129,27 @@ type NavItemProps = {
   isActive: boolean;
   onNavigate?: () => void;
   children: ReactNode;
+  className?: string;
 };
 
-function NavItem({ href, isActive, onNavigate, children }: NavItemProps) {
-  const className = cn(
+function NavItem({ href, isActive, onNavigate, children, className }: NavItemProps) {
+  const composedClassName = cn(
     "flex items-center rounded-md px-2 py-2 text-sm font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     isActive ? "bg-muted text-foreground" : "text-muted-foreground",
     !href && "cursor-not-allowed opacity-50 hover:bg-transparent",
+    className,
   );
 
   if (!href) {
     return (
-      <span className={className} aria-disabled>
+      <span className={composedClassName} aria-disabled>
         {children}
       </span>
     );
   }
 
   return (
-    <Link href={href} onClick={onNavigate} className={className}>
+    <Link href={href} onClick={onNavigate} className={composedClassName}>
       {children}
     </Link>
   );

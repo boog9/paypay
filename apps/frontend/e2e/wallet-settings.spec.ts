@@ -16,7 +16,7 @@ test.describe("Wallet settings page", () => {
     };
 
     let rscTriggered = false;
-    await page.route(`**/stores/${storeId}/wallets/btc?_rsc=**`, async (route) => {
+    await page.route(`**/stores/${storeId}/wallets/btc/settings?_rsc=**`, async (route) => {
       rscTriggered = true;
       await route.fulfill({ status: 404, body: "Unexpected RSC fetch" });
     });
@@ -30,7 +30,7 @@ test.describe("Wallet settings page", () => {
       });
     });
 
-    await page.goto(`/stores/${storeId}/wallets/btc?connected=1`);
+    await page.goto(`/stores/${storeId}/wallets/btc/settings?connected=1`);
 
     await expect(page.getByText("Bitcoin wallet settings")).toBeVisible();
     await expect(page.getByText("The wallet was connected successfully")).toBeVisible();
@@ -55,7 +55,7 @@ test.describe("Wallet settings page", () => {
     };
 
     let rscTriggered = false;
-    await page.route(`**/stores/${storeId}/wallets/btc?_rsc=**`, async (route) => {
+    await page.route(`**/stores/${storeId}/wallets/btc/settings?_rsc=**`, async (route) => {
       rscTriggered = true;
       await route.fulfill({ status: 404, body: "Unexpected RSC fetch" });
     });
@@ -68,7 +68,7 @@ test.describe("Wallet settings page", () => {
       });
     });
 
-    await page.goto(`/stores/${storeId}/wallets/btc`);
+    await page.goto(`/stores/${storeId}/wallets/btc/settings`);
 
     await expect(
       page.getByText("Insufficient permissions to view this wallet. Contact the store administrator to request access.")

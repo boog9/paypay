@@ -128,7 +128,10 @@ export class BtcpayWalletService {
       const response = await context.http.get(
         this.buildUtxoPath(context.store.btcpayStoreId, cryptoCode)
       );
-      return Array.isArray(response.data) ? response.data : [];
+      if (this.isUnknownArray(response.data)) {
+        return response.data;
+      }
+      return [];
     } catch (error) {
       this.handleBtcpayError(error);
     } finally {
@@ -260,24 +263,23 @@ export class BtcpayWalletService {
   }
 
   private extractTransactionsArray(record: Record<string, unknown>): unknown[] {
-    const candidates: unknown[] = [];
-    if (Array.isArray(record.items)) {
+    const candidates: unknown[][] = [];
+    if (this.isUnknownArray(record.items)) {
       candidates.push(record.items);
     }
-    if (Array.isArray(record.transactions)) {
+    if (this.isUnknownArray(record.transactions)) {
       candidates.push(record.transactions);
     }
-    if (candidates.length === 0 && Array.isArray(record.data)) {
+    if (candidates.length === 0 && this.isUnknownArray(record.data)) {
       candidates.push(record.data);
     }
 
-    for (const candidate of candidates) {
-      if (Array.isArray(candidate)) {
-        return candidate;
-      }
-    }
+    const candidate = candidates.find((entry) => entry.length >= 0);
+    return candidate ?? [];
+  }
 
-    return [];
+  private isUnknownArray(value: unknown): value is unknown[] {
+    return Array.isArray(value);
   }
 
   private extractTotal(value: unknown): number | null {

@@ -7,7 +7,7 @@ import { Button } from '../../../components/ui/button';
 import { AUTH_LOGIN, AUTH_ME, apiFetch, isApiError, isApiNoContent } from '../../../lib/api';
 import { getCsrfToken } from '../../../lib/auth';
 import { resolveNextDestination } from '../../../lib/navigation';
-import { credentialsSchema, type AuthFormState } from '../../(auth)/client-actions';
+import { credentialsSchema, type AuthFormState } from '../client-actions';
 
 const initialState: AuthFormState = { status: 'idle' };
 
@@ -99,7 +99,7 @@ export function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
+    <form method="post" onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className="text-sm font-medium">
           Email
@@ -109,7 +109,7 @@ export function LoginForm() {
           name="email"
           type="email"
           required
-          autoComplete="email"
+          autoComplete="username"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-invalid={state.status === 'error' && Boolean(state.fieldErrors?.email)}
           aria-describedby={state.fieldErrors?.email ? 'login-email-error' : undefined}

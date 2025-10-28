@@ -12,19 +12,7 @@ test.describe("Wallet settings page", () => {
       currency: "BTC",
       paymentMethodId: "BTC-CHAIN",
       enabled: true,
-      connected: true,
-      missingLocalMeta: false,
-      metadata: {
-        label: "Desk wallet",
-        accountKeyPath: "m/84'/0'/0'",
-        hasDerivationScheme: true,
-        hasMasterFingerprint: true,
-      },
-      addressPreview: Array.from({ length: 3 }, (_, index) => ({
-        address: `bcrt1qdesk${index}`,
-        keyPath: `0/${index}`,
-        index,
-      })),
+      previewAddresses: Array.from({ length: 3 }, (_, index) => `bcrt1qdesk${index}`),
     };
 
     let rscTriggered = false;
@@ -46,9 +34,9 @@ test.describe("Wallet settings page", () => {
 
     await expect(page.getByText("Bitcoin wallet settings")).toBeVisible();
     await expect(page.getByText("The wallet was connected successfully")).toBeVisible();
-    await expect(page.getByText("Stored securely on BTCPay")).toBeVisible();
-    await expect(page.getByText(statusResponse.addressPreview[0].address)).toBeVisible();
-    await expect(page.getByText("Missing/expired session"))
+    await expect(page.getByText("Payment method ID")).toBeVisible();
+    await expect(page.getByText(statusResponse.previewAddresses[0])).toBeVisible();
+    await expect(page.getByText("Your session has expired"))
       .toHaveCount(0);
 
     expect(rscTriggered).toBe(false);
@@ -63,15 +51,7 @@ test.describe("Wallet settings page", () => {
       currency: "BTC",
       paymentMethodId: "BTC-CHAIN",
       enabled: true,
-      connected: true,
-      missingLocalMeta: false,
-      metadata: {
-        label: "Desk wallet",
-        accountKeyPath: "m/84'/0'/0'",
-        hasDerivationScheme: true,
-        hasMasterFingerprint: true,
-      },
-      addressPreview: [],
+      previewAddresses: [],
     };
 
     let rscTriggered = false;
@@ -90,12 +70,11 @@ test.describe("Wallet settings page", () => {
 
     await page.goto(`/stores/${storeId}/wallets/btc`);
 
-    await expect(page.getByText("The wallet was connected successfully")).toBeVisible();
     await expect(
-      page.getByText("Wallet connected. Detailed configuration is hidden because BTCPay returned limited permissions.")
+      page.getByText("Insufficient permissions to view this wallet. Contact the store administrator to request access.")
     ).toBeVisible();
-    await expect(page.getByText("Address preview is not available.")).toBeVisible();
-    await expect(page.getByText("Missing/expired session")).toHaveCount(0);
+    await expect(page.getByText("Address preview is not available for this wallet.")).toBeVisible();
+    await expect(page.getByText("Your session has expired")).toHaveCount(0);
 
     expect(rscTriggered).toBe(false);
   });

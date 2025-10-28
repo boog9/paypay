@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../security/csrf.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
@@ -30,8 +30,15 @@ export class OnchainWalletsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  getConfig(@ReqUser() user: RequestUser, @Param('storeId') storeId: string) {
-    return this.walletsService.getConfig({ id: user.id ?? null, email: user.email ?? null }, storeId);
+  getSummary(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Query('includeConfig') includeConfig?: string
+  ) {
+    if (typeof includeConfig === 'string' && includeConfig.trim().toLowerCase() === 'true') {
+      throw new ForbiddenException('Detailed configuration is not available with this API key.');
+    }
+    return this.walletsService.getSummary({ id: user.id ?? null, email: user.email ?? null }, storeId);
   }
 
   @Put()

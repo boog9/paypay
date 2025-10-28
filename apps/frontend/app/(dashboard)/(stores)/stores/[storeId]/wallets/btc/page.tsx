@@ -11,28 +11,12 @@ export const metadata: Metadata = {
   title: "BTC wallet settings",
 };
 
-type WalletMetadata = {
-  label: string | null;
-  accountKeyPath: string | null;
-  hasDerivationScheme: boolean;
-  hasMasterFingerprint: boolean;
-};
-
-type WalletAddressPreview = {
-  address: string;
-  keyPath: string | null;
-  index: number | null;
-};
-
-type WalletStatus = {
+type WalletSummary = {
   storeId: string;
-  currency: string;
   paymentMethodId: string;
   enabled: boolean;
-  connected: boolean;
-  missingLocalMeta: boolean;
-  metadata: WalletMetadata;
-  addressPreview: WalletAddressPreview[];
+  currency: string;
+  previewAddresses: string[];
 };
 
 type SettingsPageProps = {
@@ -40,7 +24,7 @@ type SettingsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function normalizeOptionalString(value: unknown): string | null {
+function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -48,77 +32,52 @@ function normalizeOptionalString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
+function normalizePreviewAddressesPayload(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const addresses: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const normalized = normalizeNonEmptyString(entry);
+    if (!normalized) {
+      continue;
+    }
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    addresses.push(normalized);
+    if (addresses.length >= 10) {
+      break;
+    }
+  }
+  return addresses;
 }
 
-function normalizeAddressPreviewPayload(value: unknown): WalletAddressPreview | null {
+function parseWalletSummaryPayload(value: unknown): WalletSummary | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
-  const record = value as Record<string, unknown>;
-  const address = normalizeOptionalString(record.address);
-  if (!address) {
-    return null;
-  }
-  const keyPath = normalizeOptionalString(record.keyPath);
-  const indexValue = record.index;
-  const index = typeof indexValue === "number" && Number.isFinite(indexValue)
-    ? Math.trunc(indexValue)
-    : null;
-
-  return { address, keyPath, index } satisfies WalletAddressPreview;
-}
-
-function normalizeWalletStatusPayload(value: unknown): WalletStatus | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
 
   const record = value as Record<string, unknown>;
-  const storeId = normalizeOptionalString(record.storeId);
-  const currency = normalizeOptionalString(record.currency);
-  const paymentMethodId = normalizeOptionalString(record.paymentMethodId);
-  if (!storeId || !currency || !paymentMethodId) {
+  const storeId = normalizeNonEmptyString(record.storeId);
+  const paymentMethodId = normalizeNonEmptyString(record.paymentMethodId);
+  const currency = normalizeNonEmptyString(record.currency);
+  if (!storeId || !paymentMethodId || !currency) {
     return null;
   }
 
-  const enabled = normalizeBoolean(record.enabled, false);
-  const connected = normalizeBoolean(record.connected, enabled);
-  const missingLocalMeta = normalizeBoolean(record.missingLocalMeta, false);
-
-  const metadataRecord = record.metadata;
-  let metadata: WalletMetadata = {
-    label: null,
-    accountKeyPath: null,
-    hasDerivationScheme: false,
-    hasMasterFingerprint: false,
-  };
-  if (metadataRecord && typeof metadataRecord === "object" && !Array.isArray(metadataRecord)) {
-    const metadataRaw = metadataRecord as Record<string, unknown>;
-    metadata = {
-      label: normalizeOptionalString(metadataRaw.label),
-      accountKeyPath: normalizeOptionalString(metadataRaw.accountKeyPath),
-      hasDerivationScheme: normalizeBoolean(metadataRaw.hasDerivationScheme, false),
-      hasMasterFingerprint: normalizeBoolean(metadataRaw.hasMasterFingerprint, false),
-    } satisfies WalletMetadata;
-  }
-
-  const addressesRaw = Array.isArray(record.addressPreview) ? record.addressPreview : [];
-  const addressPreview = addressesRaw
-    .map((entry) => normalizeAddressPreviewPayload(entry))
-    .filter((entry): entry is WalletAddressPreview => entry !== null);
+  const enabled = typeof record.enabled === "boolean" ? record.enabled : false;
+  const previewAddresses = normalizePreviewAddressesPayload(record.previewAddresses);
 
   return {
     storeId,
-    currency,
     paymentMethodId,
     enabled,
-    connected,
-    missingLocalMeta,
-    metadata,
-    addressPreview,
-  } satisfies WalletStatus;
+    currency,
+    previewAddresses,
+  } satisfies WalletSummary;
 }
 
 async function readResponseBody(response: Response): Promise<string | null> {
@@ -146,7 +105,7 @@ function parseJsonPayload(raw: string | null): unknown {
   }
 }
 
-async function requestWalletStatus(storeId: string): Promise<Response | null> {
+async function requestWalletSummary(storeId: string): Promise<Response | null> {
   try {
     return await bffFetch(`/api/stores/${storeId}/wallets/btc`);
   } catch {
@@ -163,10 +122,10 @@ async function attemptSessionRefresh(): Promise<boolean> {
   }
 }
 
-async function loadWalletStatus(
+async function loadWalletSummary(
   storeId: string
-): Promise<{ status: number; data: WalletStatus | null; attemptedRefresh: boolean }> {
-  let response = await requestWalletStatus(storeId);
+): Promise<{ status: number; data: WalletSummary | null; attemptedRefresh: boolean }> {
+  let response = await requestWalletSummary(storeId);
   if (!response) {
     return { status: 0, data: null, attemptedRefresh: false };
   }
@@ -179,7 +138,7 @@ async function loadWalletStatus(
     if (!refreshed) {
       return { status: 401, data: null, attemptedRefresh };
     }
-    response = await requestWalletStatus(storeId);
+    response = await requestWalletSummary(storeId);
     if (!response) {
       return { status: 0, data: null, attemptedRefresh };
     }
@@ -189,19 +148,21 @@ async function loadWalletStatus(
   const rawBody = await readResponseBody(response);
   const parsed = parseJsonPayload(rawBody);
 
-  return { status, data: normalizeWalletStatusPayload(parsed), attemptedRefresh };
+  return { status, data: parseWalletSummaryPayload(parsed), attemptedRefresh };
 }
 
 export default async function WalletSettingsPage({ params, searchParams: _searchParams }: SettingsPageProps) {
   const { storeId } = await params;
-  if (_searchParams) {
-    void (await _searchParams);
-  }
-  const { data: wallet, status, attemptedRefresh } = await loadWalletStatus(storeId);
+  const search = _searchParams ? await _searchParams : undefined;
+  const { data: summary, status, attemptedRefresh } = await loadWalletSummary(storeId);
 
   if (status === 401 && attemptedRefresh) {
     redirect("/sign-in?reason=session-expired");
   }
+
+  const connectedFlag = Array.isArray(search?.connected) ? search?.connected[0] : search?.connected;
+  const normalizedConnected = typeof connectedFlag === "string" ? connectedFlag.trim().toLowerCase() : "";
+  const wizardConnected = ["1", "true", "yes"].includes(normalizedConnected);
 
   const isUnauthorized = status === 401 || status === 419;
   const isForbidden = status === 403;
@@ -213,17 +174,17 @@ export default async function WalletSettingsPage({ params, searchParams: _search
     status !== 403 &&
     status !== 404 &&
     status !== 419;
-  const effectiveWallet: WalletStatus | null = status === 200 && wallet ? wallet : null;
-  const missingLocalMeta = effectiveWallet?.missingLocalMeta ?? false;
-  const hasPreview = (effectiveWallet?.addressPreview.length ?? 0) > 0;
 
-  const showSuccessAlert = status === 200 && Boolean(effectiveWallet?.connected);
+  const effectiveSummary: WalletSummary | null = status === 200 && summary ? summary : null;
+  const previewAddresses = effectiveSummary?.previewAddresses ?? [];
+
+  const showSuccessAlert = wizardConnected && Boolean(effectiveSummary?.enabled);
 
   const statusMessage = (() => {
     if (isUnauthorized) {
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Сесія прострочена. Увійдіть знову.
+          Your session has expired. Please sign in again.
         </div>
       );
     }
@@ -239,7 +200,7 @@ export default async function WalletSettingsPage({ params, searchParams: _search
     if (isForbidden) {
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Недостатньо прав для магазину.
+          Insufficient permissions to view this wallet. Contact the store administrator to request access.
         </div>
       );
     }
@@ -247,7 +208,7 @@ export default async function WalletSettingsPage({ params, searchParams: _search
     if (fetchFailed) {
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Unable to load wallet configuration. Run the wallet wizard again.
+          Unable to load wallet summary. Try again later or rerun the wallet wizard.
         </div>
       );
     }
@@ -260,7 +221,7 @@ export default async function WalletSettingsPage({ params, searchParams: _search
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold text-foreground">Bitcoin wallet settings</h1>
         <p className="text-sm text-muted-foreground">
-          Review the on-chain configuration sourced from BTCPay Server. Extended public keys remain hidden for security.
+          Review the on-chain configuration sourced from BTCPay Server. Sensitive credentials such as extended public keys are never exposed in the dashboard.
         </p>
       </header>
 
@@ -285,90 +246,55 @@ export default async function WalletSettingsPage({ params, searchParams: _search
         <CardHeader>
           <CardTitle className="text-lg">On-chain BTC payment method</CardTitle>
           <CardDescription>
-            These values are read-only. Updates must be made through the BTCPay UI or the wallet wizard. Sensitive fields
-            such as extended public keys are never displayed in this dashboard.
+            The summary below is read-only and omits extended public keys and other sensitive fields by design.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {effectiveWallet ? (
+          {effectiveSummary ? (
             <>
-              {missingLocalMeta && !isForbidden && (
-                <div className="mb-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-900">
-                  Local wallet metadata is missing. Run the wallet wizard again to resync this configuration.
-                </div>
-              )}
-
               <dl className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Payment method ID
                   </dt>
-                  <dd className="text-sm text-foreground">{effectiveWallet.paymentMethodId}</dd>
+                  <dd className="text-sm text-foreground">{effectiveSummary.paymentMethodId}</dd>
                 </div>
 
                 <div className="space-y-1">
                   <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</dt>
                   <dd>
-                    <Badge variant={effectiveWallet.enabled ? "default" : "secondary"}>
-                      {effectiveWallet.enabled ? "Enabled" : "Disabled"}
+                    <Badge variant={effectiveSummary.enabled ? "default" : "secondary"}>
+                      {effectiveSummary.enabled ? "Enabled" : "Disabled"}
                     </Badge>
                   </dd>
                 </div>
 
                 <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Label</dt>
-                  <dd className="text-sm text-foreground">{effectiveWallet.metadata.label ?? "Not set"}</dd>
-                </div>
-
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account key path</dt>
-                  <dd className="text-sm font-mono text-foreground">
-                    {effectiveWallet.metadata.accountKeyPath ?? "Not provided"}
-                  </dd>
-                </div>
-
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Extended public key
-                  </dt>
-                  <dd className="text-sm text-foreground">
-                    {effectiveWallet.metadata.hasDerivationScheme ? "Stored securely on BTCPay" : "Not available"}
-                  </dd>
-                </div>
-
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Master fingerprint
-                  </dt>
-                  <dd className="text-sm text-foreground">
-                    {effectiveWallet.metadata.hasMasterFingerprint ? "Stored securely on BTCPay" : "Not available"}
-                  </dd>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Currency</dt>
+                  <dd className="text-sm text-foreground">{effectiveSummary.currency}</dd>
                 </div>
               </dl>
 
               <div className="mt-6 space-y-2">
                 <h2 className="text-sm font-semibold text-foreground">Recent deposit addresses</h2>
-                {hasPreview ? (
+                {previewAddresses.length > 0 ? (
                   <ol className="space-y-2">
-                    {effectiveWallet.addressPreview.map((item, index) => (
-                      <li key={`${item.address}-${index}`} className="rounded-md border border-muted bg-muted/40 px-3 py-2">
-                        <p className="text-sm font-mono text-foreground">{item.address}</p>
-                        {item.keyPath && (
-                          <p className="text-xs text-muted-foreground">Derivation path: {item.keyPath}</p>
-                        )}
+                    {previewAddresses.map((address, index) => (
+                      <li key={`${address}-${index}`} className="rounded-md border border-muted bg-muted/40 px-3 py-2">
+                        <p className="text-sm font-mono text-foreground">{address}</p>
                       </li>
                     ))}
                   </ol>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Address preview is not available. Run the wallet wizard again if you suspect the derivation is outdated.
+                    Address preview is not available for this wallet. Rerun the wallet wizard if you recently rotated keys.
                   </p>
                 )}
               </div>
             </>
           ) : !statusMessage ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              Unable to load wallet configuration.
+              Unable to load wallet summary.
             </div>
           ) : null}
         </CardContent>

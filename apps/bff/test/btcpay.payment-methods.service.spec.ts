@@ -1,4 +1,4 @@
-import { HttpException, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, HttpException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
@@ -590,4 +590,102 @@ describe('BtcpayPaymentMethodsService', () => {
       )
     ).rejects.toBeInstanceOf(BTCPayUpstreamError);
   });
+
+  it('rejects includeConfig requests without an override key', async () => {
+    const service = buildService();
+
+    await expect(
+      service.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(mockedAxios.create).not.toHaveBeenCalled();
+  });
+
+  it('retrieves an on-chain wallet summary with preview fallback', async () => {
+    const getMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          paymentMethodId: 'btc-chain',
+          enabled: true,
+          currency: 'btc'
+        }
+      })
+      .mockResolvedValueOnce({
+        data: {
+          addresses: [
+            { address: 'bcrt1qa' },
+            { address: 'bcrt1qb' },
+            { address: '  ' }
+          ]
+        }
+      });
+
+    mockedAxios.create.mockReturnValue(
+      mockAxiosInstance({ get: getMock })
+    );
+
+    const service = buildService();
+    const result = await service.getOnchainWalletSummary(store.btcpayStoreId, store.btcpayHost, { store });
+
+    expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/store-123/payment-methods/BTC-CHAIN');
+    expect(getMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      { params: { count: 10 } }
+    );
+    expect(result).toEqual({
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      currency: 'BTC',
+      previewAddresses: ['bcrt1qa', 'bcrt1qb']
+    });
+  });
+
+  it('requires an elevated API key to fetch internal configuration', async () => {
+    mockedAxios.create.mockReturnValue(
+      mockAxiosInstance({
+        get: jest.fn().mockResolvedValue({
+          data: {
+            paymentMethodId: 'BTC-CHAIN',
+            enabled: true,
+            config: {
+              derivationScheme: 'xpub123',
+              accountKeyPath: "m/84'/0'/0'",
+              masterFingerprint: 'abcdef12'
+            }
+          }
+        })
+      })
+    );
+
+    const service = buildService();
+    const result = await service.getOnchainWalletConfigInternal(store.btcpayStoreId, store.btcpayHost, {
+      store,
+      apiKeyOverride: 'override-key'
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        storeId: store.btcpayStoreId,
+        paymentMethodId: 'BTC-CHAIN',
+        currency: 'BTC',
+        enabled: true,
+        config: expect.objectContaining({
+          derivationScheme: 'xpub123',
+          accountKeyPath: "84'/0'/0'",
+          masterFingerprint: 'abcdef12'
+        })
+      })
+    );
+  });
+
+  it('throws when internal configuration is requested without an override key', async () => {
+    const service = buildService();
+
+    await expect(
+      service.getOnchainWalletConfigInternal(store.btcpayStoreId, store.btcpayHost, { store })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
 });

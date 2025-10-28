@@ -64,14 +64,40 @@ curl -i -b /tmp/pp_api.txt \
 
 These requests mirror what the frontend does with `fetch(..., { credentials: 'include' })`. The BFF must reply with
 `Access-Control-Allow-Credentials: true` and an explicit `Access-Control-Allow-Origin` value (never `*`) so browsers can send the
-host-only cookies across origins. See https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials for
+shared-domain session cookies across origins. See https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials for
 the underlying CORS rules.
+
+### Cookies & CORS
+
+Production deployments **must** advertise both merchant-facing and API-facing hosts so the BFF can derive a shared parent domain for
+cookies. Set the following variables in `infra/env/.env`:
+
+- `PAYPAY_DOMAIN=paypay.iddqd.in`
+- `PAYPAY_API_DOMAIN=api.paypay.iddqd.in`
+
+When both hosts share a suffix, the BFF issues `pp.access-token`, `pp.refresh-token`, and `pp.csrf.secret` cookies with
+`Domain=.paypay.iddqd.in`, `Secure`, `HttpOnly`, `Path=/`, and `SameSite=Lax` attributes so SSR calls from `https://paypay.iddqd.in` can forward the
+session to `https://api.paypay.iddqd.in`. Missing or mismatched domains now abort startup in production with a clear error instructing you to
+fix the variables above. Local development (no shared suffix) continues to log a warning and omits the `Domain` attribute.
+
+When you rely on `fetch(..., { credentials: 'include' })`, every API response must include `Access-Control-Allow-Credentials: true` together
+with the exact `Access-Control-Allow-Origin: https://paypay.iddqd.in` header. This pairing lets browsers send cookies cross-origin without
+relaxing the policy to `*` or leaking tokens to untrusted origins. The smoke script at `deploy/docker/examples/auth-smoke.sh` demonstrates the
+expected headers for the CSRF, login, refresh, and session endpoints.
+
+### Security considerations
+
+Shared cookie domains widen the surface area of a session. Production defaults to the scoped suffix `.paypay.iddqd.in`, which keeps session
+cookies away from unrelated `*.iddqd.in` tenants while still covering `paypay.iddqd.in` and `api.paypay.iddqd.in`. If infrastructure forces you to
+broaden the scope (e.g. to `.iddqd.in` for legacy services), reassess the trust boundary and update the smoke script plus any CORS allow-lists
+accordingly. Combine the narrower suffix with the existing `Secure`, `HttpOnly`, and `SameSite=Lax` attributes to reduce exposure to XSS and
+cross-site attacks.
 
 ## Auth flow (CSRF + Cookie)
 The BFF exposes a double-submit CSRF flow so browsers and CLI clients can safely reuse the same cookie jar across requests:
 
-1. **Fetch a CSRF token:** `GET /api/auth/csrf` responds with `204 No Content`, sets the host-only cookie `__Host-pp.csrf.secret`, and exposes the derived token exclusively through the `X-Csrf-Token` response header.
-2. **Authenticate:** send the token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. Successful authentication responds with `204 No Content` and sets the `__Host-pp.access-token` and `__Host-pp.refresh-token` cookies (both `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`).
+1. **Fetch a CSRF token:** `GET /api/auth/csrf` responds with `204 No Content`, sets the session-scoped cookie `pp.csrf.secret` (HttpOnly, Secure, SameSite=Lax, Domain=`.paypay.iddqd.in`, Path=`/`), and exposes the derived token exclusively through the `X-Csrf-Token` response header.
+2. **Authenticate:** send the token via the `X-CSRF-Token` header along with the same cookie jar to `POST /api/auth/login`. Successful authentication responds with `204 No Content` and sets the `pp.access-token` and `pp.refresh-token` cookies (both `HttpOnly`, `Secure`, `SameSite=Lax`, Domain=`.paypay.iddqd.in`, `Path=/`).
 3. **Session usage:** subsequent calls such as `GET /api/auth/me` rely solely on those cookies (no Bearer header needed). If the access token expires, call `POST /api/auth/refresh` with a fresh CSRF token; the endpoint responds with `204 No Content` after rotating tokens and verifies both the cookie-stored refresh token and the header. Missing or invalid refresh cookies produce a `401` (`Refresh token is required.` / `Refresh token is no longer valid.`), while absent headers trigger a `403 invalid csrf token`.
 4. **Logout:** `POST /api/auth/logout` responds with `204 No Content`, clears all auth cookies and requires a valid CSRF token to prevent cross-site logouts.
 

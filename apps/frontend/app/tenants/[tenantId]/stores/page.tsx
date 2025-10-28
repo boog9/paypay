@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
-import { fetchFromBff } from "../../../../lib/server-api";
+import { bffFetch } from "../../../../lib/bff-fetch";
 import { Button } from "../../../../components/ui/button";
 import { StoreCard } from "./store-card";
 
@@ -18,7 +18,7 @@ interface TenantStoreSummary {
 }
 
 async function fetchStores(tenantId: string): Promise<TenantStoreSummary[]> {
-  const response = await fetchFromBff(`/tenants/${tenantId}/stores`);
+  const response = await bffFetch(`/api/tenants/${tenantId}/stores`);
   if (!response.ok) {
     throw new Error(`Failed to load stores (${response.status}).`);
   }

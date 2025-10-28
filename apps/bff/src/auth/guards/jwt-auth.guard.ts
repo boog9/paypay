@@ -1,11 +1,10 @@
-import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from '../auth.service';
 import { resolveCookieNames } from '../cookie-names';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  private readonly logger = new Logger(JwtAuthGuard.name, { timestamp: false });
   private readonly cookieNames = resolveCookieNames();
 
   constructor(private readonly authService: AuthService) {}
@@ -17,8 +16,6 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const cookies = this.extractCookies(request);
-    const cookieKeys = Object.keys(cookies);
-    this.logger.debug(`cookie keys: ${cookieKeys.join(',')}`);
 
     const token = this.resolveAccessToken(cookies);
     if (!token) {
@@ -38,7 +35,13 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   private resolveAccessToken(cookies: Record<string, unknown>): string | undefined {
-    const rawToken = cookies[this.cookieNames.access];
-    return typeof rawToken === 'string' && rawToken.trim().length > 0 ? rawToken : undefined;
+    const names = [this.cookieNames.access, ...this.cookieNames.legacyAccess];
+    for (const name of names) {
+      const raw = cookies[name];
+      if (typeof raw === 'string' && raw.trim().length > 0) {
+        return raw;
+      }
+    }
+    return undefined;
   }
 }

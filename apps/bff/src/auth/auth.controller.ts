@@ -178,23 +178,34 @@ export class AuthController {
   }
 
   private resolveRefreshToken(req: Request): string | undefined {
-    const cookies: unknown = req.cookies;
-    if (!cookies || typeof cookies !== 'object') {
-      return undefined;
-    }
-    const allCookies = cookies as Record<string, unknown>;
-    const rawToken = allCookies[this.cookieNames.refresh];
-    return typeof rawToken === 'string' ? rawToken : undefined;
+    const cookies = this.extractCookies(req);
+    return this.readCookieValue(cookies, [this.cookieNames.refresh, ...this.cookieNames.legacyRefresh]);
   }
 
   private resolveAccessToken(req: Request): string | undefined {
-    const cookies: unknown = req.cookies;
-    if (!cookies || typeof cookies !== 'object') {
-      return undefined;
+    const cookies = this.extractCookies(req);
+    return this.readCookieValue(cookies, [this.cookieNames.access, ...this.cookieNames.legacyAccess]);
+  }
+
+  private extractCookies(req: Request): Record<string, unknown> {
+    const bag: unknown = req.cookies;
+    if (!bag || typeof bag !== 'object') {
+      return {};
     }
-    const allCookies = cookies as Record<string, unknown>;
-    const rawToken = allCookies[this.cookieNames.access];
-    return typeof rawToken === 'string' ? rawToken : undefined;
+    return bag as Record<string, unknown>;
+  }
+
+  private readCookieValue(
+    cookies: Record<string, unknown>,
+    names: readonly string[]
+  ): string | undefined {
+    for (const name of names) {
+      const raw = cookies[name];
+      if (typeof raw === 'string' && raw.trim().length > 0) {
+        return raw;
+      }
+    }
+    return undefined;
   }
 
   private issueCsrfToken(req: Request, res: Response): void {

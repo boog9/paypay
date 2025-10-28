@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { CookieOptions, Request, Response } from 'express';
 import { resolveCookieNames } from '../auth/cookie-names';
+import { sharedCookieDomain } from '../auth/cookies.util';
 
 @Injectable()
 export class CsrfService {
@@ -13,6 +14,14 @@ export class CsrfService {
     secure: true,
     sameSite: 'lax',
     path: '/',
+    ...(sharedCookieDomain ? { domain: sharedCookieDomain } : {}),
+  };
+  private readonly legacyCookieOptions: CookieOptions = {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
   };
 
   constructor(private readonly configService: ConfigService) {
@@ -51,11 +60,14 @@ export class CsrfService {
       return undefined;
     }
     const bag = cookies as Record<string, unknown>;
-    const rawSecret = bag[this.cookieNames.csrfSecret];
-    if (typeof rawSecret !== 'string' || !rawSecret) {
-      return undefined;
+    const names = [this.cookieNames.csrfSecret, ...this.cookieNames.legacyCsrfSecret];
+    for (const name of names) {
+      const rawSecret = bag[name];
+      if (typeof rawSecret === 'string' && rawSecret) {
+        return rawSecret;
+      }
     }
-    return rawSecret;
+    return undefined;
   }
 
   private getTokenFromHeader(req: Request): string | undefined {
@@ -68,6 +80,9 @@ export class CsrfService {
 
   private setSecretCookies(res: Response, secret: string): void {
     res.cookie(this.cookieNames.csrfSecret, secret, this.cookieOptions);
+    for (const legacyName of this.cookieNames.legacyCsrfSecret) {
+      res.cookie(legacyName, '', this.legacyCookieOptions);
+    }
   }
 
   private safeEquals(expected: string, actual: string): boolean {

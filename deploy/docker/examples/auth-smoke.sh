@@ -5,6 +5,7 @@ WORK=${WORK:-/tmp/paypay}; mkdir -p "$WORK"; rm -f "$WORK/jar.txt" "$WORK/"*.jso
 # 1) CSRF (204 + X-Csrf-Token header)
 curl -sS --http1.1 -D "$WORK/csrf.headers" \
   -c "$WORK/jar.txt" -b "$WORK/jar.txt" \
+  -H 'Origin: https://paypay.iddqd.in' \
   https://api.paypay.iddqd.in/api/auth/csrf -o /dev/null
 CSRF=$(awk -F': ' 'tolower($1) == "x-csrf-token" {print $2}' "$WORK/csrf.headers" | tr -d '\r')
 if [[ -z "$CSRF" ]]; then
@@ -22,10 +23,17 @@ curl -sS --http1.1 -i -b "$WORK/jar.txt" -c "$WORK/jar.txt" \
   https://api.paypay.iddqd.in/api/auth/login | sed -n '1,60p'
 
 # 3) /me
-curl -sS --http1.1 -i -b "$WORK/jar.txt" https://api.paypay.iddqd.in/api/auth/me
+curl -sS --http1.1 -i -b "$WORK/jar.txt" \
+  -H 'Origin: https://paypay.iddqd.in' \
+  https://api.paypay.iddqd.in/api/auth/me
 
-# 4) refresh
+# 4) refresh (204/200)
 curl -sS --http1.1 -i -b "$WORK/jar.txt" -c "$WORK/jar.txt" \
   -H 'Origin: https://paypay.iddqd.in' -H 'Referer: https://paypay.iddqd.in/' \
   -H "X-CSRF-Token: $CSRF" \
   -X POST https://api.paypay.iddqd.in/api/auth/refresh | sed -n '1,80p'
+
+# 5) /me після refresh (200)
+curl -sS --http1.1 -i -b "$WORK/jar.txt" \
+  -H 'Origin: https://paypay.iddqd.in' \
+  https://api.paypay.iddqd.in/api/auth/me

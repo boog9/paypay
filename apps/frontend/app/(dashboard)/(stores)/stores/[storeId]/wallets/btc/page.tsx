@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { Badge } from "../../../../../../../components/ui/badge";
 import { Button } from "../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../components/ui/card";
+import { bffFetch } from "../../../../../../../lib/bff-fetch";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -38,23 +39,6 @@ type SettingsPageProps = {
   params: Promise<{ storeId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
-
-const API_PREFIX = "/api";
-
-function resolveBffApiBaseUrl(): string | null {
-  const rawBaseUrl = process.env.NEXT_PUBLIC_BFF_URL;
-  if (!rawBaseUrl) {
-    return API_PREFIX;
-  }
-
-  try {
-    const parsed = new URL(rawBaseUrl);
-    const origin = parsed.origin.replace(/\/$/, "");
-    return `${origin}${API_PREFIX}`.replace(/\/$/, "");
-  } catch {
-    return null;
-  }
-}
 
 function normalizeOptionalString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -162,102 +146,84 @@ function parseJsonPayload(raw: string | null): unknown {
   }
 }
 
-async function fetchWalletStatusResponse(storeId: string): Promise<Response | null> {
-  const baseUrl = resolveBffApiBaseUrl();
-  if (!baseUrl) {
-    return null;
-  }
-
-  const url = `${baseUrl}/stores/${storeId}/wallets/btc`;
-
+async function requestWalletStatus(storeId: string): Promise<Response | null> {
   try {
-    const cookieStore = await cookies();
-    const serializedCookies = cookieStore
-      .getAll()
-      .map((cookie) => `${cookie.name}=${cookie.value}`)
-      .join("; ");
-
-    const headers = new Headers();
-    headers.set("Accept", "application/json");
-    if (serializedCookies) {
-      headers.set("Cookie", serializedCookies);
-    }
-
-    return await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      headers,
-      credentials: "include",
-      mode: "cors",
-    });
+    return await bffFetch(`/api/stores/${storeId}/wallets/btc`);
   } catch {
     return null;
   }
 }
 
-async function loadWalletStatus(storeId: string): Promise<{ status: number; data: WalletStatus | null }> {
-  const response = await fetchWalletStatusResponse(storeId);
+async function attemptSessionRefresh(): Promise<boolean> {
+  try {
+    const response = await bffFetch("/api/auth/refresh", { method: "POST" });
+    return response.ok || response.status === 204;
+  } catch {
+    return false;
+  }
+}
+
+async function loadWalletStatus(
+  storeId: string
+): Promise<{ status: number; data: WalletStatus | null; attemptedRefresh: boolean }> {
+  let response = await requestWalletStatus(storeId);
   if (!response) {
-    return { status: 0, data: null };
+    return { status: 0, data: null, attemptedRefresh: false };
+  }
+
+  let attemptedRefresh = false;
+
+  if (response.status === 401) {
+    attemptedRefresh = true;
+    const refreshed = await attemptSessionRefresh();
+    if (!refreshed) {
+      return { status: 401, data: null, attemptedRefresh };
+    }
+    response = await requestWalletStatus(storeId);
+    if (!response) {
+      return { status: 0, data: null, attemptedRefresh };
+    }
   }
 
   const status = response.status;
   const rawBody = await readResponseBody(response);
   const parsed = parseJsonPayload(rawBody);
 
-  return { status, data: normalizeWalletStatusPayload(parsed) };
+  return { status, data: normalizeWalletStatusPayload(parsed), attemptedRefresh };
 }
 
-function resolveSearchParam(value: string | string[] | undefined): string | null {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value[0] ?? null;
-  }
-  return null;
-}
-
-export default async function WalletSettingsPage({ params, searchParams }: SettingsPageProps) {
+export default async function WalletSettingsPage({ params, searchParams: _searchParams }: SettingsPageProps) {
   const { storeId } = await params;
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const connectedParam = resolveSearchParam(resolvedSearchParams?.connected);
-  const connectedFromQuery = connectedParam === "1";
+  if (_searchParams) {
+    void (await _searchParams);
+  }
+  const { data: wallet, status, attemptedRefresh } = await loadWalletStatus(storeId);
 
-  const { data: wallet, status } = await loadWalletStatus(storeId);
+  if (status === 401 && attemptedRefresh) {
+    redirect("/sign-in?reason=session-expired");
+  }
 
   const isUnauthorized = status === 401 || status === 419;
   const isForbidden = status === 403;
   const isNotFound = status === 404;
-  const fetchFailed = !wallet && !isForbidden && !isUnauthorized && !isNotFound && status !== 0;
-  const missingLocalMeta = wallet?.missingLocalMeta ?? false;
-  const hasPreview = (wallet?.addressPreview.length ?? 0) > 0;
+  const fetchFailed =
+    status !== 0 &&
+    status !== 200 &&
+    status !== 401 &&
+    status !== 403 &&
+    status !== 404 &&
+    status !== 419;
+  const effectiveWallet: WalletStatus | null = status === 200 && wallet ? wallet : null;
+  const missingLocalMeta = effectiveWallet?.missingLocalMeta ?? false;
+  const hasPreview = (effectiveWallet?.addressPreview.length ?? 0) > 0;
 
-  const effectiveWallet: WalletStatus | null = wallet ?? (isForbidden
-    ? {
-        storeId,
-        currency: "BTC",
-        paymentMethodId: "BTC-CHAIN",
-        enabled: true,
-        connected: true,
-        missingLocalMeta: false,
-        metadata: {
-          label: null,
-          accountKeyPath: null,
-          hasDerivationScheme: true,
-          hasMasterFingerprint: true,
-        },
-        addressPreview: [],
-      }
-    : null);
-
-  const showSuccessAlert = connectedFromQuery || Boolean(wallet?.connected) || isForbidden;
+  const showSuccessAlert = status === 200 && Boolean(effectiveWallet?.connected);
 
   const statusMessage = (() => {
     if (isUnauthorized) {
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Missing/expired session або недостатні права. Перелогіньтесь.
+          Сесія прострочена. Увійдіть знову.
         </div>
       );
     }
@@ -272,8 +238,8 @@ export default async function WalletSettingsPage({ params, searchParams }: Setti
 
     if (isForbidden) {
       return (
-        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900">
-          Wallet connected. Detailed configuration is hidden because BTCPay returned limited permissions.
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Недостатньо прав для магазину.
         </div>
       );
     }

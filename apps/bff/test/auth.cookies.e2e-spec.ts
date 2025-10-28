@@ -151,10 +151,14 @@ describe('Auth cookies compatibility (production-like)', () => {
   };
 
   const originalFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  const originalPaypayDomain = process.env.PAYPAY_DOMAIN;
+  const originalPaypayApiDomain = process.env.PAYPAY_API_DOMAIN;
   const cookieJar = new Map<string, string>();
 
   beforeAll(async () => {
     process.env.FRONTEND_ORIGIN = 'https://paypay.iddqd.in';
+    process.env.PAYPAY_DOMAIN = 'paypay.iddqd.in';
+    process.env.PAYPAY_API_DOMAIN = 'api.paypay.iddqd.in';
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -203,6 +207,16 @@ describe('Auth cookies compatibility (production-like)', () => {
     } else {
       process.env.FRONTEND_ORIGIN = originalFrontendOrigin;
     }
+    if (originalPaypayDomain === undefined) {
+      delete process.env.PAYPAY_DOMAIN;
+    } else {
+      process.env.PAYPAY_DOMAIN = originalPaypayDomain;
+    }
+    if (originalPaypayApiDomain === undefined) {
+      delete process.env.PAYPAY_API_DOMAIN;
+    } else {
+      process.env.PAYPAY_API_DOMAIN = originalPaypayApiDomain;
+    }
   });
 
   beforeEach(() => {
@@ -229,6 +243,11 @@ describe('Auth cookies compatibility (production-like)', () => {
     }
   }
 
+  function extractCookieDomain(cookie: string): string | undefined {
+    const match = /Domain=([^;]+)/i.exec(cookie);
+    return match?.[1];
+  }
+
   function serializeCookies(store: Map<string, string>): string {
     return Array.from(store.entries())
       .map(([name, value]) => `${name}=${value}`)
@@ -247,6 +266,11 @@ describe('Auth cookies compatibility (production-like)', () => {
       .join('; ');
   }
 
+  function expectCorsCreds(res: request.Response): void {
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+    expect(res.headers['access-control-allow-origin']).toBe(env.FRONTEND_ORIGIN);
+  }
+
   async function fetchCsrfToken(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
     addCookies(cookieJar, getCookies(response));
@@ -263,13 +287,55 @@ describe('Auth cookies compatibility (production-like)', () => {
       .set('Cookie', serializeCookies(cookieJar))
       .send({ email: 'compat@example.com', password: 'compat-password' })
       .expect(204);
-    addCookies(cookieJar, getCookies(loginResponse));
+    const cookies = getCookies(loginResponse);
+    const accessCookie = cookies.find((cookie) => cookie.startsWith(`${cookieNames.access}=`));
+    const refreshCookie = cookies.find((cookie) => cookie.startsWith(`${cookieNames.refresh}=`));
+
+    expect(accessCookie).toBeDefined();
+    expect(refreshCookie).toBeDefined();
+
+    if (accessCookie) {
+      const domain = extractCookieDomain(accessCookie);
+      expect(domain).toBeDefined();
+    }
+
+    if (refreshCookie) {
+      const domain = extractCookieDomain(refreshCookie);
+      expect(domain).toBeDefined();
+    }
+    addCookies(cookieJar, cookies);
   }
 
   async function prepareAuthContext(): Promise<string> {
     await login();
     return fetchCsrfToken();
   }
+
+  it('exposes proper CORS headers with credentials (csrf/login/me)', async () => {
+    const csrfResponse = await agent
+      .get('/api/auth/csrf')
+      .set('Origin', env.FRONTEND_ORIGIN)
+      .expect(204);
+    addCookies(cookieJar, getCookies(csrfResponse));
+    expectCorsCreds(csrfResponse);
+
+    const token = readCsrfToken(csrfResponse);
+    const loginResponse = await agent
+      .post('/api/auth/login')
+      .set('Origin', env.FRONTEND_ORIGIN)
+      .set('X-CSRF-Token', token)
+      .set('Cookie', serializeCookies(cookieJar))
+      .send({ email: 'compat@example.com', password: 'compat-password' })
+      .expect(204);
+    addCookies(cookieJar, getCookies(loginResponse));
+    expectCorsCreds(loginResponse);
+
+    const meResponse = await agent
+      .get('/api/auth/me')
+      .set('Origin', env.FRONTEND_ORIGIN)
+      .expect(200);
+    expectCorsCreds(meResponse);
+  });
 
   it('authorizes requests that send __Host- cookies', async () => {
     const csrfToken = await prepareAuthContext();
@@ -295,5 +361,29 @@ describe('Auth cookies compatibility (production-like)', () => {
       .set('Cookie', cookieHeader)
       .send({ name: 'Compat Store Missing', defaultCurrency: 'USD' })
       .expect(401);
+  });
+
+  it('accepts legacy __Host-pp.access-token for /api/auth/me', async () => {
+    await login();
+
+    await fetchCsrfToken();
+    const secretCookie = cookieJar.get(cookieNames.csrfSecret);
+    expect(secretCookie).toBeTruthy();
+
+    const modernAccess = cookieJar.get(cookieNames.access);
+    expect(modernAccess).toBeTruthy();
+
+    const legacyCookieHeader = [
+      `__Host-pp.access-token=${modernAccess}`,
+      `${cookieNames.csrfSecret}=${secretCookie}`,
+    ].join('; ');
+
+    const me = await request(server)
+      .get('/api/auth/me')
+      .set('Origin', env.FRONTEND_ORIGIN)
+      .set('Cookie', legacyCookieHeader)
+      .expect(200);
+
+    expect(me.body?.user?.email).toBeDefined();
   });
 });

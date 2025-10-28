@@ -84,12 +84,8 @@ test.describe("Auth API flow", () => {
       .headersArray()
       .filter(({ name }) => name.toLowerCase() === "set-cookie")
       .map(({ value }) => value);
-    expect(
-      setCookieHeaders.some((cookie) => cookie.startsWith("__Host-pp.access-token"))
-    ).toBeTruthy();
-    expect(
-      setCookieHeaders.some((cookie) => cookie.startsWith("__Host-pp.refresh-token"))
-    ).toBeTruthy();
+    expect(setCookieHeaders.some((cookie) => cookie.startsWith("pp.access-token"))).toBeTruthy();
+    expect(setCookieHeaders.some((cookie) => cookie.startsWith("pp.refresh-token"))).toBeTruthy();
 
     const meResponse: APIResponse = await request.get(`${normalizedBase}${AUTH_ME}`, {
       headers: origin ? { Origin: origin } : undefined,

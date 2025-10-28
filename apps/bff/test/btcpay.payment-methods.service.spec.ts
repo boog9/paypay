@@ -105,10 +105,13 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(result.currency).toBe('BTC');
     expect(result.addresses).toHaveLength(2);
     expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview',
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
       {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'"
+        config: {
+          derivationScheme: SAMPLE_TPUB,
+          accountKeyPath: "m/84'/1'/0'",
+          enabled: true
+        }
       }
     );
   });
@@ -130,15 +133,20 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview',
-      { derivationScheme: SAMPLE_TPUB }
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      {
+        config: {
+          derivationScheme: SAMPLE_TPUB,
+          enabled: true
+        }
+      }
     );
   });
 
   it('builds the OnChain preview path with canonical casing', () => {
     const service = buildService();
-    const path = (service as any).buildOnchainPostPreviewPath('store-123', 'btc');
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/OnChain/BTC/preview');
+    const path = (service as any).buildOnchainPostPreviewPath('store-123', 'btc-onchain');
+    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
   });
 
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
@@ -384,7 +392,8 @@ describe('BtcpayPaymentMethodsService', () => {
       config: {
         derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
-        rootFingerprint: 'ABCD1234'
+        rootFingerprint: 'ABCD1234',
+        enabled: true
       }
     });
   });
@@ -435,7 +444,8 @@ describe('BtcpayPaymentMethodsService', () => {
         enabled: true,
         config: expect.objectContaining({
           derivationScheme: SAMPLE_XPUB,
-          accountKeyPath: "abcdef12/84'/0'/0'"
+          accountKeyPath: "abcdef12/84'/0'/0'",
+          enabled: true
         })
       })
     );
@@ -461,8 +471,8 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         params: {
           paymentMethodId: 'BTC-CHAIN',
-          onlyEnabled: 'false',
-          includeConfig: 'false'
+          onlyEnabled: false,
+          includeConfig: false
         }
       }
     );
@@ -528,7 +538,8 @@ describe('BtcpayPaymentMethodsService', () => {
           derivationScheme: 'xpubTemp',
           accountKeyPath: "m/84'/0'/0'",
           rootFingerprint: 'ABCD1234',
-          label: 'Temporary import'
+          label: 'Temporary import',
+          enabled: true
         }
       }
     );

@@ -69,9 +69,7 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
 
   if (adapterType === 'express') {
     const expressInstance = instance as Application;
-    const trustProxyValue = parseTrustProxy(env.TRUST_PROXY);
-    const effectiveTrustProxy = trustProxyValue ?? 1;
-    expressInstance.set('trust proxy', effectiveTrustProxy);
+    expressInstance.set('trust proxy', parseTrustProxy(env.TRUST_PROXY) ?? 1);
   }
 
   app.use(jsonParser);

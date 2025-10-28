@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { signupAction, type AuthFormState } from '../../(auth)/client-actions';
+import { signupAction, type AuthFormState } from '../client-actions';
 import { Button } from '../../../components/ui/button';
 
 const initialState: AuthFormState = { status: 'idle' };
@@ -50,7 +50,7 @@ export function SignupForm() {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
+    <form method="post" onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border p-6 shadow-sm">
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className="text-sm font-medium">
           Email
@@ -60,7 +60,7 @@ export function SignupForm() {
           name="email"
           type="email"
           required
-          autoComplete="email"
+          autoComplete="username"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-invalid={state.status === 'error' && Boolean(state.fieldErrors?.email)}
           aria-describedby={state.fieldErrors?.email ? 'email-error' : undefined}

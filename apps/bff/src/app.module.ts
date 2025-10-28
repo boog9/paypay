@@ -96,8 +96,20 @@ import { AppThrottlerGuard } from './app.throttler.guard';
         { name: 'login', ttl: seconds(60), limit: 5 },
         { name: 'refresh', ttl: seconds(60), limit: 30 }
       ],
-      skipIf: (ctx) => ctx.switchToHttp().getRequest()?.method === 'OPTIONS',
-      ...({ generateLimitHeaders: true } as Record<string, unknown>)
+      generateLimitHeaders: true,
+      skipIf: (ctx) => {
+        const req = ctx.switchToHttp().getRequest();
+        const m = req?.method;
+        const p = req?.originalUrl || req?.url || '';
+        if (m === 'OPTIONS') return true;
+        return (
+          p.startsWith('/api/auth/me') ||
+          p.startsWith('/api/auth/csrf') ||
+          p.startsWith('/api/auth/csrf-token') ||
+          p.startsWith('/health') ||
+          p.startsWith('/readyz')
+        );
+      }
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

@@ -1,17 +1,39 @@
 import { Injectable } from '@nestjs/common';
 import { type ThrottlerRequest, ThrottlerGuard } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
+import type { IncomingMessage, ServerResponse } from 'http';
+
+type RequestWithUser = Request & {
+  user?: {
+    id?: string | number;
+  };
+};
+
+type ResponseWithHeaders = (ServerResponse<IncomingMessage> | Response) & {
+  getHeader?: (name: string) => number | string | string[] | undefined;
+  setHeader?: (name: string, value: number | string | ReadonlyArray<string>) => void;
+};
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Record<string, any>): Promise<string> {
-    const uid = req?.user?.id;
-    return uid ? `uid:${uid}` : req.ip;
+  protected override getTracker(req: RequestWithUser): Promise<string> {
+    const rawUserId = req.user?.id;
+    if (typeof rawUserId === 'string' && rawUserId.length > 0) {
+      return Promise.resolve(`uid:${rawUserId}`);
+    }
+    if (typeof rawUserId === 'number') {
+      return Promise.resolve(`uid:${rawUserId.toString()}`);
+    }
+
+    const ip = req.ip;
+    return Promise.resolve(ip ?? 'unknown');
   }
 
   protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
     const result = await super.handleRequest(requestProps);
     const { context, throttler } = requestProps;
-    const { res } = this.getRequestResponse(context);
+    const { res: rawRes } = this.getRequestResponse(context);
+    const res = rawRes as ResponseWithHeaders;
     const suffix = throttler.name === 'default' ? '' : `-${throttler.name}`;
 
     const limit = res.getHeader?.(`X-RateLimit-Limit${suffix}`);

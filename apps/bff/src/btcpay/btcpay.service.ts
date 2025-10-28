@@ -77,6 +77,12 @@ export interface IssueUserApiKeyOptions {
   correlationId?: string;
 }
 
+export interface BtcpayServerInfoResponse {
+  isTestnet?: boolean;
+  networkType?: string | null;
+  network?: string | null;
+}
+
 @Injectable()
 export class BtcpayService {
   private readonly logger = new Logger(BtcpayService.name, { timestamp: false });
@@ -651,6 +657,18 @@ export class BtcpayService {
       return;
     }
     await this.getStore(undefined, healthApiKey, healthStoreId);
+  }
+
+  async getServerInfo(host?: string, context?: BtcpayRequestContext): Promise<BtcpayServerInfoResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${this.getAdminApiKey()}`
+    });
+    try {
+      const { data } = await http.get<BtcpayServerInfoResponse>('/api/v1/server/info');
+      return data ?? {};
+    } catch (error) {
+      return this.maskError(error, { action: 'getServerInfo', ...context });
+    }
   }
 
   private getAdminApiKey(): string {

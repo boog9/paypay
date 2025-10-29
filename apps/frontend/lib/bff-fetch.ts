@@ -4,6 +4,13 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_HEADER = "X-CSRF-Token";
 const CSRF_PATH = "/api/auth/csrf";
 
+type ExtendedRequestInit = RequestInit & {
+  next?: {
+    revalidate?: number;
+    tags?: string[];
+  };
+};
+
 function normalizePath(path: string): string {
   if (!path) {
     throw new Error("BFF path must be provided.");
@@ -81,7 +88,7 @@ async function ensureCsrfToken(headers: Headers, cookieHeader: string | null): P
   }
 }
 
-export async function bffFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function bffFetch(path: string, init: ExtendedRequestInit = {}): Promise<Response> {
   const cookieHeader = await serializeCookies();
   const headers = new Headers(init.headers ?? {});
   if (!headers.has("accept")) {
@@ -97,11 +104,19 @@ export async function bffFetch(path: string, init: RequestInit = {}): Promise<Re
   }
 
   const target = buildBffUrl(path);
-  return fetch(target, {
+  const requestInit: ExtendedRequestInit = {
     ...init,
     method,
     headers,
     cache: "no-store",
     credentials: "include",
-  });
+  };
+
+  if (!requestInit.next) {
+    requestInit.next = { revalidate: 0 };
+  } else if (requestInit.next.revalidate === undefined) {
+    requestInit.next = { ...requestInit.next, revalidate: 0 };
+  }
+
+  return fetch(target, requestInit);
 }

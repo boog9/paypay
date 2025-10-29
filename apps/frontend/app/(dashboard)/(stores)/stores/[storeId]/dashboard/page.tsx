@@ -16,7 +16,7 @@ async function fetchWalletConnection(storeId: string): Promise<WalletConnectionS
   }
 
   try {
-    const response = await fetch(`/api/stores/${storeId}/wallets/btc`, {
+    const response = await fetch(`/api/stores/${storeId}/wallets/btc?ts=${Date.now()}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -67,7 +67,7 @@ export default function StoreDashboardPage() {
     };
   }, [storeId]);
 
-  const walletCtaHidden = walletState === "connected";
+  const walletConnected = walletState === "connected";
 
   return (
     <div className="space-y-8">
@@ -93,7 +93,26 @@ export default function StoreDashboardPage() {
           </CardHeader>
         </Card>
 
-        {!walletCtaHidden && (
+        {walletConnected ? (
+          <Card className="border border-emerald-500/20 bg-emerald-500/5">
+            <CardHeader className="flex flex-row items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-600">
+                <Wallet aria-hidden className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Wallet set up</CardTitle>
+                <CardDescription className="mt-1 text-emerald-700 dark:text-emerald-400">
+                  Your Bitcoin wallet is connected. You can manage it from the wallet menu.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary" disabled={!storeId}>
+                <Link href={storeId ? `/stores/${storeId}/wallets/btc/transactions` : "#"}>Open BTC wallet</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
           <Card className="border border-muted bg-background">
             <CardHeader className="flex flex-row items-start gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">

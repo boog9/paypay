@@ -4,7 +4,6 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { useContainer } from 'class-validator';
 import { Logger } from 'nestjs-pino';
-import type { PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { configureApp, configureCors } from './bootstrap/app-configuration';
 import { getEnv } from './config/env.validation';
@@ -13,7 +12,7 @@ async function bootstrap() {
   const env = getEnv();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.set('trust proxy', 'loopback');
-  const logger: PinoLogger = app.get(Logger);
+  const logger = app.get(Logger);
   app.useLogger(logger);
 
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
@@ -32,7 +31,7 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');
-  logger.info(`🚀 BFF is running at http://0.0.0.0:${port}`);
+  logger.log(`🚀 BFF is running at http://0.0.0.0:${port}`);
 }
 
 void bootstrap();

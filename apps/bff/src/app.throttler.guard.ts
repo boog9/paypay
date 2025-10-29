@@ -8,7 +8,8 @@ function clientIp(req: Request): string {
   // works only if trust proxy is enabled
   const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
   const cf = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
-  return fwd || cf || (req as any).ip || req.socket.remoteAddress || 'unknown';
+  const direct = typeof req.ip === 'string' ? req.ip : undefined;
+  return fwd || cf || direct || req.socket.remoteAddress || 'unknown';
 }
 
 function routeKey(req: Request): string {
@@ -18,14 +19,14 @@ function routeKey(req: Request): string {
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Request & { user?: MaybeUser }): Promise<string> {
+  protected getTracker(req: Request & { user?: MaybeUser }): Promise<string> {
     // Skip throttling for preflight
     if (req.method === 'OPTIONS' || req.method === 'HEAD') {
-      return 'preflight';
+      return Promise.resolve('preflight');
     }
     const uid = (req.user && typeof req.user === 'object' && req.user?.id) ? req.user.id : 'anon';
     const ip = clientIp(req);
     const path = routeKey(req);
-    return `${uid}:${ip}:${req.method}:${path}`;
+    return Promise.resolve(`${uid}:${ip}:${req.method}:${path}`);
   }
 }

@@ -21,6 +21,7 @@ import { HealthController } from './health.controller';
 import { StoresModule } from './stores/stores.module';
 import { WalletsModule } from './wallets/wallets.module';
 import type { IncomingMessage, ServerResponse } from 'http';
+import type { Request } from 'express';
 import { SecurityModule } from './security/security.module';
 import { CsrfGuard } from './security/csrf.guard';
 import { AppThrottlerGuard } from './app.throttler.guard';
@@ -81,7 +82,7 @@ import { AppThrottlerGuard } from './app.throttler.guard';
           return 'info';
         },
         customProps: (
-          req: IncomingMessage & { originalUrl?: string | undefined },
+          req: Request,
           res: ServerResponse<IncomingMessage>
         ) => ({
           statusCode: res.statusCode,
@@ -100,9 +101,9 @@ import { AppThrottlerGuard } from './app.throttler.guard';
         { name: 'uiBurst', ttl: 30_000, limit: 600 }
       ],
       skipIf: (ctx) => {
-        const req = ctx.switchToHttp().getRequest();
+        const req = ctx.switchToHttp().getRequest<Request>();
         const m = req.method;
-        const p = (req.originalUrl ?? req.url ?? '') as string;
+        const p = req.originalUrl ?? req.url ?? '';
         if (m === 'OPTIONS' || m === 'HEAD') return true;
         return (
           p.startsWith('/api/auth/csrf') ||

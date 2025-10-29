@@ -104,18 +104,18 @@ function resolveStatusVariant(status: WalletTransaction["status"]): { label: str
   }
 }
 
-function normalizeTransactionsResponse(
-  input: WalletTransactionsResponse | null | undefined,
-): WalletTransactionsResponse {
+function normalizeTransactionsResponse(input: unknown): WalletTransactionsResponse {
   if (!input || typeof input !== "object") {
     return { items: [] };
   }
 
-  const items = Array.isArray(input.items)
-    ? input.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
+  const candidate = input as Partial<WalletTransactionsResponse>;
+
+  const items = Array.isArray(candidate.items)
+    ? candidate.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
     : [];
 
-  const totalValue = input.total;
+  const totalValue = candidate.total;
   const total = typeof totalValue === "number" && Number.isFinite(totalValue) ? totalValue : undefined;
 
   return { total, items };
@@ -235,29 +235,29 @@ export default function TransactionsClient({
         credentials: "include",
         headers: { Accept: "application/json" },
       })
-        .then(async (response) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-          if (!response.ok) {
-            let message: string | null = null;
-            try {
-              const payload = await response.json();
-              if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
-                const raw = (payload as { message?: string }).message ?? "";
-                message = raw.trim() ? raw.trim() : null;
-              }
-            } catch {
+          .then(async (response) => {
+            if (controller.signal.aborted) {
+              return;
+            }
+            if (!response.ok) {
+              let message: string | null = null;
+              try {
+                const payload: unknown = await response.json();
+                if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
+                  const raw = (payload as { message?: string }).message ?? "";
+                  message = raw.trim() ? raw.trim() : null;
+                }
+              } catch {
               // ignore parse errors
             }
             setCurrentError(message ?? `Failed to load transactions (status ${response.status}).`);
             return;
           }
 
-          try {
-            const payload = (await response.json()) as WalletTransactionsResponse;
-            setData(normalizeTransactionsResponse(payload));
-            setCurrentError(null);
+            try {
+              const payload: unknown = await response.json();
+              setData(normalizeTransactionsResponse(payload));
+              setCurrentError(null);
           } catch {
             setCurrentError("Failed to parse transactions response.");
           }

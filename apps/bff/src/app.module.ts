@@ -82,13 +82,20 @@ import { AppThrottlerGuard } from './app.throttler.guard';
           return 'info';
         },
         customProps: (
-          req: Request,
+          req: IncomingMessage,
           res: ServerResponse<IncomingMessage>
-        ) => ({
-          statusCode: res.statusCode,
-          method: req.method ?? 'UNKNOWN',
-          path: req.originalUrl ?? req.url ?? 'UNKNOWN'
-        })
+        ) => {
+          const originalUrl =
+            typeof (req as { originalUrl?: unknown }).originalUrl === 'string'
+              ? (req as { originalUrl?: string }).originalUrl
+              : undefined;
+
+          return {
+            statusCode: res.statusCode,
+            method: req.method ?? 'UNKNOWN',
+            path: originalUrl ?? req.url ?? 'UNKNOWN'
+          };
+        }
       }
     }),
     ThrottlerModule.forRoot({

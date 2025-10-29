@@ -10,6 +10,7 @@ import { getEnv } from './config/env.validation';
 async function bootstrap() {
   const env = getEnv();
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.set('trust proxy', 'loopback');
   const logger = app.get(Logger);
   app.useLogger(logger);
 

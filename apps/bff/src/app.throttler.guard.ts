@@ -1,56 +1,31 @@
 import { Injectable } from '@nestjs/common';
-import { type ThrottlerRequest, ThrottlerGuard } from '@nestjs/throttler';
-import type { Request, Response } from 'express';
-import type { IncomingMessage, ServerResponse } from 'http';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import type { Request } from 'express';
 
-type RequestWithUser = Request & {
-  user?: {
-    id?: string | number;
-  };
-};
+type MaybeUser = { id?: string | null } | undefined;
 
-type ResponseWithHeaders = (ServerResponse<IncomingMessage> | Response) & {
-  getHeader?: (name: string) => number | string | string[] | undefined;
-  setHeader?: (name: string, value: number | string | ReadonlyArray<string>) => void;
-};
+function clientIp(req: Request): string {
+  // works only if trust proxy is enabled
+  const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  const cf = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
+  return fwd || cf || (req as any).ip || req.socket.remoteAddress || 'unknown';
+}
+
+function routeKey(req: Request): string {
+  const base = req.baseUrl ? `${req.baseUrl}${req.path}` : req.path;
+  return base || '/';
+}
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
-  protected override getTracker(req: RequestWithUser): Promise<string> {
-    const rawUserId = req.user?.id;
-    if (typeof rawUserId === 'string' && rawUserId.length > 0) {
-      return Promise.resolve(`uid:${rawUserId}`);
+  protected async getTracker(req: Request & { user?: MaybeUser }): Promise<string> {
+    // Skip throttling for preflight
+    if (req.method === 'OPTIONS' || req.method === 'HEAD') {
+      return 'preflight';
     }
-    if (typeof rawUserId === 'number') {
-      return Promise.resolve(`uid:${rawUserId.toString()}`);
-    }
-
-    const ip = req.ip;
-    return Promise.resolve(ip ?? 'unknown');
-  }
-
-  protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
-    const result = await super.handleRequest(requestProps);
-    const { context, throttler } = requestProps;
-    const { res: rawRes } = this.getRequestResponse(context);
-    const res = rawRes as ResponseWithHeaders;
-    const suffix = throttler.name === 'default' ? '' : `-${throttler.name}`;
-
-    const limit = res.getHeader?.(`X-RateLimit-Limit${suffix}`);
-    if (limit !== undefined) {
-      res.setHeader?.(`RateLimit-Limit${suffix}`, limit);
-    }
-
-    const remaining = res.getHeader?.(`X-RateLimit-Remaining${suffix}`);
-    if (remaining !== undefined) {
-      res.setHeader?.(`RateLimit-Remaining${suffix}`, remaining);
-    }
-
-    const reset = res.getHeader?.(`X-RateLimit-Reset${suffix}`);
-    if (reset !== undefined) {
-      res.setHeader?.(`RateLimit-Reset${suffix}`, reset);
-    }
-
-    return result;
+    const uid = (req.user && typeof req.user === 'object' && req.user?.id) ? req.user.id : 'anon';
+    const ip = clientIp(req);
+    const path = routeKey(req);
+    return `${uid}:${ip}:${req.method}:${path}`;
   }
 }

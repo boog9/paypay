@@ -3,5 +3,4 @@ export type TransactionsQuery = {
   count: number;
   order: "asc" | "desc";
   labels: string[];
-  direction: "all" | "in" | "out";
 };

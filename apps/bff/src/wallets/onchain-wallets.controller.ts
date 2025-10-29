@@ -44,7 +44,7 @@ export class OnchainWalletsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  @Throttle({ uiBurst: { limit: 600, ttl: 30 } })
+  @Throttle({ uiBurst: { limit: 600, ttl: 30_000 } })
   getSummary(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,

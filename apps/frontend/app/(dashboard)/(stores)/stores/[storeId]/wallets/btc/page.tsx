@@ -1,12 +1,38 @@
 import { redirect } from "next/navigation";
 
 import { bffFetch } from "@/lib/bff-fetch";
-import type { WalletPresenceDTO } from "../_lib/get-wallet-presence";
+
+type WalletPresence = {
+  hasWallet: boolean;
+  derivationScheme: string | null;
+};
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ storeId: string }>;
+};
+
+const parseWalletPresence = (value: unknown): WalletPresence | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const { hasWallet, enabled, derivationScheme } = record;
+
+  if (typeof hasWallet !== "boolean" || typeof enabled !== "boolean") {
+    return null;
+  }
+
+  if (derivationScheme !== null && typeof derivationScheme !== "string") {
+    return null;
+  }
+
+  return {
+    hasWallet,
+    derivationScheme: derivationScheme ?? null,
+  };
 };
 
 export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
@@ -48,14 +74,16 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
     redirect(transactionsPath);
   }
 
-  const payload = (await response.json()) as unknown;
-  let hasWallet = false;
-  if (payload && typeof payload === "object") {
-    const { hasWallet: presenceFlag, derivationScheme } = payload as Partial<WalletPresenceDTO>;
-    hasWallet =
-      presenceFlag === true ||
-      (typeof derivationScheme === "string" && derivationScheme.length > 0);
+  const payload: unknown = await response.json();
+  const walletPresence = parseWalletPresence(payload);
+  if (!walletPresence) {
+    redirect(wizardPath);
   }
+
+  const { hasWallet: presenceFlag, derivationScheme } = walletPresence;
+  const hasWallet =
+    presenceFlag === true ||
+    (typeof derivationScheme === "string" && derivationScheme.length > 0);
 
   redirect(hasWallet ? transactionsPath : wizardPath);
 }

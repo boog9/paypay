@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, type ReactNode, useEffect, useState } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useStoreContext } from "../../src/contexts/store-context";
+import { useWalletPresence } from "../../src/contexts/wallet-presence";
 import { StoreSelector } from "../../src/components/stores/store-selector";
 import { Separator } from "../ui/separator";
 import { UserMenu } from "../user-menu";
@@ -25,71 +26,14 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   const { storeId } = useStoreContext();
   const pathname = usePathname();
   const baseStorePath = storeId ? `/stores/${storeId}` : null;
-  const [walletMenuState, setWalletMenuState] = useState<"unknown" | "present" | "missing">("unknown");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!storeId) {
-      setWalletMenuState("unknown");
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const controller = new AbortController();
-
-    const loadState = async () => {
-      try {
-        const response = await fetch(
-          `/api/stores/${storeId}/wallets/btc?ts=${Date.now()}`,
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-            headers: { Accept: "application/json" },
-            signal: controller.signal,
-          }
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        if (response.ok) {
-          const payload = (await response.json()) as { hasWallet?: unknown } | null;
-          const hasWallet = Boolean(payload && typeof payload === "object" && payload.hasWallet === true);
-          setWalletMenuState(hasWallet ? "present" : "missing");
-          return;
-        }
-
-        if (response.status === 404) {
-          setWalletMenuState("missing");
-          return;
-        }
-
-        setWalletMenuState("unknown");
-      } catch {
-        if (!cancelled) {
-          setWalletMenuState("unknown");
-        }
-      }
-    };
-
-    void loadState();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [storeId, pathname]);
+  const walletPresence = useWalletPresence();
 
   const primaryNav = [
     { label: "Dashboard", href: baseStorePath ? `${baseStorePath}/dashboard` : null },
     { label: "Settings", href: baseStorePath ? `${baseStorePath}/settings` : null },
   ];
 
-  const walletHasMenu = walletMenuState === "present";
+  const walletHasMenu = walletPresence === true;
   const walletNav: {
     label: string;
     href: string | null;

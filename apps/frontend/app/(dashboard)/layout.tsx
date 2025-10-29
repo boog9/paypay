@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
+import { unstable_noStore as noStore } from "next/cache";
 
 import { AuthGate } from "../../components/auth/auth-gate";
 import { AppShell } from "../../components/shell/app-shell";
 import { DashboardGate } from "./dashboard-gate";
 import { WalletPresenceProvider } from "../../src/contexts/wallet-presence";
 import { getWalletPresence } from "./(stores)/stores/[storeId]/_lib/get-wallet-presence";
+
+export const dynamic = "force-dynamic";
 
 type DashboardLayoutProps = {
   children: ReactNode;
@@ -22,6 +25,7 @@ function AuthGateSuspenseFallback() {
 }
 
 export default async function AppLayout({ children, params }: DashboardLayoutProps) {
+  noStore();
   const resolvedParams = await params;
   let connected: boolean | null = null;
 

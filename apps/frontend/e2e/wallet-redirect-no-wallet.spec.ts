@@ -7,22 +7,12 @@ test.describe("Wallet redirect without connection", () => {
     const storeId = "store-wallet-missing";
     await page.context().addCookies([makeSessionCookie()]);
 
-    const walletSummary = {
-      hasWallet: false,
-      enabled: false,
-      derivationScheme: null,
-      accountKey: null,
-      masterFingerprint: null,
-      accountKeyPath: null,
-      label: null,
-    } satisfies Record<string, unknown>;
-
-    await page.route(`**/api/stores/${storeId}/wallets/btc`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
       expect(route.request().method()).toBe("GET");
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(walletSummary),
+        body: JSON.stringify({ hasWallet: false, enabled: false, derivationScheme: null }),
       });
     });
 

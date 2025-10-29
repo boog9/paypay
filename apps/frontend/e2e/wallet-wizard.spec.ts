@@ -7,6 +7,10 @@ test.describe("Wallet wizard", () => {
     const storeId = "store-wizard";
     await page.context().addCookies([makeSessionCookie()]);
 
+    let walletConnected = false;
+    let presenceRequests = 0;
+    let presenceAfterConnect = 0;
+
     await page.route(`**/api/auth/csrf`, async (route) => {
       await route.fulfill({ status: 204, headers: { "X-Csrf-Token": "test-csrf" } });
     });
@@ -60,6 +64,22 @@ test.describe("Wallet wizard", () => {
       });
     });
 
+    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+      presenceRequests += 1;
+      if (walletConnected) {
+        presenceAfterConnect += 1;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          hasWallet: walletConnected,
+          enabled: walletConnected,
+          derivationScheme: walletConnected ? derivationScheme : null,
+        }),
+      });
+    });
+
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
@@ -74,6 +94,7 @@ test.describe("Wallet wizard", () => {
       if (route.request().method() === "PUT") {
         expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
         await route.fulfill({ status: 204 });
+        walletConnected = true;
         return;
       }
       await route.fulfill({ status: 200, body: JSON.stringify(saveResponse), contentType: "application/json" });
@@ -96,5 +117,15 @@ test.describe("Wallet wizard", () => {
     await page.waitForURL(`/stores/${storeId}/wallets/btc/transactions?connected=1`);
     await expect(page.getByRole("heading", { name: /Transactions/i })).toBeVisible();
     await expect(page.getByText(/No transactions found/i)).toBeVisible();
+
+    const sidebar = page.locator('aside[aria-label="Application navigation"]');
+    await expect(sidebar.getByRole("link", { name: "Transactions" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "Send" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "Receive" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "Settings" })).toBeVisible();
+
+    expect(walletConnected).toBe(true);
+    expect(presenceRequests).toBeGreaterThan(0);
+    expect(presenceAfterConnect).toBeGreaterThan(0);
   });
 });

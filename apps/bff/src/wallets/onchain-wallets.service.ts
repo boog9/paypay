@@ -29,6 +29,12 @@ interface WalletUserContext {
   email: string | null;
 }
 
+export interface OnchainWalletPresence {
+  hasWallet: boolean;
+  enabled: boolean;
+  derivationScheme: string | null;
+}
+
 export interface OnchainWalletSettingsSummary {
   hasWallet: boolean;
   enabled: boolean;
@@ -153,6 +159,54 @@ export class OnchainWalletsService {
     }
   }
 
+  async getPresence(
+    userContext: WalletUserContext,
+    storeId: string
+  ): Promise<OnchainWalletPresence> {
+    const userId = this.requireUserId(userContext.id);
+    const userEmail = this.requireUserEmail(userContext.email);
+    const store = await this.requireStore(userId, storeId);
+
+    try {
+      const result = await this.fetchWalletConfigWithFallback(store, userEmail);
+
+      if (result.kind === 'none') {
+        return this.buildPresenceFromConfig(null);
+      }
+
+      if (result.kind === 'limited') {
+        return this.buildPresenceFromSummary(result.summary);
+      }
+
+      return this.buildPresenceFromConfig(result.config);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      if (error instanceof ForbiddenException) {
+        const summary = await this.buildLimitedSummaryFromMetadata(store);
+        return this.buildPresenceFromSummary(summary);
+      }
+      if (error instanceof NotFoundException) {
+        return this.buildPresenceFromConfig(null);
+      }
+      if (isBTCPayAuthError(error)) {
+        throw new UnauthorizedException('BTCPay authentication failed');
+      }
+      if (isBTCPayUpstreamError(error)) {
+        if (error.status === 403) {
+          const summary = await this.buildLimitedSummaryFromMetadata(store);
+          return this.buildPresenceFromSummary(summary);
+        }
+        if (error.status === 404) {
+          return this.buildPresenceFromConfig(null);
+        }
+        throw new BadGatewayException('Upstream error');
+      }
+      throw error;
+    }
+  }
+
   private async fetchWalletConfigWithFallback(
     store: ManagedStoreEntity,
     userEmail: string
@@ -172,15 +226,24 @@ export class OnchainWalletsService {
         if (!minimal) {
           return { kind: 'none' };
         }
-        const limitedHasWallet =
-          Boolean(minimal.config?.derivationScheme) || minimal.enabled === true;
+
+        const limitedDerivation = this.sanitizeString(minimal.config?.derivationScheme);
+        const metadata = await this.walletsRepository.findOne({
+          where: [
+            { storeId: store.id, paymentMethodId: BTC_ONCHAIN_PAYMENT_METHOD_ID },
+            { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
+          ]
+        });
+
+        const metadataMarker = this.sanitizeString(metadata?.derivationScheme);
+        const limitedHasWallet = Boolean(limitedDerivation || metadataMarker);
 
         return {
           kind: 'limited',
           summary: {
             hasWallet: limitedHasWallet,
             enabled: minimal.enabled === true,
-            derivationScheme: null,
+            derivationScheme: limitedDerivation,
             accountKey: null,
             masterFingerprint: null,
             accountKeyPath: null,
@@ -197,27 +260,38 @@ export class OnchainWalletsService {
     userEmail: string,
     includeConfig: boolean
   ): Promise<OnchainPaymentMethodConfig | null> {
+    const handler = async (apiKey: string) => {
+      try {
+        return await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+          store,
+          apiKeyOverride: apiKey,
+          includeConfig,
+          host: store.btcpayHost
+        });
+      } catch (error) {
+        if (error instanceof NotFoundException) {
+          return null;
+        }
+        if (isBTCPayUpstreamError(error) && error.status === 404) {
+          return null;
+        }
+        throw error;
+      }
+    };
+
+    if (includeConfig) {
+      return this.keysService.withStoreSettingsWriteKey(
+        store.btcpayStoreId,
+        userEmail,
+        handler,
+        { host: store.btcpayHost }
+      );
+    }
+
     return this.keysService.withStoreSettingsReadKey(
       store.btcpayStoreId,
       userEmail,
-      async (apiKey) => {
-        try {
-          return await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
-            store,
-            apiKeyOverride: apiKey,
-            includeConfig,
-            host: store.btcpayHost
-          });
-        } catch (error) {
-          if (error instanceof NotFoundException) {
-            return null;
-          }
-          if (isBTCPayUpstreamError(error) && error.status === 404) {
-            return null;
-          }
-          throw error;
-        }
-      },
+      handler,
       { host: store.btcpayHost }
     );
   }
@@ -449,7 +523,7 @@ export class OnchainWalletsService {
       ]
     });
 
-    const hasKnownWallet = Boolean(metadata?.derivationScheme);
+    const hasKnownWallet = Boolean(this.sanitizeString(metadata?.derivationScheme));
 
     if (!hasKnownWallet) {
       return this.buildEmptySummary();
@@ -495,8 +569,11 @@ export class OnchainWalletsService {
 
     const accountKey = derivationDetails.accountKey;
 
+    const hasStoredDerivation = Boolean(derivationScheme);
+    const hasMetadataMarker = Boolean(this.sanitizeString(metadata?.derivationScheme));
+
     return {
-      hasWallet: Boolean(derivationScheme) || config.enabled === true,
+      hasWallet: hasStoredDerivation || hasMetadataMarker,
       enabled: config.enabled === true,
       derivationScheme,
       accountKey,
@@ -504,6 +581,34 @@ export class OnchainWalletsService {
       accountKeyPath,
       label
     } satisfies OnchainWalletSettingsSummary;
+  }
+
+  private buildPresenceFromConfig(
+    config: OnchainPaymentMethodConfig | null
+  ): OnchainWalletPresence {
+    if (!config) {
+      return { hasWallet: false, enabled: false, derivationScheme: null };
+    }
+
+    const derivationScheme = this.sanitizeString(config.config?.derivationScheme);
+
+    return {
+      hasWallet: Boolean(derivationScheme),
+      enabled: config.enabled === true,
+      derivationScheme: derivationScheme ?? null
+    } satisfies OnchainWalletPresence;
+  }
+
+  private buildPresenceFromSummary(
+    summary: OnchainWalletSettingsSummary
+  ): OnchainWalletPresence {
+    const derivationScheme = this.sanitizeString(summary.derivationScheme);
+
+    return {
+      hasWallet: summary.hasWallet === true,
+      enabled: summary.enabled === true,
+      derivationScheme: derivationScheme ?? null
+    } satisfies OnchainWalletPresence;
   }
 
   private extractDerivationDetails(

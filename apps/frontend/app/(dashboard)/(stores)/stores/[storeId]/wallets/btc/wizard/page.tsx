@@ -298,6 +298,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
         variant: "success",
       });
       router.replace(`/stores/${storeId}/wallets/btc/transactions?connected=1`);
+      router.refresh();
     } catch (error: unknown) {
       if (isApiError(error)) {
         let message = error.message || "Failed to save wallet configuration.";

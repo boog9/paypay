@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { makeSessionCookie } from "./utils/cookies";
 
 test.describe("Wallet wizard", () => {
-  test("connects an existing wallet and redirects to settings", async ({ page }) => {
+  test("connects an existing wallet and redirects to transactions", async ({ page }) => {
     const storeId = "store-wizard";
     await page.context().addCookies([makeSessionCookie()]);
 
@@ -39,6 +39,27 @@ test.describe("Wallet wizard", () => {
       addressPreview: previewResponse.addresses,
     };
 
+    await page.route(`**/api/stores/${storeId}/wallets/BTC/transactions**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({ items: [], total: 0 }),
+        contentType: "application/json",
+      });
+    });
+
+    await page.route(`**/api/stores/${storeId}/wallets/BTC/overview**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          balance: "0.00000000",
+          confirmedBalance: "0.00000000",
+          unconfirmedBalance: "0.00000000",
+          label: "Imported wallet",
+        }),
+        contentType: "application/json",
+      });
+    });
+
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
@@ -72,11 +93,8 @@ test.describe("Wallet wizard", () => {
 
     await page.getByRole("button", { name: "Confirm and save" }).click();
 
-    await page.waitForURL(`/stores/${storeId}/wallets/btc?connected=1`);
-    await expect(page.getByText("Bitcoin wallet settings")).toBeVisible();
-    await expect(page.getByText("Imported wallet")).toBeVisible();
-    await expect(page.getByText("Stored securely on BTCPay")).toBeVisible();
-    await expect(page.getByText("BTCPay wallet documentation")).toBeVisible();
-    await expect(page.getByText(previewResponse.addresses[0].address)).toBeVisible();
+    await page.waitForURL(`/stores/${storeId}/wallets/btc/transactions?connected=1`);
+    await expect(page.getByRole("heading", { name: /Transactions/i })).toBeVisible();
+    await expect(page.getByText(/No transactions found/i)).toBeVisible();
   });
 });

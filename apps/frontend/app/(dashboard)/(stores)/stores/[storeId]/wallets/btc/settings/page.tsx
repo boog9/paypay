@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { Badge } from "../../../../../../../../components/ui/badge";
-import { Button } from "../../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { bffFetch } from "../../../../../../../../lib/bff-fetch";
 
@@ -12,11 +11,13 @@ export const metadata: Metadata = {
 };
 
 type WalletSummary = {
-  storeId: string;
-  paymentMethodId: string;
+  hasWallet: boolean;
   enabled: boolean;
-  currency: string;
-  previewAddresses: string[];
+  derivationScheme: string | null;
+  accountKey: string | null;
+  masterFingerprint: string | null;
+  accountKeyPath: string | null;
+  label: string | null;
 };
 
 type SettingsPageProps = {
@@ -32,51 +33,31 @@ function normalizeNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizePreviewAddressesPayload(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const addresses: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of value) {
-    const normalized = normalizeNonEmptyString(entry);
-    if (!normalized) {
-      continue;
-    }
-    if (seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    addresses.push(normalized);
-    if (addresses.length >= 10) {
-      break;
-    }
-  }
-  return addresses;
-}
-
 function parseWalletSummaryPayload(value: unknown): WalletSummary | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
 
   const record = value as Record<string, unknown>;
-  const storeId = normalizeNonEmptyString(record.storeId);
-  const paymentMethodId = normalizeNonEmptyString(record.paymentMethodId);
-  const currency = normalizeNonEmptyString(record.currency);
-  if (!storeId || !paymentMethodId || !currency) {
-    return null;
-  }
-
-  const enabled = typeof record.enabled === "boolean" ? record.enabled : false;
-  const previewAddresses = normalizePreviewAddressesPayload(record.previewAddresses);
+  const hasWallet = record.hasWallet === true;
+  const enabled = record.enabled === true;
+  const derivationScheme = normalizeNonEmptyString(record.derivationScheme);
+  const accountKey = normalizeNonEmptyString(record.accountKey);
+  const masterFingerprint = (() => {
+    const fingerprint = normalizeNonEmptyString(record.masterFingerprint);
+    return fingerprint ? fingerprint.toUpperCase() : null;
+  })();
+  const accountKeyPath = normalizeNonEmptyString(record.accountKeyPath);
+  const label = normalizeNonEmptyString(record.label);
 
   return {
-    storeId,
-    paymentMethodId,
+    hasWallet,
     enabled,
-    currency,
-    previewAddresses,
+    derivationScheme,
+    accountKey,
+    masterFingerprint,
+    accountKeyPath,
+    label,
   } satisfies WalletSummary;
 }
 
@@ -176,9 +157,8 @@ export default async function WalletSettingsPage({ params, searchParams: _search
     status !== 419;
 
   const effectiveSummary: WalletSummary | null = status === 200 && summary ? summary : null;
-  const previewAddresses = effectiveSummary?.previewAddresses ?? [];
 
-  const showSuccessAlert = wizardConnected && Boolean(effectiveSummary?.enabled);
+  const showSuccessAlert = wizardConnected && Boolean(effectiveSummary?.hasWallet);
 
   const statusMessage = (() => {
     if (isUnauthorized) {
@@ -246,52 +226,65 @@ export default async function WalletSettingsPage({ params, searchParams: _search
         <CardHeader>
           <CardTitle className="text-lg">On-chain BTC payment method</CardTitle>
           <CardDescription>
-            The summary below is read-only and omits extended public keys and other sensitive fields by design.
+            Review the descriptor values sourced directly from BTCPay Server. Fields are read-only and never expose private keys.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {effectiveSummary ? (
-            <>
-              <dl className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Payment method ID
-                  </dt>
-                  <dd className="text-sm text-foreground">{effectiveSummary.paymentMethodId}</dd>
-                </div>
+            effectiveSummary.hasWallet ? (
+              <div className="space-y-6">
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</dt>
+                    <dd>
+                      <Badge variant={effectiveSummary.enabled ? "default" : "secondary"}>
+                        {effectiveSummary.enabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Label</dt>
+                    <dd className="text-sm text-foreground">
+                      {effectiveSummary.label ?? <span className="text-muted-foreground">Not set</span>}
+                    </dd>
+                  </div>
+                </dl>
 
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</dt>
-                  <dd>
-                    <Badge variant={effectiveSummary.enabled ? "default" : "secondary"}>
-                      {effectiveSummary.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </dd>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h2 className="text-sm font-semibold text-foreground">Derivation scheme</h2>
+                    <code className="block rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-foreground">
+                      {effectiveSummary.derivationScheme ?? "Unavailable"}
+                    </code>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account key</h3>
+                      <code className="block rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-foreground">
+                        {effectiveSummary.accountKey ?? "Hidden by BTCPay"}
+                      </code>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Master fingerprint</h3>
+                      <p className="text-sm text-foreground">
+                        {effectiveSummary.masterFingerprint ?? "Not provided"}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account key path</h3>
+                      <p className="text-sm text-foreground">
+                        {effectiveSummary.accountKeyPath ?? "Not provided"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-
-                <div className="space-y-1">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Currency</dt>
-                  <dd className="text-sm text-foreground">{effectiveSummary.currency}</dd>
-                </div>
-              </dl>
-
-              <div className="mt-6 space-y-2">
-                <h2 className="text-sm font-semibold text-foreground">Recent deposit addresses</h2>
-                {previewAddresses.length > 0 ? (
-                  <ol className="space-y-2">
-                    {previewAddresses.map((address, index) => (
-                      <li key={`${address}-${index}`} className="rounded-md border border-muted bg-muted/40 px-3 py-2">
-                        <p className="text-sm font-mono text-foreground">{address}</p>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Address preview is not available for this wallet. Rerun the wallet wizard if you recently rotated keys.
-                  </p>
-                )}
               </div>
-            </>
+            ) : (
+              <div className="rounded-md border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-900">
+                No wallet details are available yet. Start wallet setup from the Dashboard or open the Bitcoin entry in the
+                sidebar.
+              </div>
+            )
           ) : !statusMessage ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               Unable to load wallet summary.
@@ -299,12 +292,6 @@ export default async function WalletSettingsPage({ params, searchParams: _search
           ) : null}
         </CardContent>
       </Card>
-
-      <div>
-        <Button asChild variant="secondary">
-          <Link href={`/stores/${storeId}/wallets/btc/wizard`}>Run wallet wizard again</Link>
-        </Button>
-      </div>
     </div>
   );
 }

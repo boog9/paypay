@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import {
   BtcpayPaymentMethodsService,
   DEFAULT_PREVIEW_ADDRESS_COUNT,
+  OnchainPaymentMethodConfig,
   OnchainPreviewResponse,
   UpdateOnchainPaymentMethodPayload,
   canonicalPaymentMethodId
@@ -28,15 +29,22 @@ interface WalletUserContext {
   email: string | null;
 }
 
-export interface OnchainWalletSummaryReadModel {
-  storeId: string;
-  paymentMethodId: string;
+export interface OnchainWalletSettingsSummary {
+  hasWallet: boolean;
   enabled: boolean;
-  currency: string;
-  previewAddresses: string[];
+  derivationScheme: string | null;
+  accountKey: string | null;
+  masterFingerprint: string | null;
+  accountKeyPath: string | null;
+  label: string | null;
 }
 
 const BTC_ONCHAIN_PAYMENT_METHOD_ID = BTC_ONCHAIN_PMID;
+
+type WalletConfigFetchResult =
+  | { kind: 'none' }
+  | { kind: 'full'; config: OnchainPaymentMethodConfig }
+  | { kind: 'limited'; summary: OnchainWalletSettingsSummary };
 
 @Injectable()
 export class OnchainWalletsService {
@@ -98,36 +106,30 @@ export class OnchainWalletsService {
   async getSummary(
     userContext: WalletUserContext,
     storeId: string
-  ): Promise<OnchainWalletSummaryReadModel> {
+  ): Promise<OnchainWalletSettingsSummary> {
     const userId = this.requireUserId(userContext.id);
+    const userEmail = this.requireUserEmail(userContext.email);
     const store = await this.requireStore(userId, storeId);
 
     try {
-      const summary = await this.paymentMethods.getOnchainWalletSummary(
-        store.btcpayStoreId,
-        store.btcpayHost,
-        { store }
-      );
+      const result = await this.fetchWalletConfigWithFallback(store, userEmail);
 
-      if (!summary.enabled) {
-        throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
+      if (result.kind === 'none') {
+        return this.buildEmptySummary();
       }
 
-      const normalizedCurrency =
-        typeof summary.currency === 'string' && summary.currency.trim()
-          ? summary.currency.trim().toUpperCase()
-          : 'BTC';
-      const previewAddresses = Array.isArray(summary.previewAddresses)
-        ? summary.previewAddresses.slice(0, DEFAULT_PREVIEW_ADDRESS_COUNT)
-        : [];
+      if (result.kind === 'limited') {
+        return result.summary;
+      }
 
-      return {
-        storeId: summary.storeId,
-        paymentMethodId: canonicalPaymentMethodId(summary.paymentMethodId, 'chain') || summary.paymentMethodId,
-        enabled: true,
-        currency: normalizedCurrency,
-        previewAddresses
-      } satisfies OnchainWalletSummaryReadModel;
+      const metadata = await this.walletsRepository.findOne({
+        where: [
+          { storeId: store.id, paymentMethodId: BTC_ONCHAIN_PAYMENT_METHOD_ID },
+          { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
+        ]
+      });
+
+      return this.composeSummary(result.config, metadata);
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
@@ -136,22 +138,85 @@ export class OnchainWalletsService {
         throw error;
       }
       if (error instanceof NotFoundException) {
-        throw error;
+        return this.buildEmptySummary();
       }
       if (isBTCPayAuthError(error)) {
         throw new UnauthorizedException('BTCPay authentication failed');
       }
       if (isBTCPayUpstreamError(error)) {
         if (error.status === 404) {
-          throw new NotFoundException('On-chain BTC payment method is not enabled for this store.');
-        }
-        if (error.status === 403) {
-          throw new ForbiddenException('BTCPay returned limited permissions.');
+          return this.buildEmptySummary();
         }
         throw new BadGatewayException('Upstream error');
       }
       throw error;
     }
+  }
+
+  private async fetchWalletConfigWithFallback(
+    store: ManagedStoreEntity,
+    userEmail: string
+  ): Promise<WalletConfigFetchResult> {
+    try {
+      const config = await this.requestOnchainPaymentMethod(store, userEmail, true);
+      if (!config) {
+        return { kind: 'none' };
+      }
+      return { kind: 'full', config };
+    } catch (error) {
+      if (
+        error instanceof ForbiddenException ||
+        (isBTCPayUpstreamError(error) && error.status === 403)
+      ) {
+        const minimal = await this.requestOnchainPaymentMethod(store, userEmail, false);
+        if (!minimal) {
+          return { kind: 'none' };
+        }
+        return {
+          kind: 'limited',
+          summary: {
+            hasWallet: true,
+            enabled: minimal.enabled === true,
+            derivationScheme: null,
+            accountKey: null,
+            masterFingerprint: null,
+            accountKeyPath: null,
+            label: null
+          }
+        } satisfies WalletConfigFetchResult;
+      }
+      throw error;
+    }
+  }
+
+  private async requestOnchainPaymentMethod(
+    store: ManagedStoreEntity,
+    userEmail: string,
+    includeConfig: boolean
+  ): Promise<OnchainPaymentMethodConfig | null> {
+    return this.keysService.withStoreSettingsReadKey(
+      store.btcpayStoreId,
+      userEmail,
+      async (apiKey) => {
+        try {
+          return await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+            store,
+            apiKeyOverride: apiKey,
+            includeConfig,
+            host: store.btcpayHost
+          });
+        } catch (error) {
+          if (error instanceof NotFoundException) {
+            return null;
+          }
+          if (isBTCPayUpstreamError(error) && error.status === 404) {
+            return null;
+          }
+          throw error;
+        }
+      },
+      { host: store.btcpayHost }
+    );
   }
 
   async update(
@@ -356,6 +421,114 @@ export class OnchainWalletsService {
       return DEFAULT_PREVIEW_ADDRESS_COUNT;
     }
     const normalized = Math.max(1, Math.trunc(amount));
+    return normalized;
+  }
+
+  private buildEmptySummary(): OnchainWalletSettingsSummary {
+    return {
+      hasWallet: false,
+      enabled: false,
+      derivationScheme: null,
+      accountKey: null,
+      masterFingerprint: null,
+      accountKeyPath: null,
+      label: null
+    } satisfies OnchainWalletSettingsSummary;
+  }
+
+  private composeSummary(
+    config: {
+      enabled: boolean;
+      config: {
+        derivationScheme: string | null;
+        accountKeyPath: string | null;
+        masterFingerprint: string | null;
+        label: string | null;
+      };
+    },
+    metadata: ManagedStoreWalletEntity | null
+  ): OnchainWalletSettingsSummary {
+    const derivationScheme = this.sanitizeString(config.config?.derivationScheme);
+    const accountKeyPath =
+      this.sanitizeString(config.config?.accountKeyPath) || metadata?.accountKeyPath || null;
+    const label = this.sanitizeString(config.config?.label) || metadata?.label || null;
+
+    const derivationDetails = this.extractDerivationDetails(derivationScheme);
+
+    const masterFingerprint =
+      derivationDetails.masterFingerprint ||
+      (this.sanitizeString(config.config?.masterFingerprint)?.toUpperCase() ?? null) ||
+      metadata?.masterFingerprint ||
+      null;
+
+    const accountKey = derivationDetails.accountKey;
+
+    return {
+      hasWallet: Boolean(derivationScheme),
+      enabled: config.enabled === true,
+      derivationScheme,
+      accountKey,
+      masterFingerprint,
+      accountKeyPath,
+      label
+    } satisfies OnchainWalletSettingsSummary;
+  }
+
+  private extractDerivationDetails(
+    derivationScheme: string | null
+  ): { accountKey: string | null; masterFingerprint: string | null; accountKeyPath: string | null } {
+    if (!derivationScheme) {
+      return { accountKey: null, masterFingerprint: null, accountKeyPath: null };
+    }
+
+    const descriptor = derivationScheme.trim();
+    if (!descriptor.includes('[') || !descriptor.includes(']')) {
+      return { accountKey: null, masterFingerprint: null, accountKeyPath: null };
+    }
+
+    const start = descriptor.indexOf('[');
+    const end = descriptor.indexOf(']', start + 1);
+    if (start === -1 || end === -1 || end <= start + 1) {
+      return { accountKey: null, masterFingerprint: null, accountKeyPath: null };
+    }
+
+    const origin = descriptor.slice(start + 1, end).trim();
+    const [fingerprintRaw, ...pathParts] = origin.split('/').map((part) => part.trim()).filter(Boolean);
+    const masterFingerprint = this.normalizeFingerprint(fingerprintRaw);
+
+    const remainder = descriptor.slice(end + 1).trim();
+    const slashIndex = remainder.indexOf('/');
+    const candidateKey = slashIndex === -1 ? remainder : remainder.slice(0, slashIndex);
+    const accountKey = this.normalizeExtendedPublicKey(candidateKey);
+
+    const accountKeyPath = pathParts.length > 0 ? `m/${pathParts.join('/')}` : null;
+
+    return { accountKey, masterFingerprint, accountKeyPath };
+  }
+
+  private normalizeFingerprint(value: string | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const normalized = value.trim();
+    if (!/^[0-9a-fA-F]{8}$/.test(normalized)) {
+      return null;
+    }
+    return normalized.toUpperCase();
+  }
+
+  private normalizeExtendedPublicKey(value: string | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+    const keyPattern = /^(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]{10,}$/;
+    if (!keyPattern.test(normalized)) {
+      return null;
+    }
     return normalized;
   }
 }

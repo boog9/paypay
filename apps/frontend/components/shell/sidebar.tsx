@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, type ReactNode } from "react";
+import { Suspense, type ReactNode, useEffect, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useStoreContext } from "../../src/contexts/store-context";
@@ -25,12 +25,68 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   const { storeId } = useStoreContext();
   const pathname = usePathname();
   const baseStorePath = storeId ? `/stores/${storeId}` : null;
+  const [walletMenuState, setWalletMenuState] = useState<"unknown" | "present" | "missing">("unknown");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!storeId) {
+      setWalletMenuState("unknown");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const controller = new AbortController();
+
+    const loadState = async () => {
+      try {
+        const response = await fetch(`/api/stores/${storeId}/wallets/btc`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (response.ok) {
+          const payload = (await response.json()) as { hasWallet?: unknown } | null;
+          const hasWallet = Boolean(payload && typeof payload === "object" && payload.hasWallet === true);
+          setWalletMenuState(hasWallet ? "present" : "missing");
+          return;
+        }
+
+        if (response.status === 404) {
+          setWalletMenuState("missing");
+          return;
+        }
+
+        setWalletMenuState("unknown");
+      } catch {
+        if (!cancelled) {
+          setWalletMenuState("unknown");
+        }
+      }
+    };
+
+    void loadState();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [storeId]);
 
   const primaryNav = [
     { label: "Dashboard", href: baseStorePath ? `${baseStorePath}/dashboard` : null },
     { label: "Settings", href: baseStorePath ? `${baseStorePath}/settings` : null },
   ];
 
+  const walletHasMenu = walletMenuState === "present";
   const walletNav: {
     label: string;
     href: string | null;
@@ -39,14 +95,16 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   }[] = [
     {
       label: "Bitcoin",
-      href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null,
+      href: baseStorePath ? `${baseStorePath}/wallets/btc` : null,
       baseHref: baseStorePath ? `${baseStorePath}/wallets/btc` : null,
-      children: [
-        { label: "Transactions", href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null },
-        { label: "Send", href: baseStorePath ? `${baseStorePath}/wallets/btc/send` : null },
-        { label: "Receive", href: baseStorePath ? `${baseStorePath}/wallets/btc/receive` : null },
-        { label: "Settings", href: baseStorePath ? `${baseStorePath}/wallets/btc/settings` : null },
-      ],
+      children: walletHasMenu
+        ? [
+            { label: "Transactions", href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null },
+            { label: "Send", href: baseStorePath ? `${baseStorePath}/wallets/btc/send` : null },
+            { label: "Receive", href: baseStorePath ? `${baseStorePath}/wallets/btc/receive` : null },
+            { label: "Settings", href: baseStorePath ? `${baseStorePath}/wallets/btc/settings` : null },
+          ]
+        : [],
     },
   ];
 
@@ -94,19 +152,21 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
                   <NavItem href={item.href} isActive={parentIsActive} onNavigate={onNavigate}>
                     {item.label}
                   </NavItem>
-                  <div className="ml-3 flex flex-col gap-1 border-l border-border/40 pl-3">
-                    {item.children.map((child) => (
-                      <NavItem
-                        key={child.label}
-                        href={child.href}
-                        isActive={Boolean(child.href && pathname.startsWith(child.href))}
-                        onNavigate={onNavigate}
-                        className="text-xs"
-                      >
-                        {child.label}
-                      </NavItem>
-                    ))}
-                  </div>
+                  {item.children.length > 0 ? (
+                    <div className="ml-3 flex flex-col gap-1 border-l border-border/40 pl-3">
+                      {item.children.map((child) => (
+                        <NavItem
+                          key={child.label}
+                          href={child.href}
+                          isActive={Boolean(child.href && pathname.startsWith(child.href))}
+                          onNavigate={onNavigate}
+                          className="text-xs"
+                        >
+                          {child.label}
+                        </NavItem>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

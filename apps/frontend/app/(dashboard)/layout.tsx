@@ -4,6 +4,13 @@ import { Suspense } from "react";
 import { AuthGate } from "../../components/auth/auth-gate";
 import { AppShell } from "../../components/shell/app-shell";
 import { DashboardGate } from "./dashboard-gate";
+import { WalletPresenceProvider } from "../../src/contexts/wallet-presence";
+import { getWalletPresence } from "./stores/[storeId]/_lib/get-wallet-presence";
+
+type DashboardLayoutProps = {
+  children: ReactNode;
+  params: Promise<{ storeId?: string }>;
+};
 
 function AuthGateSuspenseFallback() {
   return (
@@ -14,13 +21,23 @@ function AuthGateSuspenseFallback() {
   );
 }
 
-export default function AppLayout({ children }: { children: ReactNode }) {
+export default async function AppLayout({ children, params }: DashboardLayoutProps) {
+  const resolvedParams = await params;
+  let connected: boolean | null = null;
+
+  if (typeof resolvedParams?.storeId === "string" && resolvedParams.storeId.length > 0) {
+    const fetchWalletPresence = getWalletPresence as (storeId: string) => Promise<boolean>;
+    connected = Boolean(await fetchWalletPresence(resolvedParams.storeId));
+  }
+
   return (
     <Suspense fallback={<AuthGateSuspenseFallback />}>
       <AuthGate>
-        <AppShell>
-          <DashboardGate>{children}</DashboardGate>
-        </AppShell>
+        <WalletPresenceProvider initial={connected}>
+          <AppShell>
+            <DashboardGate>{children}</DashboardGate>
+          </AppShell>
+        </WalletPresenceProvider>
       </AuthGate>
     </Suspense>
   );

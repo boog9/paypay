@@ -41,13 +41,16 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
 
     const loadState = async () => {
       try {
-        const response = await fetch(`/api/stores/${storeId}/wallets/btc`, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: { Accept: "application/json" },
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          `/api/stores/${storeId}/wallets/btc?ts=${Date.now()}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          }
+        );
 
         if (cancelled) {
           return;
@@ -79,7 +82,7 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
       cancelled = true;
       controller.abort();
     };
-  }, [storeId]);
+  }, [storeId, pathname]);
 
   const primaryNav = [
     { label: "Dashboard", href: baseStorePath ? `${baseStorePath}/dashboard` : null },

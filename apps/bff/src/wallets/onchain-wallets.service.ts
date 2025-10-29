@@ -135,7 +135,7 @@ export class OnchainWalletsService {
         throw error;
       }
       if (error instanceof ForbiddenException) {
-        throw error;
+        return this.buildLimitedSummaryFromMetadata(store);
       }
       if (error instanceof NotFoundException) {
         return this.buildEmptySummary();
@@ -172,10 +172,13 @@ export class OnchainWalletsService {
         if (!minimal) {
           return { kind: 'none' };
         }
+        const limitedHasWallet =
+          Boolean(minimal.config?.derivationScheme) || minimal.enabled === true;
+
         return {
           kind: 'limited',
           summary: {
-            hasWallet: true,
+            hasWallet: limitedHasWallet,
             enabled: minimal.enabled === true,
             derivationScheme: null,
             accountKey: null,
@@ -436,6 +439,33 @@ export class OnchainWalletsService {
     } satisfies OnchainWalletSettingsSummary;
   }
 
+  private async buildLimitedSummaryFromMetadata(
+    store: ManagedStoreEntity
+  ): Promise<OnchainWalletSettingsSummary> {
+    const metadata = await this.walletsRepository.findOne({
+      where: [
+        { storeId: store.id, paymentMethodId: BTC_ONCHAIN_PAYMENT_METHOD_ID },
+        { storeId: store.id, paymentMethodId: 'BTC-OnChain' }
+      ]
+    });
+
+    const hasKnownWallet = Boolean(metadata?.derivationScheme);
+
+    if (!hasKnownWallet) {
+      return this.buildEmptySummary();
+    }
+
+    return {
+      hasWallet: hasKnownWallet,
+      enabled: false,
+      derivationScheme: null,
+      accountKey: null,
+      masterFingerprint: null,
+      accountKeyPath: null,
+      label: null
+    } satisfies OnchainWalletSettingsSummary;
+  }
+
   private composeSummary(
     config: {
       enabled: boolean;
@@ -449,11 +479,13 @@ export class OnchainWalletsService {
     metadata: ManagedStoreWalletEntity | null
   ): OnchainWalletSettingsSummary {
     const derivationScheme = this.sanitizeString(config.config?.derivationScheme);
-    const accountKeyPath =
-      this.sanitizeString(config.config?.accountKeyPath) || metadata?.accountKeyPath || null;
-    const label = this.sanitizeString(config.config?.label) || metadata?.label || null;
-
     const derivationDetails = this.extractDerivationDetails(derivationScheme);
+    const accountKeyPath =
+      this.sanitizeString(config.config?.accountKeyPath) ||
+      metadata?.accountKeyPath ||
+      derivationDetails.accountKeyPath ||
+      null;
+    const label = this.sanitizeString(config.config?.label) || metadata?.label || null;
 
     const masterFingerprint =
       derivationDetails.masterFingerprint ||
@@ -464,7 +496,7 @@ export class OnchainWalletsService {
     const accountKey = derivationDetails.accountKey;
 
     return {
-      hasWallet: Boolean(derivationScheme),
+      hasWallet: Boolean(derivationScheme) || config.enabled === true,
       enabled: config.enabled === true,
       derivationScheme,
       accountKey,

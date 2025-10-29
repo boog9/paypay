@@ -1,15 +1,73 @@
 'use client';
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CheckCircle2, Wallet } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../components/ui/card";
 import { Button } from "../../../../../../components/ui/button";
 
+type WalletConnectionState = "unknown" | "connected" | "disconnected";
+
+async function fetchWalletConnection(storeId: string): Promise<WalletConnectionState> {
+  if (!storeId) {
+    return "unknown";
+  }
+
+  try {
+    const response = await fetch(`/api/stores/${storeId}/wallets/btc`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+
+    if (response.ok) {
+      const payload = (await response.json()) as { hasWallet?: unknown } | null;
+      if (payload && typeof payload === "object" && "hasWallet" in payload) {
+        return payload.hasWallet === true ? "connected" : "disconnected";
+      }
+      return "connected";
+    }
+
+    if (response.status === 404) {
+      return "disconnected";
+    }
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 export default function StoreDashboardPage() {
   const params = useParams<{ storeId: string }>();
   const storeId = params?.storeId ?? "";
+  const [walletState, setWalletState] = useState<WalletConnectionState>("unknown");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!storeId) {
+      setWalletState("unknown");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void fetchWalletConnection(storeId).then((state) => {
+      if (!cancelled) {
+        setWalletState(state);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storeId]);
+
+  const walletCtaHidden = walletState === "connected";
 
   return (
     <div className="space-y-8">
@@ -35,24 +93,26 @@ export default function StoreDashboardPage() {
           </CardHeader>
         </Card>
 
-        <Card className="border border-muted bg-background">
-          <CardHeader className="flex flex-row items-start gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Wallet aria-hidden className="h-5 w-5" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Set up a wallet</CardTitle>
-              <CardDescription className="mt-1">
-                Connect or generate a Bitcoin wallet to receive settlement from invoices issued by this store.
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="secondary" disabled={!storeId}>
-              <Link href={storeId ? `/stores/${storeId}/wallets/btc/wizard` : "#"}>Go to BTC wallet</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        {!walletCtaHidden && (
+          <Card className="border border-muted bg-background">
+            <CardHeader className="flex flex-row items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Wallet aria-hidden className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Set up a wallet</CardTitle>
+                <CardDescription className="mt-1">
+                  Connect or generate a Bitcoin wallet to receive settlement from invoices issued by this store.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="secondary" disabled={!storeId}>
+                <Link href={storeId ? `/stores/${storeId}/wallets/btc/wizard` : "#"}>Go to BTC wallet</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </section>
     </div>
   );

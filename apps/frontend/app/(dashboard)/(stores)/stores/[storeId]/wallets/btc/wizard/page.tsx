@@ -297,7 +297,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
         description: "The on-chain Bitcoin wallet has been saved for this store.",
         variant: "success",
       });
-      router.replace(`/stores/${storeId}/wallets/btc?connected=1`);
+      router.replace(`/stores/${storeId}/wallets/btc/transactions?connected=1`);
     } catch (error: unknown) {
       if (isApiError(error)) {
         let message = error.message || "Failed to save wallet configuration.";

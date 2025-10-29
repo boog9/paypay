@@ -5,7 +5,7 @@ import { AuthGate } from "../../components/auth/auth-gate";
 import { AppShell } from "../../components/shell/app-shell";
 import { DashboardGate } from "./dashboard-gate";
 import { WalletPresenceProvider } from "../../src/contexts/wallet-presence";
-import { getWalletPresence } from "./stores/[storeId]/_lib/get-wallet-presence";
+import { getWalletPresence } from "./(stores)/stores/[storeId]/_lib/get-wallet-presence";
 
 type DashboardLayoutProps = {
   children: ReactNode;

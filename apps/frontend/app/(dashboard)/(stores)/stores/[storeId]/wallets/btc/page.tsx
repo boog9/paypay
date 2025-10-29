@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { bffFetch } from "../../../../../../../../lib/bff-fetch";
+import { bffFetch } from "@/lib/bff-fetch";
 
 type PageProps = {
   params: Promise<{ storeId: string }>;

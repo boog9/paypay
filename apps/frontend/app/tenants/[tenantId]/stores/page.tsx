@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
-import { bffFetch } from "../../../../lib/bff-fetch";
+import { bffFetch } from "@/lib/bff-fetch";
 import { Button } from "../../../../components/ui/button";
 import { StoreCard } from "./store-card";
 

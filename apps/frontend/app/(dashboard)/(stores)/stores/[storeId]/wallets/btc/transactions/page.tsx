@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { bffFetch } from "../../../../../../../../lib/bff-fetch";
+import { bffFetch } from "@/lib/bff-fetch";
 import type { WalletOverview, WalletTransactionsResponse } from "../../../../../../../../src/types/wallets";
 import TransactionsClient from "./transactions-client";
 import type { TransactionsQuery } from "./types";
@@ -199,7 +199,7 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
 
   const path = `/api/stores/${storeId}/wallets/BTC/transactions?${search.toString()}`;
 
-  let response: Response | null = null;
+  let response: Response;
   let attemptedRefresh = false;
 
   try {
@@ -235,7 +235,7 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
 
 async function loadOverview(storeId: string): Promise<FetchResult<WalletOverview>> {
   const path = `/api/stores/${storeId}/wallets/BTC/overview`;
-  let response: Response | null = null;
+  let response: Response;
   let attemptedRefresh = false;
 
   try {

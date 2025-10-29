@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { bffFetch } from "@/lib/bff-fetch";
+import type { WalletPresenceDTO } from "../_lib/get-wallet-presence";
 
 type PageProps = {
   params: Promise<{ storeId: string }>;
@@ -18,7 +19,9 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
 
   let response: Response | null = null;
   try {
-    response = await bffFetch(`/api/stores/${normalizedStoreId}/wallets/btc`);
+    response = await bffFetch(`/api/stores/${normalizedStoreId}/wallets/btc/presence`, {
+      cache: "no-store",
+    });
   } catch {
     response = null;
   }
@@ -43,7 +46,14 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
     redirect(transactionsPath);
   }
 
-  const payload = (await response.json()) as { hasWallet?: unknown } | null;
-  const hasWallet = Boolean(payload && typeof payload === "object" && payload.hasWallet === true);
+  const payload = (await response.json()) as unknown;
+  let hasWallet = false;
+  if (payload && typeof payload === "object") {
+    const { hasWallet: presenceFlag, derivationScheme } = payload as Partial<WalletPresenceDTO>;
+    hasWallet =
+      presenceFlag === true ||
+      (typeof derivationScheme === "string" && derivationScheme.length > 0);
+  }
+
   redirect(hasWallet ? transactionsPath : wizardPath);
 }

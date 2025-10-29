@@ -7,26 +7,17 @@ test.describe("Sidebar wallet navigation", () => {
     const storeId = "store-sidebar-wallet";
     await page.context().addCookies([makeSessionCookie()]);
 
-    const walletSummary = {
-      hasWallet: true,
-      enabled: true,
-      derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
-      accountKey: "xpubExampleAccountKey",
-      masterFingerprint: "10B3BFC0",
-      accountKeyPath: "m/84'/0'/0'",
-      label: "Operations wallet",
-    } satisfies Record<string, unknown>;
-
-    await page.route(
-      new RegExp(`/api/stores/${storeId}/wallets/btc\\?ts=\\d+`),
-      async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(walletSummary),
-        });
-      }
-    );
+    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          hasWallet: true,
+          enabled: true,
+          derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
+        }),
+      });
+    });
 
     await page.goto(`/stores/${storeId}/dashboard`);
 

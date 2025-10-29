@@ -7,27 +7,18 @@ test.describe("Dashboard wallet CTA", () => {
     const storeId = "store-wallet-ready";
     await page.context().addCookies([makeSessionCookie()]);
 
-    const walletSummary = {
-      hasWallet: true,
-      enabled: true,
-      derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
-      accountKey: "xpubExampleAccountKey",
-      masterFingerprint: "10B3BFC0",
-      accountKeyPath: "m/84'/0'/0'",
-      label: "Operations wallet",
-    } satisfies Record<string, unknown>;
-
-    await page.route(
-      new RegExp(`/api/stores/${storeId}/wallets/btc\\?ts=\\d+`),
-      async (route) => {
-        expect(route.request().method()).toBe("GET");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(walletSummary),
-        });
-      }
-    );
+    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+      expect(route.request().method()).toBe("GET");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          hasWallet: true,
+          enabled: true,
+          derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
+        }),
+      });
+    });
 
     await page.goto(`/stores/${storeId}/dashboard`);
 
@@ -40,27 +31,18 @@ test.describe("Dashboard wallet CTA", () => {
     const storeId = "store-wallet-success";
     await page.context().addCookies([makeSessionCookie()]);
 
-    const walletSummary = {
-      hasWallet: true,
-      enabled: true,
-      derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
-      accountKey: "xpubExampleAccountKey",
-      masterFingerprint: "10B3BFC0",
-      accountKeyPath: "m/84'/0'/0'",
-      label: "Operations wallet",
-    } satisfies Record<string, unknown>;
-
-    await page.route(
-      new RegExp(`/api/stores/${storeId}/wallets/btc\\?ts=\\d+`),
-      async (route) => {
-        expect(route.request().method()).toBe("GET");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(walletSummary),
-        });
-      }
-    );
+    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+      expect(route.request().method()).toBe("GET");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          hasWallet: true,
+          enabled: true,
+          derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
+        }),
+      });
+    });
 
     await page.goto(`/stores/${storeId}/dashboard`);
 

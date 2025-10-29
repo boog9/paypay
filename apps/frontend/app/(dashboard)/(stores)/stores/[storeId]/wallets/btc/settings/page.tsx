@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { Badge } from "../../../../../../../../components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
-import { bffFetch } from "../../../../../../../../lib/bff-fetch";
+import { bffFetch } from "@/lib/bff-fetch";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",

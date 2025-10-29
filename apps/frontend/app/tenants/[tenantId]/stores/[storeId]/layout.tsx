@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { bffFetch } from "../../../../../lib/bff-fetch";
+import { bffFetch } from "@/lib/bff-fetch";
 import { Button } from "../../../../../components/ui/button";
 import { StoreLayoutProvider } from "./store-layout-context";
 import { StoreSidebar, StoreSidebarSection } from "./store-sidebar";

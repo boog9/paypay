@@ -392,12 +392,14 @@ export class OnchainWalletsService {
   }
 
   private buildUpdatePayload(dto: UpdateOnchainDto): UpdateOnchainPaymentMethodPayload {
+    const accountKeyPath = this.sanitizeString(dto.accountKeyPath);
+    const label = this.sanitizeString(dto.label);
     return {
       enabled: dto.enabled ?? true,
       config: {
         derivationScheme: dto.derivationScheme,
-        accountKeyPath: dto.accountKeyPath,
-        label: dto.label,
+        accountKeyPath: accountKeyPath ?? null,
+        label: label ?? null,
         masterFingerprint: this.resolveFingerprint(dto)
       }
     };

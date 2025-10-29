@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { bffFetch } from "@/lib/bff-fetch";
 import type { WalletPresenceDTO } from "../_lib/get-wallet-presence";
 
+export const dynamic = "force-dynamic";
+
 type PageProps = {
   params: Promise<{ storeId: string }>;
 };

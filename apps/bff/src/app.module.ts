@@ -3,7 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSourceOptions } from 'typeorm';
-import { ThrottlerModule, seconds } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { BtcpayModule } from './btcpay/btcpay.module';
 import { AuthModule } from './auth/auth.module';
@@ -21,7 +21,6 @@ import { HealthController } from './health.controller';
 import { StoresModule } from './stores/stores.module';
 import { WalletsModule } from './wallets/wallets.module';
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { Request } from 'express';
 import { SecurityModule } from './security/security.module';
 import { CsrfGuard } from './security/csrf.guard';
 import { AppThrottlerGuard } from './app.throttler.guard';
@@ -93,20 +92,22 @@ import { AppThrottlerGuard } from './app.throttler.guard';
     }),
     ThrottlerModule.forRoot({
       throttlers: [
-        { name: 'default', ttl: seconds(30), limit: 120 },
-        { name: 'login', ttl: seconds(60), limit: 5 },
-        { name: 'refresh', ttl: seconds(60), limit: 30 },
-        { name: 'uiBurst', ttl: seconds(30), limit: 600 }
+        { name: 'burst', ttl: 2_000, limit: 30 },
+        { name: 'minute', ttl: 60_000, limit: 180 },
+        { name: 'hour', ttl: 3_600_000, limit: 3_000 },
+        { name: 'login', ttl: 60_000, limit: 5 },
+        { name: 'refresh', ttl: 60_000, limit: 30 },
+        { name: 'uiBurst', ttl: 30_000, limit: 600 }
       ],
       skipIf: (ctx) => {
-        const req = ctx.switchToHttp().getRequest<Request>();
+        const req = ctx.switchToHttp().getRequest();
         const m = req.method;
-        const p = req.originalUrl ?? req.url ?? '';
-        if (m === 'OPTIONS') return true;
+        const p = (req.originalUrl ?? req.url ?? '') as string;
+        if (m === 'OPTIONS' || m === 'HEAD') return true;
         return (
-          p.startsWith('/api/auth/me') ||
           p.startsWith('/api/auth/csrf') ||
           p.startsWith('/api/auth/csrf-token') ||
+          p.startsWith('/api/auth/me') ||
           p.startsWith('/health') ||
           p.startsWith('/readyz')
         );

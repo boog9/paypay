@@ -31,7 +31,6 @@ function parseSearchParams(params?: Record<string, string | string[] | undefined
     count: DEFAULT_COUNT,
     order: "desc",
     labels: [],
-    direction: "all",
   };
 
   if (!params) {
@@ -41,16 +40,12 @@ function parseSearchParams(params?: Record<string, string | string[] | undefined
   const skip = parseIntParam(params.skip, 0, 0);
   const count = parseIntParam(params.count, DEFAULT_COUNT, 1, MAX_COUNT);
   const orderRaw = extractString(params.order)?.toLowerCase();
-  const directionRaw = extractString(params.direction)?.toLowerCase();
   const labelsRaw = normalizeLabels(params.labels ?? params.label);
 
   result.skip = skip;
   result.count = count;
   if (orderRaw === "asc" || orderRaw === "desc") {
     result.order = orderRaw;
-  }
-  if (directionRaw === "in" || directionRaw === "out") {
-    result.direction = directionRaw;
   }
   result.labels = labelsRaw;
 

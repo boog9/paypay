@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, UseGuards } from '@nestjs/common';
 import { Throttle, seconds } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
@@ -19,7 +19,8 @@ import { OnchainWalletReadService } from './onchain-wallet-read.service';
 export class WalletsController {
   constructor(private readonly wallets: OnchainWalletReadService) {}
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @Throttle({ burst: { limit: 40, ttl: 2_000 } })
+  @Header('Cache-Control', 'private, max-age=3')
   @Get('transactions')
   listTransactions(
     @ReqUser() user: RequestUser,
@@ -36,6 +37,7 @@ export class WalletsController {
   }
 
   @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @Header('Cache-Control', 'private, max-age=3')
   @Get('transactions/:txId')
   getTransaction(
     @ReqUser() user: RequestUser,

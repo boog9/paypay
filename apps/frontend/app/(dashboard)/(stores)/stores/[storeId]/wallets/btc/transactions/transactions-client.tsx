@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
+  ArrowDownLeft,
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   Copy,
   ExternalLink,
@@ -25,6 +26,7 @@ import type {
 import type { TransactionsQuery } from "./types";
 
 const DEFAULT_COUNT = 50;
+const FETCH_DEBOUNCE_MS = 280;
 const CSV_HEADERS = [
   "date",
   "txid",
@@ -102,11 +104,21 @@ function resolveStatusVariant(status: WalletTransaction["status"]): { label: str
   }
 }
 
-function escapeCsvValue(value: string): string {
-  if (/[,"\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+function normalizeTransactionsResponse(
+  input: WalletTransactionsResponse | null | undefined,
+): WalletTransactionsResponse {
+  if (!input || typeof input !== "object") {
+    return { items: [] };
   }
-  return value;
+
+  const items = Array.isArray(input.items)
+    ? input.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
+    : [];
+
+  const totalValue = input.total;
+  const total = typeof totalValue === "number" && Number.isFinite(totalValue) ? totalValue : undefined;
+
+  return { total, items };
 }
 
 type TransactionsClientProps = {
@@ -117,27 +129,170 @@ type TransactionsClientProps = {
   error: string | null;
 };
 
-export default function TransactionsClient({ storeId, initialQuery, transactions, overview, error }: TransactionsClientProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+type DirectionIndicator = {
+  className: string;
+  label: string;
+  Icon: typeof ArrowDownLeft;
+};
+
+function resolveDirectionIndicator(direction: WalletTransaction["direction"]): DirectionIndicator {
+  if (direction === "in") {
+    return {
+      className: "border-emerald-300 text-emerald-600 bg-emerald-500/10",
+      label: "Incoming",
+      Icon: ArrowDownLeft,
+    };
+  }
+  return {
+    className: "border-destructive/60 text-destructive bg-destructive/10",
+    label: "Outgoing",
+    Icon: ArrowUpRight,
+  };
+}
+
+function buildQueryString(query: TransactionsQuery): string {
+  const params = new URLSearchParams();
+  if (query.skip > 0) {
+    params.set("skip", String(query.skip));
+  }
+  if (query.count !== DEFAULT_COUNT) {
+    params.set("count", String(query.count));
+  }
+  if (query.order !== "desc") {
+    params.set("order", query.order);
+  }
+  for (const label of query.labels) {
+    params.append("labels", label);
+  }
+  const search = params.toString();
+  return search ? `?${search}` : "";
+}
+
+function buildApiUrl(storeId: string, query: TransactionsQuery): string {
+  const search = buildQueryString(query);
+  const suffix = search ? search : "";
+  const base = `/api/stores/${storeId}/wallets/BTC/transactions`;
+  return `${base}${suffix}`;
+}
+
+export default function TransactionsClient({
+  storeId,
+  initialQuery,
+  transactions,
+  overview,
+  error,
+}: TransactionsClientProps) {
+  const [queryState, setQueryState] = useState<TransactionsQuery>(initialQuery);
+  const [data, setData] = useState<WalletTransactionsResponse>(() => normalizeTransactionsResponse(transactions));
+  const [currentError, setCurrentError] = useState<string | null>(error);
+  const [isFetching, setIsFetching] = useState(false);
   const [labelInput, setLabelInput] = useState("");
   const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
 
-  const items: WalletTransaction[] = useMemo(() => {
-    if (!transactions) {
-      return [];
+  const serverSnapshotRef = useRef({
+    key: JSON.stringify(initialQuery),
+    hasData: Boolean(transactions && Array.isArray(transactions.items) && !error),
+  });
+  const skippedInitialFetchRef = useRef(false);
+
+  useEffect(() => {
+    serverSnapshotRef.current = {
+      key: JSON.stringify(initialQuery),
+      hasData: Boolean(transactions && Array.isArray(transactions.items) && !error),
+    };
+    skippedInitialFetchRef.current = false;
+    setQueryState(initialQuery);
+    setData(normalizeTransactionsResponse(transactions));
+    setCurrentError(error);
+  }, [initialQuery, transactions, error]);
+
+  const queryKey = useMemo(() => JSON.stringify(queryState), [queryState]);
+  const apiUrl = useMemo(() => buildApiUrl(storeId, queryState), [storeId, queryState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
     }
-    return Array.isArray(transactions.items)
-      ? transactions.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
+    const nextUrl = `/stores/${storeId}/wallets/btc/transactions${buildQueryString(queryState)}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, [queryState, storeId]);
+
+  useEffect(() => {
+    const { key, hasData } = serverSnapshotRef.current;
+    if (!skippedInitialFetchRef.current) {
+      if (hasData && key === queryKey) {
+        skippedInitialFetchRef.current = true;
+        return;
+      }
+      skippedInitialFetchRef.current = true;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setIsFetching(true);
+      fetch(apiUrl, {
+        signal: controller.signal,
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      })
+        .then(async (response) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          if (!response.ok) {
+            let message: string | null = null;
+            try {
+              const payload = await response.json();
+              if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
+                const raw = (payload as { message?: string }).message ?? "";
+                message = raw.trim() ? raw.trim() : null;
+              }
+            } catch {
+              // ignore parse errors
+            }
+            setCurrentError(message ?? `Failed to load transactions (status ${response.status}).`);
+            return;
+          }
+
+          try {
+            const payload = (await response.json()) as WalletTransactionsResponse;
+            setData(normalizeTransactionsResponse(payload));
+            setCurrentError(null);
+          } catch {
+            setCurrentError("Failed to parse transactions response.");
+          }
+        })
+        .catch((err) => {
+          if (err && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
+            return;
+          }
+          setCurrentError("Failed to load transactions.");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsFetching(false);
+          }
+        });
+    }, FETCH_DEBOUNCE_MS);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [apiUrl, queryKey]);
+
+  const items: WalletTransaction[] = useMemo(() => {
+    return Array.isArray(data.items)
+      ? data.items.filter((item): item is WalletTransaction => typeof item === "object" && item !== null)
       : [];
-  }, [transactions]);
+  }, [data]);
 
   const totalCount = useMemo(() => {
-    if (!transactions || typeof transactions.total !== "number") {
+    if (typeof data.total !== "number") {
       return null;
     }
-    return Number.isFinite(transactions.total) ? transactions.total : null;
-  }, [transactions]);
+    return Number.isFinite(data.total) ? data.total : null;
+  }, [data.total]);
 
   const availableLabels = useMemo(() => {
     const set = new Set<string>();
@@ -151,60 +306,30 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  const filteredByDirection = useMemo(() => {
-    if (initialQuery.direction === "all") {
-      return items;
-    }
-    return items.filter((tx) => tx.direction === initialQuery.direction);
-  }, [items, initialQuery.direction]);
+  const hasPrevious = queryState.skip > 0;
+  const hasNext = totalCount !== null ? queryState.skip + items.length < totalCount : items.length >= queryState.count;
+  const pageStart = items.length > 0 ? queryState.skip + 1 : 0;
+  const pageEnd = items.length > 0 ? queryState.skip + items.length : 0;
 
-  const displayItems = filteredByDirection;
-
-  const hasPrevious = initialQuery.skip > 0;
-  const hasNext = totalCount !== null ? initialQuery.skip + items.length < totalCount : items.length >= initialQuery.count;
-  const pageStart = displayItems.length > 0 ? initialQuery.skip + 1 : 0;
-  const pageEnd = displayItems.length > 0 ? initialQuery.skip + displayItems.length : 0;
-
-  const navigate = useCallback(
-    (next: TransactionsQuery) => {
-      startTransition(() => {
-        const params = new URLSearchParams();
-        if (next.skip > 0) {
-          params.set("skip", String(next.skip));
-        }
-        if (next.count !== DEFAULT_COUNT) {
-          params.set("count", String(next.count));
-        }
-        if (next.order !== "desc") {
-          params.set("order", next.order);
-        }
-        if (next.direction !== "all") {
-          params.set("direction", next.direction);
-        }
-        for (const label of next.labels) {
-          params.append("labels", label);
-        }
-        const queryString = params.toString();
-        router.push(`/stores/${storeId}/wallets/btc/transactions${queryString ? `?${queryString}` : ""}`);
-      });
-    },
-    [router, storeId]
-  );
-
-  const handleDirectionChange = useCallback(
-    (direction: TransactionsQuery["direction"]) => {
-      if (direction === initialQuery.direction) {
-        return;
-      }
-      navigate({ ...initialQuery, direction, skip: 0 });
-    },
-    [initialQuery, navigate]
-  );
+  const updateQuery = useCallback((updater: (prev: TransactionsQuery) => TransactionsQuery) => {
+    setQueryState((prev) => {
+      const next = updater(prev);
+      const normalizedLabels = next.labels
+        .map((label) => label.trim())
+        .filter((label, index, array) => label && array.indexOf(label) === index)
+        .slice(0, 10);
+      return {
+        skip: Math.max(0, next.skip),
+        count: Math.min(Math.max(next.count, 1), 200),
+        order: next.order === "asc" ? "asc" : "desc",
+        labels: normalizedLabels,
+      };
+    });
+  }, []);
 
   const handleOrderToggle = useCallback(() => {
-    const nextOrder = initialQuery.order === "desc" ? "asc" : "desc";
-    navigate({ ...initialQuery, order: nextOrder, skip: 0 });
-  }, [initialQuery, navigate]);
+    updateQuery((prev) => ({ ...prev, order: prev.order === "desc" ? "asc" : "desc", skip: 0 }));
+  }, [updateQuery]);
 
   const handleAddLabel = useCallback(
     (label: string) => {
@@ -212,48 +337,47 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
       if (!trimmed) {
         return;
       }
-      if (initialQuery.labels.includes(trimmed)) {
-        setLabelInput("");
-        return;
-      }
-      const nextLabels = [...initialQuery.labels, trimmed].slice(0, 10);
-      navigate({ ...initialQuery, labels: nextLabels, skip: 0 });
+      updateQuery((prev) => {
+        if (prev.labels.includes(trimmed)) {
+          return { ...prev, skip: 0 };
+        }
+        return { ...prev, labels: [...prev.labels, trimmed], skip: 0 };
+      });
       setLabelInput("");
     },
-    [initialQuery, navigate]
+    [updateQuery],
   );
 
   const handleRemoveLabel = useCallback(
     (label: string) => {
-      const nextLabels = initialQuery.labels.filter((item) => item !== label);
-      navigate({ ...initialQuery, labels: nextLabels, skip: 0 });
+      updateQuery((prev) => ({ ...prev, labels: prev.labels.filter((item) => item !== label), skip: 0 }));
     },
-    [initialQuery, navigate]
+    [updateQuery],
   );
 
   const handleResetFilters = useCallback(() => {
     setLabelInput("");
-    navigate({ ...initialQuery, labels: [], direction: "all", skip: 0 });
-  }, [initialQuery, navigate]);
+    updateQuery((prev) => ({ ...prev, labels: [], skip: 0 }));
+  }, [updateQuery]);
 
   const handlePagination = useCallback(
     (direction: "previous" | "next") => {
       if (direction === "previous" && hasPrevious) {
-        navigate({ ...initialQuery, skip: Math.max(initialQuery.skip - initialQuery.count, 0) });
+        updateQuery((prev) => ({ ...prev, skip: Math.max(prev.skip - prev.count, 0) }));
       }
       if (direction === "next" && hasNext) {
-        navigate({ ...initialQuery, skip: initialQuery.skip + initialQuery.count });
+        updateQuery((prev) => ({ ...prev, skip: prev.skip + prev.count }));
       }
     },
-    [hasNext, hasPrevious, initialQuery, navigate]
+    [hasNext, hasPrevious, updateQuery],
   );
 
   const handleExportCsv = useCallback(() => {
-    if (!displayItems.length) {
+    if (!items.length) {
       return;
     }
     const rows = [CSV_HEADERS.join(",")];
-    for (const tx of displayItems) {
+    for (const tx of items) {
       const row = [
         formatDate(tx.timestamp),
         tx.txId,
@@ -265,7 +389,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
         tx.comment ?? "",
         tx.rateUsd != null ? String(tx.rateUsd) : "",
       ];
-      rows.push(row.map(escapeCsvValue).join(","));
+      rows.push(row.map((value) => (/[,"\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value)).join(","));
     }
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -276,7 +400,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-  }, [displayItems]);
+  }, [items]);
 
   const handleCopy = useCallback(async (txId: string) => {
     try {
@@ -324,7 +448,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
-            <Link href={`/stores/${storeId}/reports`} aria-label="Open reporting">
+            <Link href={`/stores/${storeId}/reports`} aria-label="Open reporting" prefetch={false}>
               <BarChart3 className="mr-2 h-4 w-4" aria-hidden /> Reporting
             </Link>
           </Button>
@@ -354,42 +478,16 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
         </div>
       </div>
 
-      {error ? (
+      {currentError ? (
         <div
           className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
           role="alert"
         >
-          {error}
+          {currentError}
         </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant={initialQuery.direction === "all" ? "default" : "outline"}
-            onClick={() => handleDirectionChange("all")}
-            aria-pressed={initialQuery.direction === "all"}
-          >
-            All
-          </Button>
-          <Button
-            size="sm"
-            variant={initialQuery.direction === "in" ? "default" : "outline"}
-            onClick={() => handleDirectionChange("in")}
-            aria-pressed={initialQuery.direction === "in"}
-          >
-            Incoming
-          </Button>
-          <Button
-            size="sm"
-            variant={initialQuery.direction === "out" ? "default" : "outline"}
-            onClick={() => handleDirectionChange("out")}
-            aria-pressed={initialQuery.direction === "out"}
-          >
-            Outgoing
-          </Button>
-        </div>
         <div className="flex flex-1 min-w-[220px] items-center gap-2">
           <div className="relative flex-1">
             <input
@@ -419,15 +517,15 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
             Clear
           </Button>
         </div>
-        <Button size="sm" variant="outline" onClick={handleOrderToggle}>
-          Sort {initialQuery.order === "desc" ? "↑" : "↓"}
+        <Button size="sm" variant="outline" onClick={handleOrderToggle} disabled={isFetching}>
+          Sort {queryState.order === "desc" ? "↑" : "↓"}
         </Button>
       </div>
 
-      {initialQuery.labels.length > 0 ? (
+      {queryState.labels.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Active labels:</span>
-          {initialQuery.labels.map((label) => (
+          {queryState.labels.map((label) => (
             <Badge key={label} variant="secondary" className="flex items-center gap-1">
               {label}
               <button
@@ -457,20 +555,21 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
             </tr>
           </thead>
           <tbody>
-            {displayItems.length === 0 ? (
+            {items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-3 py-10 text-center text-sm text-muted-foreground">
-                  {isPending ? "Loading transactions…" : "No transactions found for this filter."}
+                  {isFetching ? "Loading transactions…" : "No transactions found for this filter."}
                 </td>
               </tr>
             ) : (
-              displayItems.map((tx) => {
+              items.map((tx) => {
                 const indicator = resolveStatusVariant(tx.status);
+                const directionIndicator = resolveDirectionIndicator(tx.direction);
                 const truncated = tx.txId.length > 16 ? `${tx.txId.slice(0, 10)}…${tx.txId.slice(-4)}` : tx.txId;
                 const amountClass = cn(
                   "text-right text-sm font-medium",
                   tx.direction === "in" ? "text-emerald-600" : "text-destructive",
-                  tx.status === "unconfirmed" ? "opacity-70" : undefined
+                  tx.status === "unconfirmed" ? "opacity-70" : undefined,
                 );
                 const rowClass = cn("border-b last:border-b-0", tx.status === "unconfirmed" && "opacity-90");
                 return (
@@ -496,6 +595,11 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
                     </td>
                     <td className="px-3 py-3 align-top text-sm">
                       <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={cn("inline-flex items-center gap-1 font-normal", directionIndicator.className)}>
+                          <directionIndicator.Icon className="h-3.5 w-3.5" aria-hidden />
+                          <span aria-hidden>{directionIndicator.label}</span>
+                          <span className="sr-only">{directionIndicator.label} transaction</span>
+                        </Badge>
                         <span className="font-mono text-sm">{truncated}</span>
                         <button
                           type="button"
@@ -552,7 +656,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
         <div>
-          {displayItems.length > 0 ? (
+          {items.length > 0 ? (
             <span>
               Showing <strong className="text-foreground">{pageStart}</strong>–
               <strong className="text-foreground">{pageEnd}</strong>
@@ -565,7 +669,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
           <Button
             size="sm"
             variant="outline"
-            disabled={!hasPrevious || isPending}
+            disabled={!hasPrevious || isFetching}
             onClick={() => handlePagination("previous")}
           >
             <ArrowLeft className="mr-2 h-4 w-4" aria-hidden /> Previous
@@ -573,7 +677,7 @@ export default function TransactionsClient({ storeId, initialQuery, transactions
           <Button
             size="sm"
             variant="outline"
-            disabled={!hasNext || isPending}
+            disabled={!hasNext || isFetching}
             onClick={() => handlePagination("next")}
           >
             Next <ArrowRight className="ml-2 h-4 w-4" aria-hidden />

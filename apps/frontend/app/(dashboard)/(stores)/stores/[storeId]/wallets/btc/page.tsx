@@ -18,8 +18,7 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
 
   let response: Response | null = null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    response = (await bffFetch(`/api/stores/${normalizedStoreId}/wallets/btc`)) as Response;
+    response = await bffFetch(`/api/stores/${normalizedStoreId}/wallets/btc`);
   } catch {
     response = null;
   }

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { makeSessionCookie } from "./utils/cookies";
+import { walletPresencePath } from "../lib/walletPaths";
 
 test.describe("Wallet wizard", () => {
   test("connects an existing wallet and redirects to transactions", async ({ page }) => {
@@ -64,7 +65,7 @@ test.describe("Wallet wizard", () => {
       });
     });
 
-    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+    await page.route(`**${walletPresencePath(storeId)}`, async (route) => {
       presenceRequests += 1;
       if (walletConnected) {
         presenceAfterConnect += 1;
@@ -73,9 +74,8 @@ test.describe("Wallet wizard", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          hasWallet: walletConnected,
+          config: { derivationScheme: walletConnected ? derivationScheme : null },
           enabled: walletConnected,
-          derivationScheme: walletConnected ? derivationScheme : null,
         }),
       });
     });

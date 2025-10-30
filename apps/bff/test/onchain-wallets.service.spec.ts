@@ -234,7 +234,7 @@ describe('OnchainWalletsService', () => {
   });
 
   describe('getPresence', () => {
-    it('returns presence derived from full configuration', async () => {
+    it('returns presence derived from BTCPay configuration', async () => {
       const presence = await service.getPresence(
         { id: 'tenant-user', email: 'merchant@example.com' },
         store.btcpayStoreId
@@ -245,49 +245,25 @@ describe('OnchainWalletsService', () => {
         enabled: true,
         derivationScheme: fullConfig.config.derivationScheme
       });
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
-      expect(keysService.withStoreSettingsReadKey).not.toHaveBeenCalled();
-    });
-
-    it('uses metadata fallback when only limited access is available', async () => {
-      walletsRepository.findOne.mockResolvedValue({
-        paymentMethodId: 'BTC-CHAIN',
-        derivationScheme: 'PRESENT',
-        accountKeyPath: null,
-        masterFingerprint: null,
-        label: null
-      } as Partial<ManagedStoreWalletEntity>);
-
-      paymentMethods.getOnchain.mockImplementation(async (
-        _storeId: string,
-        _crypto?: string,
-        options?: { includeConfig?: boolean }
-      ) => {
-        if (options?.includeConfig) {
-          throw new ForbiddenException('limited');
-        }
-        return {
-          ...fullConfig,
-          enabled: true,
-          config: { derivationScheme: null, accountKeyPath: null, masterFingerprint: null, label: null }
-        } satisfies OnchainPaymentMethodConfig;
-      });
-
-      const presence = await service.getPresence(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
+      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+        store.btcpayStoreId,
+        'merchant@example.com',
+        expect.any(Function),
+        { host: store.btcpayHost }
       );
-
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
-      expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledTimes(1);
-      expect(presence).toEqual({ hasWallet: true, enabled: true, derivationScheme: null });
+      expect(keysService.withStoreSettingsReadKey).not.toHaveBeenCalled();
+      expect(paymentMethods.getOnchain).toHaveBeenCalledWith(
+        store.btcpayStoreId,
+        'BTC',
+        expect.objectContaining({ includeConfig: true, apiKeyOverride: 'write-key' })
+      );
     });
 
-    it('returns absence when BTCPay reports no wallet', async () => {
+    it('returns absence when BTCPay marks the wallet as disabled', async () => {
       paymentMethods.getOnchain.mockResolvedValue({
         ...fullConfig,
         enabled: false,
-        config: { derivationScheme: null, accountKeyPath: null, masterFingerprint: null, label: null }
+        config: { derivationScheme: fullConfig.config.derivationScheme, accountKeyPath: null, masterFingerprint: null, label: null }
       });
 
       const presence = await service.getPresence(
@@ -296,6 +272,33 @@ describe('OnchainWalletsService', () => {
       );
 
       expect(presence).toEqual({ hasWallet: false, enabled: false, derivationScheme: null });
+    });
+
+    it('returns absence when BTCPay reports the wallet missing', async () => {
+      paymentMethods.getOnchain.mockRejectedValueOnce(new NotFoundException('missing'));
+
+      const presence = await service.getPresence(
+        { id: 'tenant-user', email: 'merchant@example.com' },
+        store.btcpayStoreId
+      );
+
+      expect(presence).toEqual({ hasWallet: false, enabled: false, derivationScheme: null });
+    });
+
+    it('maps BTCPay upstream errors to BadGateway responses', async () => {
+      paymentMethods.getOnchain.mockRejectedValueOnce(new BTCPayUpstreamError('oops', undefined, 503));
+
+      await expect(
+        service.getPresence({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId)
+      ).rejects.toMatchObject({ status: 502 });
+    });
+
+    it('maps BTCPay auth failures to Unauthorized responses', async () => {
+      paymentMethods.getOnchain.mockRejectedValueOnce(new BTCPayAuthError());
+
+      await expect(
+        service.getPresence({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId)
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

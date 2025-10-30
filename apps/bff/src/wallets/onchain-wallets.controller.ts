@@ -16,6 +16,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../security/csrf.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
 import { OnchainWalletsService } from './onchain-wallets.service';
+import type { WalletPresenceDto } from './dto/wallet-presence.dto';
+import { toWalletPresenceDto } from './dto/wallet-presence.dto';
 import { PreviewOnchainDto, UpdateOnchainDto } from './dto/preview-onchain.dto';
 
 @Controller('stores/:storeId/wallets/btc')
@@ -28,11 +30,16 @@ export class OnchainWalletsController {
   @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
   @Header('Vary', 'Cookie')
-  getPresence(
+  async getPresence(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string
-  ) {
-    return this.walletsService.getPresence({ id: user.id ?? null, email: user.email ?? null }, storeId);
+  ): Promise<WalletPresenceDto> {
+    const presence = await this.walletsService.getPresence(
+      { id: user.id ?? null, email: user.email ?? null },
+      storeId
+    );
+
+    return toWalletPresenceDto(presence);
   }
 
   @Post('preview')

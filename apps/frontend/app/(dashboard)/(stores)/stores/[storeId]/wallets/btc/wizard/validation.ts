@@ -7,8 +7,8 @@ export const SENSITIVE_ERROR_MESSAGE =
   "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
 
 const EXTENDED_KEY_RE = /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/;
-const DESCRIPTOR_RE = /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)$/;
-const ACCOUNT_KEY_PATH_RE = /^m\/(44|49|84|86)'\/(0|1)'\/\d+'$/;
+const DESCRIPTOR_RE = /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)(?:#[0-9a-z]+)?$/i;
+const ACCOUNT_KEY_PATH_RE = /^m\/(84|86)'\/1'\/\d+'$/;
 
 export type BitcoinNetwork = "mainnet" | "testnet";
 
@@ -37,7 +37,10 @@ export function isSupportedDescriptor(value: string): boolean {
   if (!hasSupportedDescriptorPrefix(trimmed)) {
     return false;
   }
-  return DESCRIPTOR_RE.test(trimmed);
+  if (!DESCRIPTOR_RE.test(trimmed)) {
+    return false;
+  }
+  return trimmed.includes('/*');
 }
 
 export function detectNetworkFromInput(value: string): BitcoinNetwork | undefined {

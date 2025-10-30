@@ -18,6 +18,7 @@
     "@nestjs/throttler": "^6.0.0",
     "@nestjs/typeorm": "^11.0.0",
     "@paypay/sdk": "workspace:*",
+    "@scure/bip32": "^1.4.0",
     "argon2": "^0.41.1",
     "axios": "^1.7.7",
     "bip39": "^3.1.0",

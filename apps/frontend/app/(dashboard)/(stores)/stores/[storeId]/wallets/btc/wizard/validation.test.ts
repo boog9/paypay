@@ -77,7 +77,7 @@ describe("walletWizardFormSchema", () => {
   it("validates provided account key paths", () => {
     const result = walletWizardFormSchema.safeParse({
       derivationScheme: SAMPLE_XPUB,
-      accountKeyPath: "m/84'/0'/0'",
+      accountKeyPath: "m/84'/1'/0'",
     });
     expect(result.success).toBe(true);
   });

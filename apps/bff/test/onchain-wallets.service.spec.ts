@@ -1,385 +1,198 @@
-import {
-  ForbiddenException,
-  NotFoundException,
-  UnauthorizedException,
-  UnprocessableEntityException
-} from '@nestjs/common';
-import type { OnchainPreviewResponse, OnchainPaymentMethodConfig } from '../src/btcpay/btcpay.payment-methods.service';
-import { BtcpayKeysService } from '../src/btcpay/btcpay.keys.service';
-import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
-import { BTCPayAuthError, BTCPayUpstreamError } from '../src/btcpay/btcpay.errors';
-import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
-import { ManagedStoreWalletEntity } from '../src/wallets/entities/managed-store-wallet.entity';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { OnchainWalletsService } from '../src/wallets/onchain-wallets.service';
-
-const SAMPLE_ZPUB =
-  "zpub6uMwVRSvPzF7nJnxv1FgGw9sLrRu6w7LCzTu8ndHgCpbxjb7Rkg6ZJqseMSW4JQkKTL2d8U4z8VmHHPT6kJj1ZqT4LwymkC5fP6C8zY4j9T";
-
-const store: ManagedStoreEntity = {
-  id: 'local-store',
-  userId: 'tenant-user',
-  btcpayStoreId: 'store-789',
-  btcpayHost: 'https://btcpay.example',
-  storeName: 'Demo store',
-  defaultCurrency: 'USD',
-  apiKeyCiphertext: 'cipher',
-  apiKeyDekWrapped: 'dek',
-  webhookId: null,
-  webhookSecretCiphertext: null,
-  webhookSecretDekWrapped: null,
-  storeKeyLastFour: null,
-  lastActiveAt: null,
-  createdAt: new Date(),
-  updatedAt: new Date()
-} as ManagedStoreEntity;
-
-const previewResponse: OnchainPreviewResponse = {
-  storeId: store.btcpayStoreId,
-  paymentMethodId: 'BTC-CHAIN',
-  currency: 'BTC',
-  addresses: Array.from({ length: 5 }, (_, index) => ({
-    address: `bcrt1qpreview${index}`,
-    keyPath: `0/${index}`,
-    index
-  }))
-};
-
-const fullConfig: OnchainPaymentMethodConfig = {
-  storeId: store.btcpayStoreId,
-  paymentMethodId: 'BTC-CHAIN',
-  currency: 'BTC',
-  enabled: true,
-  config: {
-    derivationScheme: `wpkh([abcdef12/84'/0'/0']${SAMPLE_ZPUB}/0/*)`,
-    accountKeyPath: "m/84'/0'/0'",
-    masterFingerprint: 'abcdef12',
-    label: 'Primary wallet'
-  }
-};
+import { OnchainWalletEntity } from '../src/wallets/onchain-wallet.entity';
+import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
+import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 
 describe('OnchainWalletsService', () => {
-  const storesRepository = {
-    findOne: jest.fn()
-  };
+  let service: OnchainWalletsService;
+  let repository: jest.Mocked<Repository<OnchainWalletEntity>>;
+  let paymentMethods: jest.Mocked<BtcpayPaymentMethodsService>;
 
-  const walletsRepository = {
-    findOne: jest.fn(),
-    create: jest.fn(),
-    save: jest.fn()
-  };
+  const store: ManagedStoreEntity = {
+    id: 'store-id',
+    userId: 'user-id',
+    btcpayStoreId: 'BTCPAY123',
+    btcpayHost: 'https://btcpay.example',
+    storeName: 'Demo',
+    defaultCurrency: 'USD',
+    apiKeyCiphertext: 'cipher',
+    apiKeyDekWrapped: 'dek',
+    webhookId: null,
+    webhookSecretCiphertext: null,
+    webhookSecretDekWrapped: null,
+    storeKeyLastFour: null,
+    lastActiveAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  } as ManagedStoreEntity;
 
-  const paymentMethods = {
-    previewOnchainPaymentMethod: jest.fn(),
-    updateOnchainPaymentMethod: jest.fn(),
-    getOnchain: jest.fn()
-  } as jest.Mocked<
-    Pick<BtcpayPaymentMethodsService, 'previewOnchainPaymentMethod' | 'updateOnchainPaymentMethod' | 'getOnchain'>
-  >;
-
-  const keysService = {
-    withStoreSettingsReadKey: jest.fn(),
-    withStoreSettingsWriteKey: jest.fn()
-  } as jest.Mocked<Pick<BtcpayKeysService, 'withStoreSettingsReadKey' | 'withStoreSettingsWriteKey'>>;
-
-  const service = new OnchainWalletsService(
-    storesRepository as any,
-    walletsRepository as any,
-    paymentMethods as any,
-    keysService as any
-  );
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    storesRepository.findOne.mockResolvedValue(store);
-    walletsRepository.findOne.mockResolvedValue(null);
-    walletsRepository.create.mockImplementation((value) => value);
-    walletsRepository.save.mockImplementation(async (value) => value);
-    paymentMethods.previewOnchainPaymentMethod.mockResolvedValue(previewResponse);
-    paymentMethods.updateOnchainPaymentMethod.mockResolvedValue(undefined);
-    paymentMethods.getOnchain.mockResolvedValue(fullConfig);
-    keysService.withStoreSettingsReadKey.mockImplementation(
-      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) =>
-        handler('read-key')
-    );
-    keysService.withStoreSettingsWriteKey.mockImplementation(
-      async (_storeId: string, _email: string, handler: (apiKey: string) => Promise<unknown>) =>
-        handler('write-key')
-    );
-  });
-
-  describe('preview', () => {
-    it('limits preview addresses and requests using a read key', async () => {
-      const result = await service.preview(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId,
-        { derivationScheme: SAMPLE_ZPUB, amount: 2 } as any
-      );
-
-      expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'merchant@example.com',
-        expect.any(Function),
-        { host: store.btcpayHost }
-      );
-      expect(paymentMethods.previewOnchainPaymentMethod).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'BTC',
-        { derivationScheme: SAMPLE_ZPUB, accountKeyPath: null },
-        { store, apiKeyOverride: 'read-key' }
-      );
-      expect(result.addresses).toHaveLength(2);
-      expect(result.addresses[0]?.address).toBe('bcrt1qpreview0');
-      expect(result.paymentMethodId).toBe('BTC-CHAIN');
-    });
-
-    it('falls back to a write key when read permissions are insufficient', async () => {
-      paymentMethods.previewOnchainPaymentMethod
-        .mockRejectedValueOnce(new ForbiddenException('limited'))
-        .mockResolvedValueOnce(previewResponse);
-
-      const result = await service.preview(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId,
-        { derivationScheme: SAMPLE_ZPUB } as any
-      );
-
-      expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledTimes(1);
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
-      expect(paymentMethods.previewOnchainPaymentMethod).toHaveBeenCalledTimes(2);
-      expect(result.addresses).toEqual(previewResponse.addresses);
-    });
-  });
-
-  describe('getSummary', () => {
-    it('returns full configuration details when accessible', async () => {
-      walletsRepository.findOne.mockResolvedValue({
-        paymentMethodId: 'BTC-CHAIN',
-        derivationScheme: 'PRESENT',
-        accountKeyPath: "m/84'/0'/0'",
-        masterFingerprint: 'ABCDEF12',
-        label: 'Portal metadata'
-      } as Partial<ManagedStoreWalletEntity>);
-
-      const summary = await service.getSummary(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
-      );
-
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'merchant@example.com',
-        expect.any(Function),
-        { host: store.btcpayHost }
-      );
-
-      expect(summary).toEqual({
-        hasWallet: true,
-        enabled: true,
-        derivationScheme: fullConfig.config.derivationScheme,
-        accountKey: SAMPLE_ZPUB,
-        masterFingerprint: 'ABCDEF12',
-        accountKeyPath: "m/84'/0'/0'",
-        label: 'Primary wallet'
-      });
-    });
-
-    it('returns limited summary when BTCPay restricts configuration access', async () => {
-      walletsRepository.findOne.mockResolvedValue({
-        paymentMethodId: 'BTC-CHAIN',
-        derivationScheme: 'PRESENT',
-        accountKeyPath: null,
-        masterFingerprint: null,
-        label: null
-      } as Partial<ManagedStoreWalletEntity>);
-
-      paymentMethods.getOnchain.mockImplementation(async (
-        _storeId: string,
-        _crypto?: string,
-        options?: { includeConfig?: boolean }
-      ) => {
-        if (options?.includeConfig) {
-          throw new ForbiddenException('limited');
-        }
-        return {
-          ...fullConfig,
-          config: { derivationScheme: null, accountKeyPath: null, masterFingerprint: null, label: null }
-        } satisfies OnchainPaymentMethodConfig;
-      });
-
-      const summary = await service.getSummary(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
-      );
-
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledTimes(1);
-      expect(keysService.withStoreSettingsReadKey).toHaveBeenCalledTimes(1);
-      expect(summary).toEqual({
-        hasWallet: true,
-        enabled: true,
-        derivationScheme: null,
-        accountKey: null,
-        masterFingerprint: null,
-        accountKeyPath: null,
-        label: null
-      });
-    });
-
-    it('propagates Unauthorized errors from BTCPay', async () => {
-      paymentMethods.getOnchain.mockRejectedValue(new BTCPayAuthError());
-
-      await expect(
-        service.getSummary({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId)
-      ).rejects.toBeInstanceOf(UnauthorizedException);
-    });
-  });
-
-  describe('getPresence', () => {
-    it('returns presence derived from BTCPay configuration', async () => {
-      const presence = await service.getPresence(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
-      );
-
-      expect(presence).toEqual({
-        hasWallet: true,
-        enabled: true,
-        derivationScheme: fullConfig.config.derivationScheme
-      });
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'merchant@example.com',
-        expect.any(Function),
-        { host: store.btcpayHost }
-      );
-      expect(keysService.withStoreSettingsReadKey).not.toHaveBeenCalled();
-      expect(paymentMethods.getOnchain).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'BTC',
-        expect.objectContaining({ includeConfig: true, apiKeyOverride: 'write-key' })
-      );
-    });
-
-    it('returns absence when BTCPay marks the wallet as disabled', async () => {
-      paymentMethods.getOnchain.mockResolvedValue({
-        ...fullConfig,
-        enabled: false,
-        config: { derivationScheme: fullConfig.config.derivationScheme, accountKeyPath: null, masterFingerprint: null, label: null }
-      });
-
-      const presence = await service.getPresence(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
-      );
-
-      expect(presence).toEqual({ hasWallet: false, enabled: false, derivationScheme: null });
-    });
-
-    it('returns absence when BTCPay reports the wallet missing', async () => {
-      paymentMethods.getOnchain.mockRejectedValueOnce(new NotFoundException('missing'));
-
-      const presence = await service.getPresence(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId
-      );
-
-      expect(presence).toEqual({ hasWallet: false, enabled: false, derivationScheme: null });
-    });
-
-    it('maps BTCPay upstream errors to BadGateway responses', async () => {
-      paymentMethods.getOnchain.mockRejectedValueOnce(new BTCPayUpstreamError('oops', undefined, 503));
-
-      await expect(
-        service.getPresence({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId)
-      ).rejects.toMatchObject({ status: 502 });
-    });
-
-    it('maps BTCPay auth failures to Unauthorized responses', async () => {
-      paymentMethods.getOnchain.mockRejectedValueOnce(new BTCPayAuthError());
-
-      await expect(
-        service.getPresence({ id: 'tenant-user', email: 'merchant@example.com' }, store.btcpayStoreId)
-      ).rejects.toBeInstanceOf(UnauthorizedException);
-    });
-  });
-
-  describe('update', () => {
-    it('updates BTCPay and stores sanitized metadata', async () => {
-      await service.update(
-        { id: 'tenant-user', email: 'merchant@example.com' },
-        store.btcpayStoreId,
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        OnchainWalletsService,
         {
-          derivationScheme: fullConfig.config.derivationScheme,
-          accountKeyPath: "  m/84'/0'/0'  ",
-          masterFingerprint: 'abcdef12',
-          label: 'Primary wallet'
-        } as any
-      );
+          provide: getRepositoryToken(OnchainWalletEntity),
+          useValue: {
+            findOne: jest.fn(),
+            save: jest.fn(),
+            create: jest.fn((value: Partial<OnchainWalletEntity>) => ({
+              id: 'wallet-id',
+              enabled: true,
+              deletedAt: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              ...value
+            }))
+          }
+        },
+        {
+          provide: BtcpayPaymentMethodsService,
+          useValue: {
+            getOnchainConfig: jest.fn()
+          }
+        }
+      ]
+    }).compile();
 
-      expect(keysService.withStoreSettingsWriteKey).toHaveBeenCalledWith(
-        store.btcpayStoreId,
-        'merchant@example.com',
-        expect.any(Function),
-        { host: store.btcpayHost }
-      );
-      expect(paymentMethods.updateOnchainPaymentMethod).toHaveBeenCalledWith(
-        expect.objectContaining({
-          storeId: store.btcpayStoreId,
-          derivationScheme: fullConfig.config.derivationScheme,
-          accountKeyPath: "m/84'/0'/0'",
-          masterFingerprint: 'abcdef12'
-        }),
-        { store, apiKey: 'write-key' }
-      );
-      expect(walletsRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          paymentMethodId: 'BTC-CHAIN',
-          derivationScheme: 'PRESENT',
-          accountKeyPath: "m/84'/0'/0'",
-          masterFingerprint: 'ABCDEF12',
-          label: 'Primary wallet'
-        })
-      );
-    });
+    service = moduleRef.get(OnchainWalletsService);
+    repository = moduleRef.get(getRepositoryToken(OnchainWalletEntity));
+    paymentMethods = moduleRef.get(BtcpayPaymentMethodsService) as jest.Mocked<BtcpayPaymentMethodsService>;
+    paymentMethods.getOnchainConfig.mockResolvedValue({ enabled: false });
+  });
 
-    it('throws 422 when BTCPay validation fails', async () => {
-      paymentMethods.updateOnchainPaymentMethod.mockRejectedValue(
-        new BTCPayUpstreamError('Invalid derivation', undefined, 422)
-      );
+  it('returns disabled presence when no record exists', async () => {
+    repository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.update(
-          { id: 'tenant-user', email: 'merchant@example.com' },
-          store.btcpayStoreId,
-          {
-            derivationScheme: fullConfig.config.derivationScheme,
-            accountKeyPath: "m/84'/0'/0'",
-            masterFingerprint: 'abcdef12'
-          } as any
-        )
-      ).rejects.toBeInstanceOf(UnprocessableEntityException);
-    });
+    const presence = await service.getPresence(store);
 
-    it('maps BTCPay auth failures to UnauthorizedException', async () => {
-      keysService.withStoreSettingsWriteKey.mockRejectedValue(new BTCPayAuthError());
+    expect(presence).toEqual({ enabled: false, derivationScheme: null });
+  });
 
-      await expect(
-        service.update(
-          { id: 'tenant-user', email: 'merchant@example.com' },
-          store.btcpayStoreId,
-          {
-            derivationScheme: fullConfig.config.derivationScheme,
-            accountKeyPath: "m/84'/0'/0'"
-          } as any
-        )
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+  it('returns metadata and presence when wallet is enabled', async () => {
+    paymentMethods.getOnchainConfig.mockResolvedValue({ enabled: true });
+    repository.findOne.mockResolvedValue({
+      id: 'wallet',
+      storeId: store.id,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      derivationScheme: 'PRESENT',
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: '10B3BFC0',
+      label: 'Primary',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null
+    } as OnchainWalletEntity);
+
+    const presence = await service.getPresence(store);
+    const metadata = await service.getMetadata(store);
+
+    expect(presence).toEqual({ enabled: true, derivationScheme: 'PRESENT' });
+    expect(metadata).toEqual({
+      enabled: true,
+      derivationScheme: 'PRESENT',
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: '10B3BFC0',
+      label: 'Primary'
     });
   });
 
-  it('throws when the store is not found for the user', async () => {
-    storesRepository.findOne.mockResolvedValueOnce(null);
+  it('creates a new wallet metadata record on upsert without storing descriptors', async () => {
+    repository.findOne.mockResolvedValueOnce(null);
 
-    await expect(
-      service.getPresence({ id: 'tenant-user', email: 'merchant@example.com' }, 'missing-store')
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await service.upsertFromBtcpay(store, {
+      derivationScheme: "wpkh([abcd1234/84'/1'/0']tpub123/0/*)",
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: 'abcd1234',
+      label: 'Primary'
+    });
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: store.id,
+        paymentMethodId: 'BTC-CHAIN',
+        derivationScheme: 'PRESENT',
+        label: 'Primary',
+        masterFingerprint: 'ABCD1234'
+      })
+    );
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+
+  it('preserves existing metadata when fields are omitted', async () => {
+    const existing: OnchainWalletEntity = {
+      id: 'wallet',
+      storeId: store.id,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      derivationScheme: 'PRESENT',
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: 'F00DBABE',
+      label: 'Primary',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null
+    } as OnchainWalletEntity;
+
+    repository.findOne.mockResolvedValue(existing);
+
+    await service.upsertFromBtcpay(store, {});
+
+    expect(existing.derivationScheme).toBe('PRESENT');
+    expect(existing.accountKeyPath).toBe("m/84'/1'/0'");
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+
+  it('disables an existing wallet', async () => {
+    const existing: OnchainWalletEntity = {
+      id: 'wallet',
+      storeId: store.id,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      derivationScheme: null,
+      accountKeyPath: null,
+      masterFingerprint: null,
+      label: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null
+    } as OnchainWalletEntity;
+
+    repository.findOne.mockResolvedValue(existing);
+
+    await service.disable(store);
+
+    expect(existing.enabled).toBe(false);
+    expect(existing.deletedAt).toBeInstanceOf(Date);
+    expect(repository.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('marks metadata disabled when record is soft deleted', async () => {
+    repository.findOne.mockResolvedValue({
+      id: 'wallet',
+      storeId: store.id,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: false,
+      derivationScheme: 'PRESENT',
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: 'CAFECAFE',
+      label: 'Legacy',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: new Date()
+    } as OnchainWalletEntity);
+
+    const metadata = await service.getMetadata(store);
+
+    expect(metadata).toEqual({
+      enabled: false,
+      derivationScheme: null,
+      accountKeyPath: null,
+      masterFingerprint: null,
+      label: null
+    });
   });
 });

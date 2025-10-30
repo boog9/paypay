@@ -80,6 +80,16 @@ export interface OnchainPaymentMethodConfig {
   };
 }
 
+export interface OnchainConfigResponse {
+  enabled: boolean;
+  config?: {
+    derivationScheme: string | null;
+    accountKeyPath?: string | null;
+    masterFingerprint?: string | null;
+    label?: string | null;
+  };
+}
+
 export interface OnchainPaymentMethodStatus {
   storeId: string;
   paymentMethodId: string;
@@ -172,7 +182,7 @@ export interface UpdateOnchainPaymentMethodRequest {
 }
 
 export interface UpdateOnchainPaymentMethodOptions extends PaymentMethodRequestOptions {
-  apiKey: string;
+  apiKey?: string | null;
 }
 
 interface StoreContext {
@@ -343,6 +353,71 @@ export class BtcpayPaymentMethodsService {
     throw new InternalServerErrorException('Failed to retrieve on-chain payment method.');
   }
 
+  async getOnchainConfig(
+    storeId: string,
+    includeConfig = true,
+    options?: PaymentMethodRequestOptions
+  ): Promise<OnchainConfigResponse> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const paymentMethodId = normalizePaymentMethodId('BTC', 'chain');
+
+    try {
+      const response = await context.http.get(
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
+        includeConfig ? { params: { includeConfig: true } } : undefined
+      );
+
+      const payload = response.data as Record<string, unknown>;
+      const enabled = payload?.enabled === true;
+
+      if (!enabled || !includeConfig) {
+        return { enabled } satisfies OnchainConfigResponse;
+      }
+
+      const configPayload = (payload?.config ?? {}) as Record<string, unknown>;
+
+      return {
+        enabled: true,
+        config: {
+          derivationScheme: this.firstString([configPayload.derivationScheme]),
+          accountKeyPath: this.firstString([configPayload.accountKeyPath]),
+          masterFingerprint: this.firstString([configPayload.masterFingerprint])?.toUpperCase() ?? null,
+          label: this.firstString([configPayload.label])
+        }
+      } satisfies OnchainConfigResponse;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 0;
+        if (status === 404) {
+          return { enabled: false } satisfies OnchainConfigResponse;
+        }
+        if (status === 401) {
+          throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        }
+        if (status === 403) {
+          throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+        }
+        if (status === 422) {
+          const message = this.extractErrorMessage(error) || INVALID_DERIVATION_MESSAGE;
+          throw new UnprocessableEntityException(message, { cause: error as Error });
+        }
+        if (status >= 500) {
+          throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+        }
+        if (status >= 400) {
+          const message = this.extractErrorMessage(error);
+          throw new UnprocessableEntityException(message, { cause: error as Error });
+        }
+      }
+
+      throw new BadGatewayException('BTCPay request failed', {
+        cause: error instanceof Error ? error : undefined
+      });
+    } finally {
+      context.cleanup();
+    }
+  }
+
   async getOnchainMethodStatus(
     storeId: string,
     paymentMethodId = BTC_CHAIN,
@@ -506,11 +581,11 @@ export class BtcpayPaymentMethodsService {
 
   async updateOnchainPaymentMethod(
     params: UpdateOnchainPaymentMethodRequest,
-    options: UpdateOnchainPaymentMethodOptions
+    options?: UpdateOnchainPaymentMethodOptions
   ): Promise<void> {
     const context = await this.prepareStoreContext(params.storeId, {
-      store: options.store,
-      apiKeyOverride: options.apiKey
+      store: options?.store,
+      apiKeyOverride: options?.apiKey ?? null
     });
     const paymentMethodId = normalizePaymentMethodId(params.cryptoCode, 'chain');
     const body = this.buildUpdateRequestBody({

@@ -1,15 +1,15 @@
-import type { ReactElement } from "react";
-import { StoreFeaturePlaceholder } from "../../store-feature-placeholder";
+import { redirect } from "next/navigation";
 
-async function BitcoinWalletPage(): Promise<ReactElement> {
-  return (
-    <StoreFeaturePlaceholder
-      title="Bitcoin Wallet"
-      description="Connect your on-chain wallet, review balances and manage derivation schemes directly from the BTCPay wallet UI."
-      documentationUrl="https://docs.btcpayserver.org/WalletSetup/"
-      documentationLabel="BTCPay wallet setup guide"
-    />
-  );
+interface BitcoinWalletPageParams {
+  tenantId: string;
+  storeId: string;
 }
 
-export default BitcoinWalletPage as unknown as () => Promise<ReactElement>;
+export default async function BitcoinWalletPage({
+  params
+}: {
+  params: Promise<BitcoinWalletPageParams>;
+}) {
+  const { tenantId, storeId } = await params;
+  redirect(`/tenants/${tenantId}/stores/${storeId}/wallets/bitcoin/transactions`);
+}

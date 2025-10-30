@@ -83,6 +83,17 @@ export class ListWalletTransactionsQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   order: 'asc' | 'desc' = 'desc';
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized ? normalized : undefined;
+  })
+  @IsIn(['confirmed', 'unconfirmed', 'replaced', 'double-spent'])
+  status?: TxStatus;
 }
 
 export class FeeRateQueryDto {

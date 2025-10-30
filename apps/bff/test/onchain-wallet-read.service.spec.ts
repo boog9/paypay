@@ -103,6 +103,7 @@ describe('OnchainWalletReadService', () => {
     });
 
     expect(result.items).toHaveLength(2);
+    expect(result.total).toBe(2);
     const [first, second] = result.items;
 
     expect(first).toMatchObject({
@@ -163,7 +164,38 @@ describe('OnchainWalletReadService', () => {
     );
 
     expect(result.items).toHaveLength(1);
+    expect(result.total).toBe(1);
     expect(result.items[0]?.txId).toBe('one');
+  });
+
+  it('filters transactions by status when requested', async () => {
+    const btcpayResponse: ListTransactionsResult = {
+      items: [
+        { transactionHash: 'confirmed', amount: '0.1', labels: [], status: 'confirmed', timestamp: 1_700_000_000 },
+        { transactionHash: 'pending', amount: '0.2', labels: [], status: 'unconfirmed', timestamp: 1_700_000_500 }
+      ]
+    };
+
+    (btcpayWallets.listTransactions as jest.Mock).mockResolvedValueOnce(btcpayResponse);
+
+    const query: ListWalletTransactionsQueryDto = {
+      skip: 0,
+      count: 50,
+      labels: [],
+      order: 'desc',
+      status: 'confirmed'
+    } as ListWalletTransactionsQueryDto;
+
+    const result = await service.listTransactions(
+      { id: 'tenant-user', email: 'merchant@example.com' },
+      store.btcpayStoreId,
+      'btc',
+      query
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.txId).toBe('confirmed');
+    expect(result.total).toBe(1);
   });
 
   it('throws when user context is missing', async () => {

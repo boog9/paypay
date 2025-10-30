@@ -17,6 +17,10 @@ interface StoreSettingsResponse {
   apiKeyManagedByTenant: boolean;
 }
 
+interface WalletPresenceResponse {
+  enabled: boolean;
+}
+
 async function loadStoreSettings(tenantId: string, storeId: string): Promise<StoreSettingsResponse> {
   const response = await bffFetch(`/api/tenants/${tenantId}/stores/${storeId}`);
   if (response.status === 404) {
@@ -28,7 +32,20 @@ async function loadStoreSettings(tenantId: string, storeId: string): Promise<Sto
   return (await response.json()) as StoreSettingsResponse;
 }
 
-function buildStoreSections(tenantId: string, storeId: string): StoreSidebarSection[] {
+async function loadBitcoinWalletPresence(storeId: string): Promise<boolean> {
+  try {
+    const response = await bffFetch(`/api/stores/${storeId}/wallets/btc/presence`);
+    if (!response.ok) {
+      return false;
+    }
+    const payload = (await response.json()) as WalletPresenceResponse;
+    return payload.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function buildStoreSections(tenantId: string, storeId: string, showBitcoin: boolean): StoreSidebarSection[] {
   const base = `/tenants/${tenantId}/stores/${storeId}`;
   return [
     {
@@ -51,10 +68,14 @@ function buildStoreSections(tenantId: string, storeId: string): StoreSidebarSect
       title: "Checkout & Integrations",
       items: [{ label: "API Keys", href: `${base}/checkout-integrations/api-keys` }]
     },
-    {
-      title: "Wallets",
-      items: [{ label: "Bitcoin (On-Chain)", href: `${base}/wallets/bitcoin` }]
-    }
+    ...(showBitcoin
+      ? ([
+          {
+            title: "Wallets",
+            items: [{ label: "Bitcoin (On-Chain)", href: `${base}/wallets/bitcoin` }]
+          }
+        ] satisfies StoreSidebarSection[])
+      : [])
   ];
 }
 
@@ -81,7 +102,8 @@ type StoreLayoutProps = {
 export default async function StoreLayout({ children, params }: StoreLayoutProps) {
   const { tenantId, storeId } = await params;
   const store = await loadStoreSettings(tenantId, storeId);
-  const sections = buildStoreSections(tenantId, storeId);
+  const bitcoinWalletEnabled = await loadBitcoinWalletPresence(storeId);
+  const sections = buildStoreSections(tenantId, storeId, bitcoinWalletEnabled);
   const btcpayStoreUrl = buildStoreLink(store.btcpayHost, store.btcpayStoreId);
   const providerValue = {
     tenantId,

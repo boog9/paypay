@@ -88,10 +88,11 @@ export class OnchainWalletReadService {
       .filter((item): item is WalletTx => item !== null);
 
     const filteredByLabels = this.filterByLabels(mapped, query.labels);
-    const sorted = this.sortTransactions(filteredByLabels, query.order);
+    const filteredByStatus = this.filterByStatus(filteredByLabels, query.status ?? null);
+    const sorted = this.sortTransactions(filteredByStatus, query.order);
 
     return {
-      total: typeof result.total === 'number' ? result.total : undefined,
+      total: typeof result.total === 'number' ? result.total : filteredByStatus.length,
       items: sorted
     } satisfies ListWalletTxResponse;
   }
@@ -406,6 +407,14 @@ export class OnchainWalletReadService {
       const txLabels = item.labels.map((label) => label.toLowerCase());
       return normalized.every((needle) => txLabels.includes(needle));
     });
+  }
+
+  private filterByStatus(items: WalletTx[], status: TxStatus | null): WalletTx[] {
+    if (!status) {
+      return items;
+    }
+
+    return items.filter((item) => item.status === status);
   }
 
   private sortTransactions(items: WalletTx[], order: 'asc' | 'desc'): WalletTx[] {
@@ -758,7 +767,10 @@ export class OnchainWalletReadService {
       throw new NotFoundException('Store not found');
     }
     const store = await this.storesRepository.findOne({
-      where: { btcpayStoreId: trimmed, userId }
+      where: [
+        { btcpayStoreId: trimmed, userId },
+        { id: trimmed, userId }
+      ]
     });
     if (!store) {
       throw new NotFoundException('Store not found');

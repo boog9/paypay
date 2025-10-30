@@ -28,16 +28,46 @@ export class CreateOnchainWallets1731200000000 implements MigrationInterface {
 
     const hasLegacyTable = await queryRunner.hasTable('managed_store_wallets');
     if (hasLegacyTable) {
-      const legacyRows: Array<{
+      type LegacyRow = {
         store_id: string;
         payment_method_id?: string | null;
         derivation_scheme?: string | null;
         account_key_path?: string | null;
         master_fingerprint?: string | null;
         label?: string | null;
-      }> = await queryRunner.query(
+      };
+
+      const isLegacyRow = (value: unknown): value is LegacyRow => {
+        if (typeof value !== 'object' || value === null) {
+          return false;
+        }
+
+        const record = value as Record<string, unknown>;
+
+        return (
+          typeof record.store_id === 'string' &&
+          (record.payment_method_id === undefined ||
+            record.payment_method_id === null ||
+            typeof record.payment_method_id === 'string') &&
+          (record.derivation_scheme === undefined ||
+            record.derivation_scheme === null ||
+            typeof record.derivation_scheme === 'string') &&
+          (record.account_key_path === undefined ||
+            record.account_key_path === null ||
+            typeof record.account_key_path === 'string') &&
+          (record.master_fingerprint === undefined ||
+            record.master_fingerprint === null ||
+            typeof record.master_fingerprint === 'string') &&
+          (record.label === undefined || record.label === null || typeof record.label === 'string')
+        );
+      };
+
+      const legacyRowsRaw: unknown = await queryRunner.query(
         'SELECT store_id, payment_method_id, derivation_scheme, account_key_path, master_fingerprint, label FROM "managed_store_wallets"'
       );
+      const legacyRows = Array.isArray(legacyRowsRaw)
+        ? legacyRowsRaw.filter(isLegacyRow)
+        : [];
 
       for (const row of legacyRows) {
         const paymentMethodId =

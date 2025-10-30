@@ -59,7 +59,7 @@ describe('OnchainWalletsService', () => {
 
     service = moduleRef.get(OnchainWalletsService);
     repository = moduleRef.get(getRepositoryToken(OnchainWalletEntity));
-    paymentMethods = moduleRef.get(BtcpayPaymentMethodsService) as jest.Mocked<BtcpayPaymentMethodsService>;
+    paymentMethods = jest.mocked(moduleRef.get(BtcpayPaymentMethodsService));
     paymentMethods.getOnchainConfig.mockResolvedValue({ enabled: false });
   });
 

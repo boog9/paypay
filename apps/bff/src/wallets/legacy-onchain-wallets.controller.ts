@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Redirect, UseGuards } from '@nestjs/common';
+import { Controller, Get, Redirect, UseGuards } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -7,7 +7,7 @@ export class LegacyOnchainWalletsController {
   @Get('presence')
   @UseGuards(JwtAuthGuard)
   @Redirect(undefined, 307)
-  redirectPresence(@Param('storeId') storeId: string) {
+  redirectPresence() {
     // Relative redirect works regardless of global prefix configuration.
     return { url: '../btc/presence' };
   }

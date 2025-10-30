@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { bffFetch } from "@/lib/bff-fetch";
 import { walletPresencePath } from "@/lib/walletPaths";
 
-import { resolveWalletPresence } from "../_lib/get-wallet-presence";
+import { resolveWalletPresence } from "../../_lib/get-wallet-presence";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +50,7 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
     redirect(transactionsPath);
   }
 
-  const payload: unknown = await response.json();
+  const payload = (await response.json()) as unknown;
   const hasWallet = resolveWalletPresence(payload);
 
   redirect(hasWallet ? transactionsPath : wizardPath);

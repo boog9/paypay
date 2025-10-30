@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getWalletPresence, type WalletPresenceDTO } from "./get-wallet-presence";
+import { getWalletPresence, resolveWalletPresence } from "./get-wallet-presence";
+import { walletPresencePath } from "../../../../../../lib/walletPaths";
 
 vi.mock("../../../../../../lib/bff-fetch", () => ({
   bffFetch: vi.fn(),
@@ -9,55 +10,74 @@ vi.mock("../../../../../../lib/bff-fetch", () => ({
 const { bffFetch } = await import("../../../../../../lib/bff-fetch");
 const mockFetch = vi.mocked(bffFetch);
 
-describe("getWalletPresence", () => {
+describe("resolveWalletPresence", () => {
+  it("returns true when config.derivationScheme is a non-empty string", () => {
+    expect(
+      resolveWalletPresence({
+        config: { derivationScheme: "  xpub123  " },
+      })
+    ).toBe(true);
+  });
 
+  it("returns true when hasWallet is explicitly true", () => {
+    expect(
+      resolveWalletPresence({
+        hasWallet: true,
+      })
+    ).toBe(true);
+  });
+
+  it("returns true when legacy top-level derivationScheme is available", () => {
+    expect(
+      resolveWalletPresence({
+        derivationScheme: "wpkh([abcd]/0/*)",
+      })
+    ).toBe(true);
+  });
+
+  it("returns true when enabled is true as last resort", () => {
+    expect(
+      resolveWalletPresence({
+        enabled: true,
+      })
+    ).toBe(true);
+  });
+
+  it("returns false when presence cannot be determined", () => {
+    expect(
+      resolveWalletPresence({
+        config: { derivationScheme: "" },
+        hasWallet: false,
+        derivationScheme: " ",
+        enabled: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("getWalletPresence", () => {
   beforeEach(() => {
     mockFetch.mockReset();
   });
 
-  it("returns true when hasWallet is true", async () => {
-    const payload: WalletPresenceDTO = {
-      hasWallet: true,
-      enabled: false,
-      derivationScheme: null,
-    };
+  it("fetches presence endpoint and resolves payload", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      json: vi.fn().mockResolvedValue(payload),
+      json: vi.fn().mockResolvedValue({ config: { derivationScheme: "xpub" } }),
     } as unknown as Response);
 
     await expect(getWalletPresence("store-1")).resolves.toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/stores/store-1/wallets/btc/presence",
+      walletPresencePath("store-1"),
       expect.objectContaining({ cache: "no-store" })
     );
   });
 
-  it("returns true when derivationScheme is provided", async () => {
-    const payload: WalletPresenceDTO = {
-      hasWallet: false,
-      enabled: true,
-      derivationScheme: "wpkh([abcd1234/84'/0'/0']xpub/0/*)",
-    };
+  it("returns false when response is not ok", async () => {
     mockFetch.mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue(payload),
+      ok: false,
     } as unknown as Response);
 
-    await expect(getWalletPresence("store-2")).resolves.toBe(true);
-  });
-
-  it("returns false when wallet data is missing", async () => {
-    const payload: WalletPresenceDTO = {
-      hasWallet: false,
-      enabled: false,
-      derivationScheme: null,
-    };
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue(payload),
-    } as unknown as Response);
-
-    await expect(getWalletPresence("store-3")).resolves.toBe(false);
+    await expect(getWalletPresence("store-2")).resolves.toBe(false);
   });
 });

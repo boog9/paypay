@@ -1,21 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 import { makeSessionCookie } from "./utils/cookies";
+import { walletPresencePath } from "../lib/walletPaths";
 
 test.describe("Dashboard wallet CTA", () => {
   test("hides the wallet setup card when a wallet is connected", async ({ page }) => {
     const storeId = "store-wallet-ready";
     await page.context().addCookies([makeSessionCookie()]);
 
-    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+    await page.route(`**${walletPresencePath(storeId)}`, async (route) => {
       expect(route.request().method()).toBe("GET");
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          hasWallet: true,
+          config: { derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)" },
           enabled: true,
-          derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
         }),
       });
     });
@@ -31,15 +31,14 @@ test.describe("Dashboard wallet CTA", () => {
     const storeId = "store-wallet-success";
     await page.context().addCookies([makeSessionCookie()]);
 
-    await page.route(`**/api/stores/${storeId}/wallets/btc/presence`, async (route) => {
+    await page.route(`**${walletPresencePath(storeId)}`, async (route) => {
       expect(route.request().method()).toBe("GET");
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          hasWallet: true,
+          config: { derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)" },
           enabled: true,
-          derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)",
         }),
       });
     });

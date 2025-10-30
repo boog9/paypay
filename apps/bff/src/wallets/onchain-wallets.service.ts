@@ -168,42 +168,58 @@ export class OnchainWalletsService {
     const store = await this.requireStore(userId, storeId);
 
     try {
-      const result = await this.fetchWalletConfigWithFallback(store, userEmail);
+      const config = await this.keysService.withStoreSettingsWriteKey(
+        store.btcpayStoreId,
+        userEmail,
+        async (apiKey) => {
+          try {
+            return await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+              includeConfig: true,
+              apiKeyOverride: apiKey,
+              store,
+              host: store.btcpayHost
+            });
+          } catch (error) {
+            if (error instanceof NotFoundException) {
+              return null;
+            }
+            if (isBTCPayUpstreamError(error) && error.status === 404) {
+              return null;
+            }
+            throw error;
+          }
+        },
+        { host: store.btcpayHost }
+      );
 
-      if (result.kind === 'none') {
-        return this.buildPresenceFromConfig(null);
+      if (!config || config.enabled !== true) {
+        return { hasWallet: false, enabled: false, derivationScheme: null };
       }
 
-      if (result.kind === 'limited') {
-        return this.buildPresenceFromSummary(result.summary);
-      }
+      const derivationScheme = this.sanitizeString(config.config?.derivationScheme);
 
-      return this.buildPresenceFromConfig(result.config);
+      return {
+        hasWallet: Boolean(derivationScheme),
+        enabled: true,
+        derivationScheme: derivationScheme ?? null
+      } satisfies OnchainWalletPresence;
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
         throw error;
       }
-      if (error instanceof ForbiddenException) {
-        const summary = await this.buildLimitedSummaryFromMetadata(store);
-        return this.buildPresenceFromSummary(summary);
-      }
       if (error instanceof NotFoundException) {
-        return this.buildPresenceFromConfig(null);
+        return { hasWallet: false, enabled: false, derivationScheme: null };
       }
       if (isBTCPayAuthError(error)) {
         throw new UnauthorizedException('BTCPay authentication failed');
       }
       if (isBTCPayUpstreamError(error)) {
-        if (error.status === 403) {
-          const summary = await this.buildLimitedSummaryFromMetadata(store);
-          return this.buildPresenceFromSummary(summary);
-        }
         if (error.status === 404) {
-          return this.buildPresenceFromConfig(null);
+          return { hasWallet: false, enabled: false, derivationScheme: null };
         }
         throw new BadGatewayException('Upstream error');
       }
-      throw error;
+      throw new BadGatewayException('Upstream error');
     }
   }
 

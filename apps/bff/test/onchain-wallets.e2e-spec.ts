@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   INestApplication,
+  NotFoundException,
   UnprocessableEntityException,
   ValidationPipe
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { UserEntity } from '../src/auth/entities/user.entity';
 import {
   BtcpayPaymentMethodsService,
+  OnchainPaymentMethodConfig,
   OnchainPreviewResponse
 } from '../src/btcpay/btcpay.payment-methods.service';
 import { BtcpayKeysService } from '../src/btcpay/btcpay.keys.service';
@@ -53,7 +55,8 @@ describe('On-chain wallet preview (e2e)', () => {
   const SAMPLE_DESCRIPTOR = `wpkh([f00dbabe/84'/1'/0']${SAMPLE_TPUB}/0/*)`;
 
   const paymentMethodsMock = {
-    previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse)
+    previewOnchainPaymentMethod: jest.fn().mockResolvedValue(previewResponse),
+    getOnchain: jest.fn()
   } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
 
   const keysServiceMock = {
@@ -136,13 +139,102 @@ describe('On-chain wallet preview (e2e)', () => {
     keysServiceMock.withStoreSettingsReadKey.mockImplementation(async (_storeId, _email, handler) => {
       return handler('scoped-key');
     });
+    keysServiceMock.withStoreSettingsWriteKey.mockImplementation(async (_storeId, _email, handler) => {
+      return handler('elevated-key');
+    });
     paymentMethodsMock.previewOnchainPaymentMethod.mockResolvedValue(previewResponse);
+    paymentMethodsMock.getOnchain.mockReset();
   });
+
+  function makePresenceResponse(
+    overrides: Partial<OnchainPaymentMethodConfig> = {}
+  ): OnchainPaymentMethodConfig {
+    return {
+      storeId: overrides.storeId ?? 'store-123',
+      currency: overrides.currency ?? 'BTC',
+      paymentMethodId: overrides.paymentMethodId ?? 'BTC-CHAIN',
+      enabled: overrides.enabled ?? true,
+      config: {
+        derivationScheme:
+          overrides.config?.derivationScheme ?? "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
+        accountKeyPath: overrides.config?.accountKeyPath ?? "m/84'/1'/0'",
+        masterFingerprint: overrides.config?.masterFingerprint ?? 'f00dbabe',
+        label: overrides.config?.label ?? 'Demo wallet'
+      }
+    } satisfies OnchainPaymentMethodConfig;
+  }
 
   async function fetchCsrf(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
     return readCsrfToken(response);
   }
+
+  it('returns canonical on-chain wallet presence payload with derivation scheme', async () => {
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce(makePresenceResponse());
+
+    const response = await agent
+      .get('/api/stores/store-123/wallets/btc/presence')
+      .expect(200);
+
+    expect(keysServiceMock.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+      'store-123',
+      'merchant@example.com',
+      expect.any(Function),
+      { host: 'https://btcpay.example' }
+    );
+    expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
+      'store-123',
+      'BTC',
+      expect.objectContaining({
+        includeConfig: true,
+        apiKeyOverride: 'elevated-key',
+        host: 'https://btcpay.example'
+      })
+    );
+    expect(response.body).toEqual({
+      enabled: true,
+      config: {
+        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)"
+      }
+    });
+  });
+
+  it('returns disabled presence payload when BTCPay reports the wallet as disabled', async () => {
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce(
+      makePresenceResponse({
+        enabled: false,
+        config: { derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)" }
+      })
+    );
+
+    const response = await agent
+      .get('/api/stores/store-123/wallets/btc/presence')
+      .expect(200);
+
+    expect(response.body).toEqual({
+      enabled: false,
+      config: { derivationScheme: null }
+    });
+  });
+
+  it('returns disabled presence payload when BTCPay reports the wallet missing', async () => {
+    paymentMethodsMock.getOnchain.mockRejectedValueOnce(new NotFoundException('not found'));
+
+    const response = await agent
+      .get('/api/stores/store-123/wallets/btc/presence')
+      .expect(200);
+
+    expect(keysServiceMock.withStoreSettingsWriteKey).toHaveBeenCalledWith(
+      'store-123',
+      'merchant@example.com',
+      expect.any(Function),
+      { host: 'https://btcpay.example' }
+    );
+    expect(response.body).toEqual({
+      enabled: false,
+      config: { derivationScheme: null }
+    });
+  });
 
   it('returns preview addresses for proposed derivation scheme', async () => {
     const csrfToken = await fetchCsrf();
@@ -351,5 +443,12 @@ describe('On-chain wallet preview (e2e)', () => {
       ],
       error: 'Unprocessable Entity'
     });
+  });
+
+  it('redirects legacy wallet presence path to the canonical btc route', async () => {
+    const res = await agent
+      .get('/api/stores/store-123/wallets/bitcoin/presence')
+      .expect(307);
+    expect(res.headers.location).toBe('../btc/presence');
   });
 });

@@ -24,7 +24,8 @@ test.describe("Sidebar wallet navigation", () => {
     const sidebar = page.locator('aside[aria-label="Application navigation"]');
     await expect(sidebar).toBeVisible();
 
-    await expect(sidebar.getByRole("link", { name: "Bitcoin" })).toBeVisible();
+    const bitcoinLink = sidebar.getByRole("link", { name: "Bitcoin" });
+    await expect(bitcoinLink).toHaveAttribute("href", `/stores/${storeId}/wallets/btc/transactions`);
     await expect(sidebar.getByRole("link", { name: "Transactions" })).toBeVisible();
     await expect(sidebar.getByRole("link", { name: "Send" })).toBeVisible();
     await expect(sidebar.getByRole("link", { name: "Receive" })).toBeVisible();
@@ -51,7 +52,8 @@ test.describe("Sidebar wallet navigation", () => {
     const sidebar = page.locator('aside[aria-label="Application navigation"]');
     await expect(sidebar).toBeVisible();
 
-    await expect(sidebar.getByRole("link", { name: "Bitcoin" })).toBeVisible();
+    const bitcoinLink = sidebar.getByRole("link", { name: "Bitcoin" });
+    await expect(bitcoinLink).toHaveAttribute("href", `/stores/${storeId}/wallets/btc/wizard`);
     await expect(sidebar.getByRole("link", { name: "Transactions" })).toHaveCount(0);
     await expect(sidebar.getByRole("link", { name: "Send" })).toHaveCount(0);
     await expect(sidebar.getByRole("link", { name: "Receive" })).toHaveCount(0);

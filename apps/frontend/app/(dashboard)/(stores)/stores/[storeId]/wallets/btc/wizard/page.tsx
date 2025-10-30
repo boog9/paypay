@@ -227,13 +227,45 @@ export default function WalletWizardPage({ params }: WizardProps) {
 
     try {
       const csrfToken = await getCsrfToken();
-      const requestBody = parsed.data.accountKeyPath
-        ? { derivationScheme: parsed.data.derivationScheme, accountKeyPath: parsed.data.accountKeyPath }
-        : { derivationScheme: parsed.data.derivationScheme };
-      const payload = await apiPost<unknown>(`/api/stores/${storeId}/wallets/btc/preview`, requestBody, {
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-      });
+      const requestBody = {
+        config: parsed.data.accountKeyPath
+          ? {
+              derivationScheme: parsed.data.derivationScheme,
+              accountKeyPath: parsed.data.accountKeyPath,
+            }
+          : {
+              derivationScheme: parsed.data.derivationScheme,
+            },
+      };
+      const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrfToken } as const;
+      const previewEndpoints = [
+        `/api/stores/${storeId}/payment-methods/onchain/btc/preview`,
+        `/api/stores/${storeId}/wallets/btc/preview`,
+      ];
+      let payload: unknown;
+      let lastError: unknown = null;
+
+      for (const endpoint of previewEndpoints) {
+        try {
+          payload = await apiPost<unknown>(endpoint, requestBody, { headers });
+          lastError = null;
+          break;
+        } catch (error: unknown) {
+          lastError = error;
+          if (isApiError(error) && error.status === 404 && endpoint !== previewEndpoints[previewEndpoints.length - 1]) {
+            continue;
+          }
+          throw error;
+        }
+      }
+
       if (payload === undefined) {
+        if (lastError instanceof Error) {
+          throw lastError;
+        }
+        if (lastError) {
+          throw new Error("Preview request failed.");
+        }
         throw new Error("No preview payload returned by the server.");
       }
       const normalized = normalizePreviewResponsePayload(payload);

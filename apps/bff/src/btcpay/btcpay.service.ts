@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -81,6 +82,16 @@ export interface BtcpayServerInfoResponse {
   isTestnet?: boolean;
   networkType?: string | null;
   network?: string | null;
+}
+
+export interface BtcpayProxyOptions {
+  storeId: string;
+  method: string;
+  path: string;
+  data?: unknown;
+  params?: Record<string, unknown>;
+  headers?: Record<string, string | number | boolean | null | undefined>;
+  requestId?: string;
 }
 
 @Injectable()
@@ -197,6 +208,59 @@ export class BtcpayService {
 
   resolveBaseUrl(host?: string): string {
     return this.getBaseUrl(host);
+  }
+
+  async proxy<T = unknown>(options: BtcpayProxyOptions): Promise<T> {
+    const { store, apiKey } = await this.resolveStoreForProxy(options.storeId);
+    const requestId = typeof options.requestId === 'string' ? options.requestId.trim() : '';
+    const normalizedRequestId = requestId.length > 0 ? requestId : undefined;
+    const path = this.ensureAbsolutePath(options.path);
+    const headers: Record<string, string> = {
+      Authorization: `token ${apiKey}`
+    };
+
+    if (options.headers) {
+      for (const [key, value] of Object.entries(options.headers)) {
+        if (value === undefined || value === null) {
+          continue;
+        }
+        headers[key] = String(value);
+      }
+    }
+
+    const http = this.createHttp(store.btcpayHost, headers);
+
+    try {
+      const response = await http.request<T>({
+        url: path,
+        method: options.method,
+        data: options.data,
+        params: options.params,
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        const statusCode = error.response.status ?? 502;
+        const payload = error.response.data ?? null;
+        const logPayload: Record<string, unknown> = {
+          storeId: store.btcpayStoreId,
+          path,
+          statusCode,
+        };
+        if (normalizedRequestId) {
+          logPayload.requestId = normalizedRequestId;
+        }
+        this.logger.warn(logPayload, 'btcpay.proxy');
+        throw new HttpException(payload, statusCode, {
+          cause: error instanceof Error ? error : undefined,
+        });
+      }
+
+      return this.maskError(error, {
+        action: 'proxy',
+        correlationId: normalizedRequestId,
+      });
+    }
   }
 
   private createHttp(baseUrl: string, headers: Record<string, string>): AxiosInstance {
@@ -695,5 +759,50 @@ export class BtcpayService {
 
   buildStorePermissions(storeId: string): string[] {
     return BTCPAY_MINIMAL_PERMISSIONS.map((permission) => `${permission}:${storeId}`);
+  }
+
+  private ensureAbsolutePath(path: string): string {
+    const trimmed = typeof path === 'string' ? path.trim() : '';
+    if (!trimmed) {
+      throw new BadRequestException('Proxy path is required');
+    }
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  }
+
+  private async resolveStoreForProxy(storeId: string): Promise<{ store: StoreEntity; apiKey: string }> {
+    const normalizedId = typeof storeId === 'string' ? storeId.trim() : '';
+    if (!normalizedId) {
+      throw new BadRequestException('Store identifier is required');
+    }
+
+    const store = await this.storesRepository.findOne({
+      where: [
+        { btcpayStoreId: normalizedId },
+        { id: normalizedId },
+      ],
+    });
+
+    if (!store) {
+      throw new NotFoundException('Store not found or not managed by this portal');
+    }
+
+    let apiKey: string;
+    try {
+      apiKey = this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
+    } catch (error) {
+      const logPayload: Record<string, unknown> = {
+        storeId: store.btcpayStoreId,
+      };
+      this.logger.error(logPayload, 'btcpay.proxy.decryptFailed');
+      throw new InternalServerErrorException('Failed to decrypt BTCPay API key', {
+        cause: error instanceof Error ? error : undefined,
+      });
+    }
+
+    if (!apiKey) {
+      throw new InternalServerErrorException('BTCPay API key for store is not available');
+    }
+
+    return { store, apiKey };
   }
 }

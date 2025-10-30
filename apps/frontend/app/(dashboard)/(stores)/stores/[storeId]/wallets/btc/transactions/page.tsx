@@ -12,6 +12,8 @@ export const metadata: Metadata = {
 
 const DEFAULT_COUNT = 50;
 const MAX_COUNT = 200;
+const BFF_CONFIG_ERROR_MESSAGE =
+  'BTC wallet transactions endpoint is missing in the PayPay BFF. Contact your administrator to update the integration.';
 
 type PageParams = {
   params: Promise<{ storeId: string }>;
@@ -197,7 +199,7 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
     search.append("labels", label);
   }
 
-  const path = `/api/stores/${storeId}/wallets/BTC/transactions?${search.toString()}`;
+  const path = `/api/stores/${storeId}/wallets/btc/transactions?${search.toString()}`;
 
   let response: Response;
   let attemptedRefresh = false;
@@ -221,6 +223,10 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
     }
   }
 
+  if (response.status === 404) {
+    return { status: 404, data: null, error: BFF_CONFIG_ERROR_MESSAGE, attemptedRefresh };
+  }
+
   const payload = await readJsonPayload(response);
   const data = normalizeTransactionsPayload(payload);
   const errorMessage = response.ok ? null : extractErrorMessage(payload) ?? response.statusText ?? null;
@@ -234,7 +240,7 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
 }
 
 async function loadOverview(storeId: string): Promise<FetchResult<WalletOverview>> {
-  const path = `/api/stores/${storeId}/wallets/BTC/overview`;
+  const path = `/api/stores/${storeId}/wallets/btc/overview`;
   let response: Response;
   let attemptedRefresh = false;
 

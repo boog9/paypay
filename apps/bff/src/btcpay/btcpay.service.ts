@@ -198,6 +198,22 @@ export class BtcpayService {
     return /apikey/i.test(text) && /does not exist/i.test(text);
   }
 
+  private toHttpExceptionPayload(payload: unknown): string | Record<string, unknown> {
+    if (typeof payload === 'string') {
+      return payload;
+    }
+
+    if (payload && typeof payload === 'object') {
+      return payload as Record<string, unknown>;
+    }
+
+    if (payload === null || payload === undefined) {
+      return '';
+    }
+
+    return { value: payload };
+  }
+
   private normaliseBaseUrl(url: string): string {
     return url.endsWith('/') ? url.slice(0, -1) : url;
   }
@@ -241,7 +257,7 @@ export class BtcpayService {
     } catch (error) {
       if (axios.isAxiosError(error) && error.response) {
         const statusCode = error.response.status ?? 502;
-        const payload = error.response.data ?? null;
+        const payload = this.toHttpExceptionPayload(error.response.data);
         const logPayload: Record<string, unknown> = {
           storeId: store.btcpayStoreId,
           path,

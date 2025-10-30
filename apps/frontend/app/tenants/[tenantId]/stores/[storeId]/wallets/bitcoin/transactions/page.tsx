@@ -88,11 +88,16 @@ function buildQuery(page: number, status?: string): string {
   return query ? `?${query}` : "";
 }
 
+type LoadTransactionsResult = {
+  data: WalletTransactionsResponse | null;
+  error: 'none' | 'notFound' | 'generic';
+};
+
 async function loadTransactions(
   storeId: string,
   page: number,
   status?: string
-): Promise<{ data: WalletTransactionsResponse | null; error: boolean }> {
+): Promise<LoadTransactionsResult> {
   const params = new URLSearchParams();
   params.set("skip", String((page - 1) * PAGE_SIZE));
   params.set("count", String(PAGE_SIZE));
@@ -103,15 +108,22 @@ async function loadTransactions(
 
   try {
     const response = await bffFetch(`/api/stores/${storeId}/wallets/btc/transactions?${params.toString()}`);
+    if (response.status === 404) {
+      return { data: null, error: 'notFound' };
+    }
     if (!response.ok) {
-      return { data: null, error: true };
+      return { data: null, error: 'generic' };
     }
     const payload = (await response.json()) as WalletTransactionsResponse;
-    return { data: payload, error: false };
+    return { data: payload, error: 'none' };
   } catch {
-    return { data: null, error: true };
+    return { data: null, error: 'generic' };
   }
 }
+
+const GENERIC_ERROR_MESSAGE = 'BTCPay недоступний. Спробуйте ще раз пізніше.';
+const BFF_CONFIG_ERROR_MESSAGE =
+  'BTC wallet transactions endpoint is missing in the PayPay BFF. Contact your administrator to update the integration.';
 
 export default async function TransactionsPage({
   params,
@@ -120,7 +132,7 @@ export default async function TransactionsPage({
   const [{ tenantId, storeId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
   const page = parsePage(resolvedSearchParams);
   const status = parseStatus(resolvedSearchParams);
-  const [{ data, error }] = await Promise.all([loadTransactions(storeId, page, status)]);
+  const [{ data, error: errorCode }] = await Promise.all([loadTransactions(storeId, page, status)]);
   const basePath = `/tenants/${tenantId}/stores/${storeId}/wallets/bitcoin/transactions`;
 
   const items = data?.items ?? [];
@@ -128,6 +140,13 @@ export default async function TransactionsPage({
   const totalPages = Math.max(1, Math.ceil(Math.max(totalItems, items.length) / PAGE_SIZE));
   const hasNext = page < totalPages;
   const hasPrevious = page > 1;
+  const errorMessage =
+    errorCode === 'notFound'
+      ? BFF_CONFIG_ERROR_MESSAGE
+      : errorCode === 'generic'
+      ? GENERIC_ERROR_MESSAGE
+      : null;
+  const shouldShowRescanHint = !errorMessage && items.length === 0;
 
   return (
     <div className="space-y-6">
@@ -168,9 +187,9 @@ export default async function TransactionsPage({
         </div>
       </div>
 
-      {error ? (
+      {errorMessage ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          BTCPay недоступний. Спробуйте ще раз пізніше.
+          {errorMessage}
         </div>
       ) : null}
 
@@ -264,6 +283,12 @@ export default async function TransactionsPage({
           Next
         </Link>
       </div>
+
+      {shouldShowRescanHint ? (
+        <p className="text-sm text-muted-foreground">
+          If BTCPay shows an invalid balance, rescan your wallet from the BTCPay Server interface.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -65,7 +65,7 @@ test.describe("Wallet transactions page", () => {
     };
 
     const requestStatuses: number[] = [];
-    await page.route(`**/api/stores/${storeId}/wallets/BTC/transactions**`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/btc/transactions**`, async (route) => {
       const url = new URL(route.request().url());
       const skip = url.searchParams.get("skip") ?? "0";
       const labels = url.searchParams.getAll("labels");
@@ -86,7 +86,7 @@ test.describe("Wallet transactions page", () => {
       });
     });
 
-    await page.route(`**/api/stores/${storeId}/wallets/BTC/overview`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/btc/overview`, async (route) => {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({
@@ -118,7 +118,7 @@ test.describe("Wallet transactions page", () => {
     await page.fill('input[aria-label="Filter by label"]', "invoice");
     const labelResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/BTC/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
         response.request().url().includes("labels=invoice") &&
         response.status() === 200
       );
@@ -131,7 +131,7 @@ test.describe("Wallet transactions page", () => {
 
     const clearResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/BTC/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
         !response.request().url().includes("labels=") &&
         response.status() === 200
       );
@@ -142,7 +142,7 @@ test.describe("Wallet transactions page", () => {
 
     const sortResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/BTC/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
         response.request().url().includes("order=asc") &&
         response.status() === 200
       );
@@ -152,7 +152,7 @@ test.describe("Wallet transactions page", () => {
 
     const nextResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/BTC/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
         response.request().url().includes("skip=2") &&
         response.status() === 200
       );
@@ -166,7 +166,7 @@ test.describe("Wallet transactions page", () => {
 
     const previousResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/BTC/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
         !response.request().url().includes("skip=2") &&
         response.status() === 200
       );

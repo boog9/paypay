@@ -34,6 +34,20 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   ];
 
   const walletHasMenu = walletPresence === true;
+  const walletBaseHref = baseStorePath ? `${baseStorePath}/wallets/btc` : null;
+  const walletHref = (() => {
+    if (!baseStorePath) {
+      return null;
+    }
+    if (walletPresence === false) {
+      return `${baseStorePath}/wallets/btc/wizard`;
+    }
+    if (walletPresence === true) {
+      return `${baseStorePath}/wallets/btc/transactions`;
+    }
+    return walletBaseHref;
+  })();
+
   const walletNav: {
     label: string;
     href: string | null;
@@ -42,8 +56,8 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   }[] = [
     {
       label: "Bitcoin",
-      href: baseStorePath ? `${baseStorePath}/wallets/btc` : null,
-      baseHref: baseStorePath ? `${baseStorePath}/wallets/btc` : null,
+      href: walletHref,
+      baseHref: walletBaseHref,
       children: walletHasMenu
         ? [
             { label: "Transactions", href: baseStorePath ? `${baseStorePath}/wallets/btc/transactions` : null },

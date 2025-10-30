@@ -39,6 +39,9 @@ const CSV_HEADERS = [
   "rateUsd",
 ];
 
+const BFF_CONFIG_ERROR_MESSAGE =
+  'BTC wallet transactions endpoint is missing in the PayPay BFF. Contact your administrator to update the integration.';
+
 function formatDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
@@ -171,7 +174,7 @@ function buildQueryString(query: TransactionsQuery): string {
 function buildApiUrl(storeId: string, query: TransactionsQuery): string {
   const search = buildQueryString(query);
   const suffix = search ? search : "";
-  const base = `/api/stores/${storeId}/wallets/BTC/transactions`;
+  const base = `/api/stores/${storeId}/wallets/btc/transactions`;
   return `${base}${suffix}`;
 }
 
@@ -240,6 +243,10 @@ export default function TransactionsClient({
               return;
             }
             if (!response.ok) {
+              if (response.status === 404) {
+                setCurrentError(BFF_CONFIG_ERROR_MESSAGE);
+                return;
+              }
               let message: string | null = null;
               try {
                 const payload: unknown = await response.json();
@@ -685,9 +692,11 @@ export default function TransactionsClient({
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        If BTCPay shows an invalid balance, rescan your wallet from the BTCPay Server interface.
-      </p>
+      {items.length === 0 && !currentError ? (
+        <p className="text-sm text-muted-foreground">
+          If BTCPay shows an invalid balance, rescan your wallet from the BTCPay Server interface.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -44,7 +44,7 @@ test.describe("Wallet wizard", () => {
       addressPreview: previewResponse.addresses,
     };
 
-    await page.route(`**/api/stores/${storeId}/wallets/BTC/transactions**`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/btc/transactions**`, async (route) => {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({ items: [], total: 0 }),
@@ -52,7 +52,7 @@ test.describe("Wallet wizard", () => {
       });
     });
 
-    await page.route(`**/api/stores/${storeId}/wallets/BTC/overview**`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/btc/overview**`, async (route) => {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({
@@ -77,6 +77,18 @@ test.describe("Wallet wizard", () => {
           config: { derivationScheme: walletConnected ? derivationScheme : null },
           enabled: walletConnected,
         }),
+      });
+    });
+
+    await page.route(`**/api/stores/${storeId}/payment-methods/onchain/btc/preview`, async (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
+      const json = route.request().postDataJSON() as { config?: { derivationScheme?: string } } | null;
+      expect(json?.config?.derivationScheme).toBe(derivationScheme);
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify(previewResponse),
+        contentType: "application/json",
       });
     });
 

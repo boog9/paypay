@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -9,25 +10,31 @@ import {
   Unique,
   UpdateDateColumn
 } from 'typeorm';
-import { TIMESTAMP_COLUMN_TYPE } from '../../database/utils/column-types';
-import { ManagedStoreEntity } from '../../stores/managed-store.entity';
+import { TIMESTAMP_COLUMN_TYPE } from '../database/utils/column-types';
+import { ManagedStoreEntity } from '../stores/managed-store.entity';
 
-@Entity({ name: 'managed_store_wallets' })
-@Unique('uq_wallet_store_payment_method', ['storeId', 'paymentMethodId'])
-export class ManagedStoreWalletEntity {
+@Entity({ name: 'onchain_wallets' })
+@Unique('uq_onchain_wallet_store_payment_method', ['storeId', 'paymentMethodId'])
+export class OnchainWalletEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Index('ix_wallet_store_id')
+  @Index('ix_onchain_wallet_store_id')
   @Column({ name: 'store_id', type: 'uuid' })
   storeId!: string;
 
-  @ManyToOne(() => ManagedStoreEntity, (store) => store.wallets, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ManagedStoreEntity, (store) => store.onchainWallets, {
+    onDelete: 'CASCADE',
+    nullable: false
+  })
   @JoinColumn({ name: 'store_id' })
   store!: ManagedStoreEntity;
 
   @Column({ name: 'payment_method_id', type: 'varchar', length: 64 })
   paymentMethodId!: string;
+
+  @Column({ name: 'enabled', type: 'boolean', default: true })
+  enabled!: boolean;
 
   @Column({ name: 'derivation_scheme', type: 'text', nullable: true })
   derivationScheme!: string | null;
@@ -46,4 +53,7 @@ export class ManagedStoreWalletEntity {
 
   @UpdateDateColumn({ name: 'updated_at', type: TIMESTAMP_COLUMN_TYPE })
   updatedAt!: Date;
+
+  @DeleteDateColumn({ name: 'deleted_at', type: TIMESTAMP_COLUMN_TYPE, nullable: true })
+  deletedAt!: Date | null;
 }

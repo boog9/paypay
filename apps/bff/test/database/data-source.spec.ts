@@ -7,7 +7,7 @@ import { StoreEntity } from '../../src/tenants/entities/store.entity';
 import { AuditLogEntity } from '../../src/tenants/entities/audit-log.entity';
 import { IdempotencyKeyEntity } from '../../src/tenants/entities/idempotency-key.entity';
 import { ManagedStoreEntity } from '../../src/stores/managed-store.entity';
-import { ManagedStoreWalletEntity } from '../../src/wallets/entities/managed-store-wallet.entity';
+import { OnchainWalletEntity } from '../../src/wallets/onchain-wallet.entity';
 
 describe('Database schema', () => {
   it('initializes an in-memory sqlite DataSource without unsupported types', async () => {
@@ -22,7 +22,7 @@ describe('Database schema', () => {
         AuditLogEntity,
         IdempotencyKeyEntity,
         ManagedStoreEntity,
-        ManagedStoreWalletEntity
+        OnchainWalletEntity
       ],
       synchronize: true,
       dropSchema: true,

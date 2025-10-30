@@ -206,6 +206,53 @@ describe('BtcpayPaymentMethodsService', () => {
     });
   });
 
+  it('returns disabled presence when on-chain config is missing', async () => {
+    const error = Object.assign(new Error('Not found'), {
+      isAxiosError: true,
+      response: { status: 404 }
+    });
+
+    mockedAxios.create.mockReturnValue(
+      mockAxiosInstance({
+        get: jest.fn().mockRejectedValue(error)
+      })
+    );
+
+    const service = buildService();
+    const result = await service.getOnchainConfig(store.btcpayStoreId, true, { store });
+
+    expect(result).toEqual({ enabled: false });
+  });
+
+  it('normalizes on-chain metadata returned from BTCPay', async () => {
+    const getMock = jest.fn().mockResolvedValue({
+      data: {
+        enabled: true,
+        config: {
+          derivationScheme: 'tpubExample',
+          accountKeyPath: "m/84'/1'/0'",
+          masterFingerprint: '10b3bfc0',
+          label: 'Primary'
+        }
+      }
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getOnchainConfig(store.btcpayStoreId, true, { store });
+
+    expect(result).toEqual({
+      enabled: true,
+      config: {
+        derivationScheme: 'tpubExample',
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: '10B3BFC0',
+        label: 'Primary'
+      }
+    });
+  });
+
   it('omits empty config objects when previewing', async () => {
     const getMock = jest.fn().mockResolvedValue({
       data: {

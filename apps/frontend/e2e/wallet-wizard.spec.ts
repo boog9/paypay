@@ -44,7 +44,7 @@ test.describe("Wallet wizard", () => {
       addressPreview: previewResponse.addresses,
     };
 
-    await page.route(`**/api/stores/${storeId}/wallets/btc/transactions**`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/onchain/transactions**`, async (route) => {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({ items: [], total: 0 }),

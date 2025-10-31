@@ -18,6 +18,7 @@ import {
 import { Button } from "../../../../../../../../components/ui/button";
 import { Badge } from "../../../../../../../../components/ui/badge";
 import { cn } from "../../../../../../../../lib/utils";
+import { bffFetch } from "../../../../../../../../lib/bff-fetch";
 import type {
   WalletOverview,
   WalletTransaction,
@@ -25,7 +26,7 @@ import type {
 } from "../../../../../../../../src/types/wallets";
 import type { TransactionsQuery } from "./types";
 
-const DEFAULT_COUNT = 50;
+const DEFAULT_TAKE = 50;
 const FETCH_DEBOUNCE_MS = 280;
 const CSV_HEADERS = [
   "date",
@@ -38,6 +39,15 @@ const CSV_HEADERS = [
   "comment",
   "rateUsd",
 ];
+
+async function refreshSession(): Promise<boolean> {
+  try {
+    const response = await bffFetch("/api/auth/refresh", { method: "POST" });
+    return response.ok || response.status === 204;
+  } catch {
+    return false;
+  }
+}
 
 const BFF_CONFIG_ERROR_MESSAGE =
   'BTC wallet transactions endpoint is missing in the PayPay BFF. Contact your administrator to update the integration.';
@@ -158,8 +168,8 @@ function buildQueryString(query: TransactionsQuery): string {
   if (query.skip > 0) {
     params.set("skip", String(query.skip));
   }
-  if (query.count !== DEFAULT_COUNT) {
-    params.set("count", String(query.count));
+  if (query.take !== DEFAULT_TAKE) {
+    params.set("take", String(query.take));
   }
   if (query.order !== "desc") {
     params.set("order", query.order);
@@ -172,10 +182,15 @@ function buildQueryString(query: TransactionsQuery): string {
 }
 
 function buildApiUrl(storeId: string, query: TransactionsQuery): string {
-  const search = buildQueryString(query);
-  const suffix = search ? search : "";
-  const base = `/api/stores/${storeId}/wallets/btc/transactions`;
-  return `${base}${suffix}`;
+  const params = new URLSearchParams();
+  params.set("skip", String(query.skip));
+  params.set("take", String(query.take));
+  params.set("order", query.order);
+  params.set("cryptoCode", "BTC");
+  for (const label of query.labels) {
+    params.append("labels", label);
+  }
+  return `/api/stores/${storeId}/wallets/onchain/transactions?${params.toString()}`;
 }
 
 export default function TransactionsClient({
@@ -233,53 +248,68 @@ export default function TransactionsClient({
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
       setIsFetching(true);
-      fetch(apiUrl, {
-        signal: controller.signal,
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      })
-          .then(async (response) => {
+
+      const fetchData = async () => {
+        try {
+          let response = await bffFetch(apiUrl, { signal: controller.signal });
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          if (response.status === 401) {
+            const refreshed = await refreshSession();
+            if (!refreshed) {
+              setCurrentError("Unauthorized");
+              return;
+            }
+            response = await bffFetch(apiUrl, { signal: controller.signal });
             if (controller.signal.aborted) {
               return;
             }
-            if (!response.ok) {
-              if (response.status === 404) {
-                setCurrentError(BFF_CONFIG_ERROR_MESSAGE);
-                return;
+          }
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              setCurrentError(BFF_CONFIG_ERROR_MESSAGE);
+              return;
+            }
+            let message: string | null = null;
+            try {
+              const payload: unknown = await response.json();
+              if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
+                const raw = (payload as { message?: string }).message ?? "";
+                message = raw.trim() ? raw.trim() : null;
               }
-              let message: string | null = null;
-              try {
-                const payload: unknown = await response.json();
-                if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
-                  const raw = (payload as { message?: string }).message ?? "";
-                  message = raw.trim() ? raw.trim() : null;
-                }
-              } catch {
+            } catch {
               // ignore parse errors
             }
             setCurrentError(message ?? `Failed to load transactions (status ${response.status}).`);
             return;
           }
 
-            try {
-              const payload: unknown = await response.json();
-              setData(normalizeTransactionsResponse(payload));
-              setCurrentError(null);
+          try {
+            const payload: unknown = await response.json();
+            setData(normalizeTransactionsResponse(payload));
+            setCurrentError(null);
           } catch {
             setCurrentError("Failed to parse transactions response.");
           }
-        })
-        .catch((err) => {
+        } catch (err) {
+          if (controller.signal.aborted) {
+            return;
+          }
           if (err && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
             return;
           }
           setCurrentError("Failed to load transactions.");
-        })
-        .finally(() => {
+        } finally {
           if (!controller.signal.aborted) {
             setIsFetching(false);
           }
-        });
+        }
+      };
+
+      void fetchData();
     }, FETCH_DEBOUNCE_MS);
 
     return () => {
@@ -314,7 +344,7 @@ export default function TransactionsClient({
   }, [items]);
 
   const hasPrevious = queryState.skip > 0;
-  const hasNext = totalCount !== null ? queryState.skip + items.length < totalCount : items.length >= queryState.count;
+  const hasNext = totalCount !== null ? queryState.skip + items.length < totalCount : items.length >= queryState.take;
   const pageStart = items.length > 0 ? queryState.skip + 1 : 0;
   const pageEnd = items.length > 0 ? queryState.skip + items.length : 0;
 
@@ -327,7 +357,7 @@ export default function TransactionsClient({
         .slice(0, 10);
       return {
         skip: Math.max(0, next.skip),
-        count: Math.min(Math.max(next.count, 1), 200),
+        take: Math.min(Math.max(next.take, 1), 200),
         order: next.order === "asc" ? "asc" : "desc",
         labels: normalizedLabels,
       };
@@ -370,10 +400,10 @@ export default function TransactionsClient({
   const handlePagination = useCallback(
     (direction: "previous" | "next") => {
       if (direction === "previous" && hasPrevious) {
-        updateQuery((prev) => ({ ...prev, skip: Math.max(prev.skip - prev.count, 0) }));
+        updateQuery((prev) => ({ ...prev, skip: Math.max(prev.skip - prev.take, 0) }));
       }
       if (direction === "next" && hasNext) {
-        updateQuery((prev) => ({ ...prev, skip: prev.skip + prev.count }));
+        updateQuery((prev) => ({ ...prev, skip: prev.skip + prev.take }));
       }
     },
     [hasNext, hasPrevious, updateQuery],

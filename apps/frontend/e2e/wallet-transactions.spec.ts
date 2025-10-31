@@ -65,10 +65,16 @@ test.describe("Wallet transactions page", () => {
     };
 
     const requestStatuses: number[] = [];
-    await page.route(`**/api/stores/${storeId}/wallets/btc/transactions**`, async (route) => {
+    await page.route(`**/api/stores/${storeId}/wallets/onchain/transactions**`, async (route) => {
       const url = new URL(route.request().url());
       const skip = url.searchParams.get("skip") ?? "0";
+      const cryptoCode = url.searchParams.get("cryptoCode");
       const labels = url.searchParams.getAll("labels");
+
+      if (cryptoCode !== "BTC") {
+        await route.fulfill({ status: 400, body: "" });
+        return;
+      }
 
       let body = transactionsFirstPage;
       if (labels.includes("invoice")) {
@@ -98,7 +104,7 @@ test.describe("Wallet transactions page", () => {
       });
     });
 
-    await page.goto(`/stores/${storeId}/wallets/btc/transactions?count=2`);
+    await page.goto(`/stores/${storeId}/wallets/btc/transactions?take=2`);
 
     await expect(page.getByRole("heading", { name: "Transactions" })).toBeVisible();
     await expect(page.getByText("Confirmed balance: 0.75000000 BTC")).toBeVisible();
@@ -118,7 +124,7 @@ test.describe("Wallet transactions page", () => {
     await page.fill('input[aria-label="Filter by label"]', "invoice");
     const labelResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/onchain/transactions`) &&
         response.request().url().includes("labels=invoice") &&
         response.status() === 200
       );
@@ -131,7 +137,7 @@ test.describe("Wallet transactions page", () => {
 
     const clearResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/onchain/transactions`) &&
         !response.request().url().includes("labels=") &&
         response.status() === 200
       );
@@ -142,7 +148,7 @@ test.describe("Wallet transactions page", () => {
 
     const sortResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/onchain/transactions`) &&
         response.request().url().includes("order=asc") &&
         response.status() === 200
       );
@@ -152,7 +158,7 @@ test.describe("Wallet transactions page", () => {
 
     const nextResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/onchain/transactions`) &&
         response.request().url().includes("skip=2") &&
         response.status() === 200
       );
@@ -166,7 +172,7 @@ test.describe("Wallet transactions page", () => {
 
     const previousResponse = page.waitForResponse((response) => {
       return (
-        response.url().includes(`/api/stores/${storeId}/wallets/btc/transactions`) &&
+        response.url().includes(`/api/stores/${storeId}/wallets/onchain/transactions`) &&
         !response.request().url().includes("skip=2") &&
         response.status() === 200
       );

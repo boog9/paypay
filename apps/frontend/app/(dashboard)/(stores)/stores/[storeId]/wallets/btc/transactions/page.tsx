@@ -10,8 +10,8 @@ export const metadata: Metadata = {
   title: "BTC wallet transactions",
 };
 
-const DEFAULT_COUNT = 50;
-const MAX_COUNT = 200;
+const DEFAULT_TAKE = 50;
+const MAX_TAKE = 200;
 const BFF_CONFIG_ERROR_MESSAGE =
   'BTC wallet transactions endpoint is missing in the PayPay BFF. Contact your administrator to update the integration.';
 
@@ -30,7 +30,7 @@ type FetchResult<T> = {
 function parseSearchParams(params?: Record<string, string | string[] | undefined>): TransactionsQuery {
   const result: TransactionsQuery = {
     skip: 0,
-    count: DEFAULT_COUNT,
+    take: DEFAULT_TAKE,
     order: "desc",
     labels: [],
   };
@@ -40,12 +40,14 @@ function parseSearchParams(params?: Record<string, string | string[] | undefined
   }
 
   const skip = parseIntParam(params.skip, 0, 0);
-  const count = parseIntParam(params.count, DEFAULT_COUNT, 1, MAX_COUNT);
+  const rawTake = extractString(params.take);
+  const countParam = rawTake ?? extractString(params.count);
+  const take = parseIntParam(countParam, DEFAULT_TAKE, 1, MAX_TAKE);
   const orderRaw = extractString(params.order)?.toLowerCase();
   const labelsRaw = normalizeLabels(params.labels ?? params.label);
 
   result.skip = skip;
-  result.count = count;
+  result.take = take;
   if (orderRaw === "asc" || orderRaw === "desc") {
     result.order = orderRaw;
   }
@@ -193,13 +195,14 @@ async function attemptSessionRefresh(): Promise<boolean> {
 async function loadTransactions(storeId: string, query: TransactionsQuery): Promise<FetchResult<WalletTransactionsResponse>> {
   const search = new URLSearchParams();
   search.set("skip", String(query.skip));
-  search.set("count", String(query.count));
+  search.set("take", String(query.take));
   search.set("order", query.order);
+  search.set("cryptoCode", "BTC");
   for (const label of query.labels) {
     search.append("labels", label);
   }
 
-  const path = `/api/stores/${storeId}/wallets/btc/transactions?${search.toString()}`;
+  const path = `/api/stores/${storeId}/wallets/onchain/transactions?${search.toString()}`;
 
   let response: Response;
   let attemptedRefresh = false;

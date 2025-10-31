@@ -64,14 +64,19 @@ export class ListWalletTransactionsQueryDto {
   skip = 0;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    const parsed = Number(value);
+  @Transform(({ value, obj }) => {
+    const raw = obj?.take ?? value;
+    const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : 50;
   })
   @IsInt()
   @Min(1)
   @Max(200)
   count = 50;
+
+  @IsOptional()
+  @Transform(() => undefined)
+  take?: number;
 
   @IsOptional()
   @Transform(({ value }) => normalizeLabels(value))
@@ -94,6 +99,12 @@ export class ListWalletTransactionsQueryDto {
   })
   @IsIn(['confirmed', 'unconfirmed', 'replaced', 'double-spent'])
   status?: TxStatus;
+}
+
+export class OnchainTransactionsQueryDto extends ListWalletTransactionsQueryDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @IsString()
+  cryptoCode!: string;
 }
 
 export class FeeRateQueryDto {

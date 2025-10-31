@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "../../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { Input } from "../../../../../../../../components/ui/input";
-import { ApiError, api, apiPost, isApiError } from "../../../../../../../../lib/api";
+import { ApiError, api, isApiError } from "../../../../../../../../lib/api";
 import { useToast } from "../../../../../../../../components/ui/toast";
-import { getCsrfToken } from "../../../../../../../../lib/auth";
+import { bffFetch } from "../../../../../../../../lib/bff-fetch";
 import {
   detectNetworkFromInput,
+  isExtendedPublicKey,
+  isSupportedDescriptor,
   resolveInstanceNetwork,
   walletWizardFormSchema,
 } from "./validation";
@@ -86,6 +88,76 @@ function normalizePreviewResponsePayload(value: unknown): PreviewResponse | null
     paymentMethodId,
     addresses,
   } satisfies PreviewResponse;
+}
+
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractRequestIdFromHeaders(headers: Headers): string | null {
+  const candidates = ["x-request-id", "x-requestid"] as const;
+  for (const header of candidates) {
+    const value = headers.get(header);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
+
+async function buildApiErrorFromResponse(response: Response): Promise<ApiError> {
+  const body = await parseResponseBody(response);
+  let message = "";
+
+  if (typeof body === "string") {
+    message = body.trim();
+  } else if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    const candidates: unknown[] = [record.message, record.error];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed) {
+          message = trimmed;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!message) {
+    const statusText = response.statusText?.trim();
+    message = statusText && statusText.length > 0 ? statusText : "Request failed";
+  }
+
+  const requestId = extractRequestIdFromHeaders(response.headers);
+  return new ApiError(response.status, message, body, response.headers, requestId);
+}
+
+async function attemptSessionRefresh(): Promise<boolean> {
+  try {
+    const response = await bffFetch("/api/auth/refresh", { method: "POST" });
+    return response.ok || response.status === 204;
+  } catch {
+    return false;
+  }
 }
 
 function containsExtendedKeySnippet(value: string): boolean {
@@ -230,17 +302,42 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setAccountKeyPath(parsed.data.accountKeyPath);
 
     try {
-      const csrfToken = await getCsrfToken();
-      const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrfToken } as const;
-      const requestBody = {
-        derivationScheme: parsed.data.derivationScheme,
-        ...(parsed.data.accountKeyPath ? { accountKeyPath: parsed.data.accountKeyPath } : {}),
+      const requestBody: Record<string, unknown> = { cryptoCode: "BTC" };
+      const derivationInput = parsed.data.derivationScheme;
+
+      if (isSupportedDescriptor(derivationInput)) {
+        requestBody.derivationScheme = derivationInput;
+      } else if (isExtendedPublicKey(derivationInput)) {
+        requestBody.extendedPublicKey = derivationInput;
+      } else {
+        requestBody.derivationScheme = derivationInput;
+      }
+
+      if (parsed.data.accountKeyPath) {
+        requestBody.accountKeyPath = parsed.data.accountKeyPath;
+      }
+
+      const requestInit = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
       } as const;
-      const payload = await apiPost<unknown>(
-        `/api/stores/${storeId}/wallets/onchain/preview`,
-        requestBody,
-        { headers },
-      );
+
+      let response = await bffFetch(`/api/stores/${storeId}/wallets/onchain/preview`, requestInit);
+
+      if (response.status === 401) {
+        const refreshed = await attemptSessionRefresh();
+        if (!refreshed) {
+          throw await buildApiErrorFromResponse(response);
+        }
+        response = await bffFetch(`/api/stores/${storeId}/wallets/onchain/preview`, requestInit);
+      }
+
+      if (!response.ok) {
+        throw await buildApiErrorFromResponse(response);
+      }
+
+      const payload = (await response.json()) as unknown;
       const normalized = normalizePreviewResponsePayload(payload);
       if (!normalized) {
         throw new Error("Invalid preview payload returned by the server.");

@@ -247,6 +247,16 @@ export class BtcpayService {
     const http = this.createHttp(store.btcpayHost, headers);
 
     try {
+      const debugPayload: Record<string, unknown> = {
+        method: options.method,
+        path,
+        storeId: store.btcpayStoreId,
+      };
+      if (normalizedRequestId) {
+        debugPayload.requestId = normalizedRequestId;
+      }
+      this.logger.debug(debugPayload, 'btcpay.proxy.request');
+
       const response = await http.request<T>({
         url: path,
         method: options.method,

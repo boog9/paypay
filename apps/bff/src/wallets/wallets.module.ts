@@ -9,10 +9,12 @@ import { LegacyOnchainWalletsController } from './legacy-onchain-wallets.control
 import { OnchainWalletReadService } from './onchain-wallet-read.service';
 import { OnchainWalletEntity } from './onchain-wallet.entity';
 import { OnchainWalletsService } from './onchain-wallets.service';
+import { WalletPreviewController } from './wallet-preview.controller';
+import { WalletPreviewService } from './wallet-preview.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([ManagedStoreEntity, OnchainWalletEntity]), BtcpayModule, AuthModule],
-  controllers: [LegacyOnchainWalletsController, OnchainWalletsController, WalletsController],
-  providers: [OnchainWalletReadService, OnchainWalletsService]
+  controllers: [LegacyOnchainWalletsController, OnchainWalletsController, WalletPreviewController, WalletsController],
+  providers: [OnchainWalletReadService, OnchainWalletsService, WalletPreviewService]
 })
 export class WalletsModule {}

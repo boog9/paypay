@@ -16,11 +16,11 @@ test.describe("Wallet wizard", () => {
       await route.fulfill({ status: 204, headers: { "X-Csrf-Token": "test-csrf" } });
     });
 
-    const derivationScheme = "wpkh([abcd1234/84'/0'/0']xpub-example/0/*)";
+    const derivationScheme = "wpkh([abcd1234/84'/1'/0']tpub-example/0/*)";
     const previewResponse = {
       storeId,
       currency: "BTC",
-      paymentMethodId: "BTC-OnChain",
+      paymentMethodId: "BTC-CHAIN",
       addresses: Array.from({ length: 10 }, (_, index) => ({
         address: `bcrt1qexample${index}`,
         keyPath: `0/${index}`,
@@ -31,7 +31,7 @@ test.describe("Wallet wizard", () => {
     const saveResponse = {
       storeId,
       currency: "BTC",
-      paymentMethodId: "BTC-OnChain",
+      paymentMethodId: "BTC-CHAIN",
       enabled: true,
       connected: true,
       missingLocalMeta: false,
@@ -80,21 +80,11 @@ test.describe("Wallet wizard", () => {
       });
     });
 
-    await page.route(`**/api/stores/${storeId}/payment-methods/onchain/btc/preview`, async (route) => {
-      expect(route.request().method()).toBe("POST");
-      expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
-      const json = route.request().postDataJSON() as { config?: { derivationScheme?: string } } | null;
-      expect(json?.config?.derivationScheme).toBe(derivationScheme);
-      await route.fulfill({
-        status: 200,
-        body: JSON.stringify(previewResponse),
-        contentType: "application/json",
-      });
-    });
-
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
       expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
+      const json = route.request().postDataJSON() as { descriptor?: string } | null;
+      expect(json?.descriptor).toBe(derivationScheme);
       await route.fulfill({
         status: 200,
         body: JSON.stringify(previewResponse),
@@ -117,7 +107,7 @@ test.describe("Wallet wizard", () => {
     await page.getByRole("button", { name: "Enter extended public key" }).click();
 
     await page.fill("#derivationScheme", derivationScheme);
-    await page.fill("#accountKeyPath", "m/84'/0'/0'");
+    await page.fill("#accountKeyPath", "m/84'/1'/0'");
     await page.getByRole("button", { name: "Preview addresses" }).click();
 
     await expect(page.getByRole("heading", { name: "Confirm receiving addresses" })).toBeVisible();

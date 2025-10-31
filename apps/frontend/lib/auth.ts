@@ -97,13 +97,8 @@ export async function logout(): Promise<void> {
 }
 
 export async function refresh(): Promise<void> {
-  const csrf = await getCsrfToken();
-
   const response = await apiFetch(AUTH_REFRESH, {
-    method: 'POST',
-    headers: {
-      'X-CSRF-Token': csrf,
-    },
+    method: 'GET',
     cache: 'no-store',
   });
 

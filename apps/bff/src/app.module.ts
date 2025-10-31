@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSourceOptions } from 'typeorm';
@@ -25,6 +25,7 @@ import type { Request } from 'express';
 import { SecurityModule } from './security/security.module';
 import { CsrfGuard } from './security/csrf.guard';
 import { AppThrottlerGuard } from './app.throttler.guard';
+import { AxiosExceptionFilter } from './http/axios-exception.filter';
 
 @Module({
   imports: [
@@ -209,6 +210,10 @@ import { AppThrottlerGuard } from './app.throttler.guard';
     {
       provide: APP_GUARD,
       useClass: CsrfGuard
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AxiosExceptionFilter
     },
   ]
 })

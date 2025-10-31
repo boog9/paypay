@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const TEST_BFF_URL = "https://bff.test";
 const originalFetch: typeof fetch | undefined = globalThis.fetch;
+const originalLocation = window.location;
 
 type GlobalWithFetch = typeof globalThis & { fetch?: typeof fetch };
 
@@ -23,6 +24,16 @@ function headerValue(init: RequestInit | undefined, name: string): string | null
 
 beforeEach(() => {
   vi.resetModules();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: {
+      href: "https://pay.example/dashboard",
+      origin: "https://pay.example",
+      assign: vi.fn(),
+      replace: vi.fn(),
+      reload: vi.fn(),
+    } as unknown as Location,
+  });
 });
 
 afterEach(() => {
@@ -33,6 +44,10 @@ afterEach(() => {
   }
   delete process.env.NEXT_PUBLIC_BFF_URL;
   vi.restoreAllMocks();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: originalLocation,
+  });
 });
 
 test("api retries once after refreshing tokens on a 401 response", async () => {
@@ -53,20 +68,9 @@ test("api retries once after refreshing tokens on a 401 response", async () => {
     })
     .mockImplementationOnce((input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
-      expect(url).toBe(`${TEST_BFF_URL}/api/auth/csrf`);
-      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
-      return Promise.resolve(
-        new Response(null, {
-          status: 204,
-          headers: { "X-Csrf-Token": "csrf-initial" },
-        }),
-      );
-    })
-    .mockImplementationOnce((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = requestUrl(input);
       expect(url).toBe(`${TEST_BFF_URL}/api/auth/refresh`);
-      expect((init?.method ?? "POST").toUpperCase()).toBe("POST");
-      expect(headerValue(init, "X-CSRF-Token")).toBe("csrf-initial");
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+      expect(headerValue(init, "X-CSRF-Token")).toBeNull();
       return Promise.resolve(
         new Response(null, {
           status: 204,
@@ -93,7 +97,7 @@ test("api retries once after refreshing tokens on a 401 response", async () => {
   const payload = await api<{ ok: boolean }>("/api/example");
   expect(payload).toEqual({ ok: true });
   expect(getCachedCsrfToken()).toBe("csrf-updated");
-  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 test("api refreshes CSRF even when a token is already cached", async () => {
@@ -127,20 +131,9 @@ test("api refreshes CSRF even when a token is already cached", async () => {
     })
     .mockImplementationOnce((input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
-      expect(url).toBe(`${TEST_BFF_URL}/api/auth/csrf`);
-      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
-      return Promise.resolve(
-        new Response(null, {
-          status: 204,
-          headers: { "X-Csrf-Token": "refreshed-csrf" },
-        }),
-      );
-    })
-    .mockImplementationOnce((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = requestUrl(input);
       expect(url).toBe(`${TEST_BFF_URL}/api/auth/refresh`);
-      expect((init?.method ?? "POST").toUpperCase()).toBe("POST");
-      expect(headerValue(init, "X-CSRF-Token")).toBe("refreshed-csrf");
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+      expect(headerValue(init, "X-CSRF-Token")).toBeNull();
       return Promise.resolve(
         new Response(null, {
           status: 204,
@@ -171,7 +164,7 @@ test("api refreshes CSRF even when a token is already cached", async () => {
   const payload = await api<{ ok: boolean }>("/api/needs-refresh");
   expect(payload).toEqual({ ok: true });
   expect(getCachedCsrfToken()).toBe("refreshed-csrf-2");
-  expect(fetchMock).toHaveBeenCalledTimes(5);
+  expect(fetchMock).toHaveBeenCalledTimes(4);
 });
 
 test("api throws original 401 error when refresh fails", async () => {
@@ -186,16 +179,6 @@ test("api throws original 401 error when refresh fails", async () => {
         new Response(JSON.stringify({ message: "unauthorized" }), {
           status: 401,
           headers: { "content-type": "application/json" },
-        }),
-      );
-    })
-    .mockImplementationOnce((input: RequestInfo | URL) => {
-      const url = requestUrl(input);
-      expect(url).toBe(`${TEST_BFF_URL}/api/auth/csrf`);
-      return Promise.resolve(
-        new Response(null, {
-          status: 204,
-          headers: { "X-Csrf-Token": "csrf-token" },
         }),
       );
     })
@@ -223,5 +206,6 @@ test("api throws original 401 error when refresh fails", async () => {
 
   expect(caught).toBeInstanceOf(ApiError);
   expect((caught as InstanceType<typeof ApiError>).status).toBe(401);
-  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect((window.location as Location).href).toContain("/sign-in");
 });

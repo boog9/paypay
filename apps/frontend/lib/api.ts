@@ -10,6 +10,9 @@ export const AUTH_CSRF = `${API_PREFIX}/auth/csrf`;
 export const AUTH_ME = `${API_PREFIX}/auth/me`;
 
 const CSRF_HEADER_NAME = 'x-csrf-token';
+const REQUEST_ID_HEADERS = ['x-request-id', 'x-requestid'] as const;
+
+let hasScheduledLoginRedirect = false;
 
 if (!rawBaseUrl && process.env.NODE_ENV !== 'production') {
   console.warn('NEXT_PUBLIC_BFF_URL is not defined. Falling back to same-origin relative requests.');
@@ -24,7 +27,8 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly body: unknown,
-    public readonly headers: Headers
+    public readonly headers: Headers,
+    public readonly requestId: string | null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -155,8 +159,18 @@ async function executeApiFetch(
 
   if (!response.ok) {
     const errorBody = await parseErrorBody(response);
-    const message = extractErrorMessage(response.status, errorBody);
-    throw new ApiError(response.status, message, errorBody, response.headers);
+    if (response.status === 401 && shouldHandleUnauthorized(path)) {
+      resetCachedCsrfToken();
+      scheduleLoginRedirect();
+    }
+
+    let message = extractErrorMessage(response.status, errorBody);
+    if (response.status === 401 && !shouldHandleUnauthorized(path)) {
+      message = resolveBodyMessage(errorBody) ?? message;
+    }
+
+    const requestId = extractRequestIdFromHeaders(response.headers);
+    throw new ApiError(response.status, message, errorBody, response.headers, requestId);
   }
 
   return response;
@@ -243,18 +257,11 @@ async function attemptAuthRefresh(baseUrl?: string): Promise<boolean> {
 
   ongoingRefresh = (async () => {
     try {
-      const token = await fetchCsrfToken(baseUrl);
-      const headers = new Headers({ Accept: 'application/json' });
-      const effectiveToken = token ?? cachedCsrfToken;
-      if (effectiveToken) {
-        headers.set('X-CSRF-Token', effectiveToken);
-      }
-
       const response = await fetch(buildUrl(AUTH_REFRESH, baseUrl), {
-        method: 'POST',
+        method: 'GET',
         credentials: 'include',
         mode: 'cors',
-        headers
+        headers: { Accept: 'application/json' }
       });
       rememberCsrfTokenFromHeaders(response.headers);
       if (response.status === 204 || response.ok) {
@@ -279,6 +286,21 @@ export function getCachedCsrfToken(): string | null {
 
 export function resetCachedCsrfToken(): void {
   cachedCsrfToken = null;
+}
+
+function scheduleLoginRedirect(): void {
+  if (typeof window === 'undefined' || hasScheduledLoginRedirect) {
+    return;
+  }
+  hasScheduledLoginRedirect = true;
+  const destination = new URL('/sign-in', window.location.origin);
+  destination.searchParams.set('expired', '1');
+  destination.searchParams.set('returnTo', window.location.href);
+  window.location.href = destination.toString();
+}
+
+function shouldHandleUnauthorized(path: string): boolean {
+  return path !== AUTH_LOGIN;
 }
 
 function buildUrl(path: string, overrideBase?: string): string {
@@ -330,16 +352,74 @@ async function parseErrorBody(response: Response): Promise<unknown> {
 }
 
 function extractErrorMessage(status: number, payload: unknown): string {
-  if (typeof payload === 'string' && payload.trim()) {
-    return payload.trim();
+  const bodyMessage = resolveBodyMessage(payload);
+  if (status === 401) {
+    return 'Сесія завершилась. Увійдіть знову.';
+  }
+  if (status === 403) {
+    return 'Доступ заборонено.';
+  }
+  if (status === 422) {
+    return bodyMessage ?? 'Помилка валідації деривації';
+  }
+  if (status >= 500) {
+    return 'Проблема на сервері';
+  }
+  if (bodyMessage) {
+    return bodyMessage;
+  }
+  return `API ${status}`;
+}
+
+function resolveBodyMessage(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
-  if (payload && typeof (payload as any).message === 'string') {
-    const message = String((payload as any).message).trim();
-    if (message) {
-      return message;
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const message = record.message;
+    if (typeof message === 'string') {
+      const trimmed = message.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+
+    const detail = record.detail;
+    if (typeof detail === 'string') {
+      const trimmed = detail.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+
+    const errors = record.errors;
+    if (Array.isArray(errors)) {
+      for (const entry of errors) {
+        if (entry && typeof entry === 'object') {
+          const messageCandidate = (entry as Record<string, unknown>).message;
+          if (typeof messageCandidate === 'string') {
+            const trimmed = messageCandidate.trim();
+            if (trimmed.length > 0) {
+              return trimmed;
+            }
+          }
+        }
+      }
     }
   }
 
-  return `API ${status}`;
+  return null;
+}
+
+function extractRequestIdFromHeaders(headers: Headers): string | null {
+  for (const name of REQUEST_ID_HEADERS) {
+    const value = extractHeaderCaseInsensitive(headers, name);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
 }

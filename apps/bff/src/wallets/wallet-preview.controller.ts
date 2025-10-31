@@ -24,23 +24,12 @@ export class WalletPreviewController {
 
   constructor(private readonly previewService: WalletPreviewService) {}
 
-  @Post('stores/:storeId/wallets/btc/preview')
+  @Post('stores/:storeId/wallets/onchain/preview')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, CsrfGuard)
   @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
-  async previewWallet(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
-    this.logger.log(
-      {
-        action: 'preview.enter',
-        route: 'stores/:storeId/wallets/btc/preview',
-        storeId,
-        requestId: extractRequestId(req)
-      },
-      'walletPreview'
-    );
-    return this.previewService.previewOnchainProposedConfig(storeId, body, {
-      requestId: extractRequestId(req)
-    });
+  async previewOnchain(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
+    return this.forwardPreview('stores/:storeId/wallets/onchain/preview', storeId, body, req);
   }
 
   @Post('stores/:storeId/payment-methods/onchain/btc/preview')
@@ -48,17 +37,30 @@ export class WalletPreviewController {
   @UseGuards(JwtAuthGuard, CsrfGuard)
   @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
   async previewLegacy(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
+    return this.forwardPreview('stores/:storeId/payment-methods/onchain/btc/preview', storeId, body, req);
+  }
+
+  @Post('stores/:storeId/wallets/btc/preview')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, CsrfGuard)
+  @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
+  async previewStable(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
+    return this.forwardPreview('stores/:storeId/wallets/btc/preview', storeId, body, req);
+  }
+
+  private forwardPreview(route: string, storeId: string, body: unknown, req: Request) {
+    const requestId = extractRequestId(req);
     this.logger.log(
       {
         action: 'preview.enter',
-        route: 'stores/:storeId/payment-methods/onchain/btc/preview',
+        route,
         storeId,
-        requestId: extractRequestId(req)
+        requestId
       },
       'walletPreview'
     );
     return this.previewService.previewOnchainProposedConfig(storeId, body, {
-      requestId: extractRequestId(req)
+      requestId
     });
   }
 }

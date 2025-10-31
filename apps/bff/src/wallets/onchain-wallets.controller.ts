@@ -89,8 +89,9 @@ export class OnchainWalletsController {
     const store = await this.requireStore(user, storeId);
     this.validateNetwork(dto);
 
-    const resolvedFingerprint =
-      dto.masterFingerprint ?? this.extractFingerprintFromDescriptor(dto.derivationScheme);
+    const fingerprintResolution = this.resolveFingerprints(dto.derivationScheme, dto.masterFingerprint);
+    const masterFingerprintForBtcpay = fingerprintResolution.forBtcpay;
+    const masterFingerprintForStorage = fingerprintResolution.forStorage;
 
     try {
       await this.paymentMethods.updateOnchainPaymentMethod(
@@ -98,8 +99,8 @@ export class OnchainWalletsController {
           storeId: store.btcpayStoreId,
           cryptoCode: 'BTC',
           derivationScheme: dto.derivationScheme,
-          accountKeyPath: dto.accountKeyPath ?? null,
-          masterFingerprint: resolvedFingerprint,
+          ...(dto.accountKeyPath !== undefined ? { accountKeyPath: dto.accountKeyPath } : {}),
+          ...(masterFingerprintForBtcpay !== undefined ? { masterFingerprint: masterFingerprintForBtcpay } : {}),
           label: dto.label ?? null,
           enabled: true
         },
@@ -112,7 +113,7 @@ export class OnchainWalletsController {
     await this.walletsService.upsertFromBtcpay(store, {
       derivationScheme: dto.derivationScheme,
       accountKeyPath: dto.accountKeyPath ?? null,
-      masterFingerprint: resolvedFingerprint,
+      masterFingerprint: masterFingerprintForStorage,
       label: dto.label ?? null
     });
   }
@@ -137,8 +138,12 @@ export class OnchainWalletsController {
             storeId: store.btcpayStoreId,
             cryptoCode: 'BTC',
             derivationScheme: remote.config.derivationScheme,
-            accountKeyPath: remote.config.accountKeyPath ?? null,
-            masterFingerprint: remote.config.masterFingerprint ?? null,
+            ...(remote.config.accountKeyPath !== undefined
+              ? { accountKeyPath: remote.config.accountKeyPath }
+              : {}),
+            ...(remote.config.masterFingerprint
+              ? { masterFingerprint: remote.config.masterFingerprint }
+              : {}),
             label: remote.config.label ?? null,
             enabled: false
           },
@@ -217,6 +222,27 @@ export class OnchainWalletsController {
     }
 
     return match[1].toUpperCase();
+  }
+
+  private resolveFingerprints(
+    derivationScheme: string,
+    masterFingerprint: string | null | undefined
+  ): { forBtcpay: string | undefined; forStorage: string | null } {
+    if (masterFingerprint === null) {
+      return { forBtcpay: undefined, forStorage: null };
+    }
+
+    if (typeof masterFingerprint === 'string') {
+      const normalized = masterFingerprint.trim().toUpperCase();
+      return { forBtcpay: normalized, forStorage: normalized };
+    }
+
+    const extracted = this.extractFingerprintFromDescriptor(derivationScheme);
+    if (!extracted) {
+      return { forBtcpay: undefined, forStorage: null };
+    }
+
+    return { forBtcpay: extracted, forStorage: extracted };
   }
 
   private rethrowBtcpayError(error: unknown): never {

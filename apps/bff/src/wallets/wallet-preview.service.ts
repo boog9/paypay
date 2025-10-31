@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { wordlists } from 'bip39';
-import { BtcpayService } from '../btcpay/btcpay.service';
+import { BtcpayService, type BtcpayServerInfoResponse } from '../btcpay/btcpay.service';
 import { SENSITIVE_ERROR_MESSAGE } from './dto/preview-onchain.dto';
 
 interface PreviewRequestBody {
@@ -13,7 +13,7 @@ interface PreviewRequestBody {
 
 interface NormalizedPreviewRequest {
   derivationScheme: string;
-  accountKeyPath: string;
+  accountKeyPath?: string;
   label?: string;
 }
 
@@ -21,9 +21,11 @@ interface PreviewOptions {
   requestId?: string;
 }
 
-const DEFAULT_ACCOUNT_KEY_PATH = "m/84'/1'/0'";
+type BitcoinNetwork = 'mainnet' | 'testnet';
+
 const TESTNET_EXTENDED_KEY_PREFIXES = new Set(['tpub', 'upub', 'vpub']);
 const MAINNET_EXTENDED_KEY_PREFIXES = new Set(['xpub', 'ypub', 'zpub']);
+const EXTENDED_KEY_REGEX = /^(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/iu;
 const BIP39_WORD_SET = new Set<string>(
   Array.isArray(wordlists.english)
     ? (wordlists.english as unknown[])
@@ -46,12 +48,33 @@ export class WalletPreviewService {
   async previewOnchainProposedConfig(storeId: string, body: unknown, options?: PreviewOptions) {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const normalized = this.normalizePreviewRequest(body);
+    const network = await this.fetchServerNetwork(normalizedStoreId, options?.requestId);
+    this.validateNetwork(normalized.derivationScheme, network);
+    let accountKeyPath: string | undefined;
+
+    if (normalized.accountKeyPath !== undefined) {
+      accountKeyPath = this.normalizeAccountKeyPath(normalized.accountKeyPath, network);
+    } else if (this.isExtendedPublicKey(normalized.derivationScheme)) {
+      accountKeyPath = this.defaultAccountKeyPath(network);
+    }
+
+    const payload: Record<string, unknown> = {
+      derivationScheme: normalized.derivationScheme,
+      count: 10,
+    };
+
+    if (accountKeyPath) {
+      payload.accountKeyPath = accountKeyPath;
+    }
+    if (normalized.label) {
+      payload.label = normalized.label;
+    }
 
     return this.btcpay.proxy({
       storeId: normalizedStoreId,
-      method: 'GET',
+      method: 'POST',
       path: this.buildPreviewPath(normalizedStoreId),
-      params: this.buildPreviewParams(normalized),
+      data: payload,
       requestId: options?.requestId
     });
   }
@@ -71,19 +94,16 @@ export class WalletPreviewService {
 
     const label = this.normalizeLabel(labelCandidate);
 
-    if (!descriptorCandidate && !derivationCandidate) {
-      throw new BadRequestException('descriptor or derivationScheme is required.');
+    const derivationSource = derivationCandidate || descriptorCandidate;
+    if (!derivationSource) {
+      throw new BadRequestException('derivationScheme is required.');
     }
 
-    const derivationScheme = this.normalizeDerivationSchemeInput(
-      descriptorCandidate || derivationCandidate
-    );
-    const accountKeyPath = this.resolveAccountKeyPath(
-      derivationScheme,
-      accountKeyPathCandidate
-    );
-
-    this.validateNetwork(derivationScheme);
+    const derivationScheme = this.normalizeDerivationSchemeInput(derivationSource);
+    if (accountKeyPathCandidate) {
+      this.assertNoSensitiveSecrets(accountKeyPathCandidate);
+    }
+    const accountKeyPath = accountKeyPathCandidate.length > 0 ? accountKeyPathCandidate : undefined;
 
     return label
       ? { derivationScheme, accountKeyPath, label }
@@ -108,20 +128,30 @@ export class WalletPreviewService {
     return value;
   }
 
-  private normalizeAccountKeyPath(value: string): string {
-    const candidate = value ? value : '';
-    const withoutPrefix = candidate ? candidate.replace(/^m\//iu, '') : '';
-    const fallback = DEFAULT_ACCOUNT_KEY_PATH.replace(/^m\//iu, '');
-    const normalizedPath = withoutPrefix || fallback;
-    const result = `m/${normalizedPath}`;
-
-    if (!/^m\/(84|86)'\/1'\/\d+'$/iu.test(result)) {
+  private normalizeAccountKeyPath(value: string, network: BitcoinNetwork): string {
+    const compact = value.replace(/\s+/gu, '');
+    const normalized = compact.replace(/^m\//iu, '').replace(/^M\//u, '');
+    const result = `m/${normalized}`;
+    const match = result.match(/^m\/(84|86)'\/([01])'\/(\d+)'$/u);
+    if (!match) {
       throw new UnprocessableEntityException(
-        "Account key path must follow m/84'/1'/account' or m/86'/1'/account'."
+        "Account key path must follow m/84'/coin'/account' or m/86'/coin'/account'."
       );
     }
 
+    const coinType = match[2];
+    const expectedCoinType = network === 'testnet' ? '1' : '0';
+    if (coinType !== expectedCoinType) {
+      throw new UnprocessableEntityException('Account key path does not match the BTCPay network.');
+    }
+
+    this.assertNoSensitiveSecrets(result);
     return result;
+  }
+
+  private defaultAccountKeyPath(network: BitcoinNetwork): string {
+    const coinType = network === 'testnet' ? "1" : "0";
+    return `m/84'/${coinType}'/0'`;
   }
 
   private assertNoSensitiveSecrets(value: string): void {
@@ -159,110 +189,87 @@ export class WalletPreviewService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/BTC-CHAIN/wallet/preview`;
   }
 
-  private buildPreviewParams(request: NormalizedPreviewRequest): Record<string, string> {
-    const params: Record<string, string> = {
-      derivationScheme: request.derivationScheme,
-      count: '10'
-    };
-    if (request.accountKeyPath) {
-      params.accountKeyPath = request.accountKeyPath;
-    }
-    if (request.label) {
-      params.label = request.label;
-    }
-    return params;
-  }
-
   private normalizeDerivationSchemeInput(value: string): string {
     const trimmed = value.trim();
-    if (!trimmed) {
+    const withoutComments = trimmed.replace(/#.*/u, '');
+    const compact = withoutComments.replace(/\s+/gu, '');
+    if (!compact) {
       throw new BadRequestException('derivationScheme must be a non-empty string.');
     }
-    this.assertNoSensitiveSecrets(trimmed);
-    if (/^wpkh\(/iu.test(trimmed)) {
-      return this.sanitizeDescriptor(trimmed);
+    this.assertNoSensitiveSecrets(compact);
+    if (/^(wpkh|sh|pkh|wsh|tr|sortedmulti)\(/iu.test(compact)) {
+      return this.sanitizeDescriptor(compact);
     }
-    return trimmed;
+    return compact;
   }
 
   private sanitizeDescriptor(value: string): string {
     const withoutWhitespace = value.replace(/\s+/gu, '');
-    const withoutComments = withoutWhitespace.replace(/#.+$/u, '');
-    return withoutComments.replace(/\[([0-9a-fA-F]{8})([^\]]*)/u, (_match, fp: string, rest: string) => {
+    const hashIndex = withoutWhitespace.indexOf('#');
+    const withoutComments = hashIndex >= 0 ? withoutWhitespace.slice(0, hashIndex) : withoutWhitespace;
+    return withoutComments.replace(/\[([0-9a-fA-F]{8})([^\]]*)/g, (_match, fp: string, rest: string) => {
       return `[${fp.toUpperCase()}${rest}`;
     });
   }
 
-  private resolveAccountKeyPath(derivationScheme: string, provided: string): string {
-    if (provided) {
-      return this.normalizeAccountKeyPath(provided);
-    }
-
-    const inferred = this.extractAccountKeyPathFromDescriptor(derivationScheme);
-    if (inferred) {
-      return this.normalizeAccountKeyPath(inferred);
-    }
-
-    return this.normalizeAccountKeyPath('');
+  private isExtendedPublicKey(value: string): boolean {
+    return EXTENDED_KEY_REGEX.test(value.trim());
   }
 
-  private extractAccountKeyPathFromDescriptor(descriptor: string): string | null {
-    const match = descriptor.match(/\[([^\]]+)\]/u);
-    if (!match) {
-      return null;
+  private validateNetwork(derivationScheme: string, network: BitcoinNetwork): void {
+    const prefixes = this.extractExtendedKeyPrefixes(derivationScheme);
+    if (prefixes.size === 0) {
+      return;
     }
 
-    const details = match[1] ?? '';
-    if (!details) {
-      return null;
-    }
-
-    const segments = details.split('/').filter((segment) => segment.length > 0);
-    if (segments.length === 0) {
-      return null;
-    }
-
-    const [, ...pathSegments] = /^[0-9a-fA-F]{8}$/u.test(segments[0] ?? '')
-      ? segments
-      : [null, ...segments];
-
-    if (pathSegments.length === 0) {
-      return null;
-    }
-
-    return `m/${pathSegments.join('/')}`;
-  }
-
-  private validateNetwork(derivationScheme: string): void {
-    const prefix = derivationScheme.slice(0, 4).toLowerCase();
-    if (/^wpkh\(/iu.test(derivationScheme)) {
-      const match = derivationScheme.match(/\]([a-z0-9]+)\//iu);
-      if (match && match[1]) {
-        this.ensureTestnetKeyPrefix(match[1]);
+    for (const prefix of prefixes) {
+      if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix) && !MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+        throw new UnprocessableEntityException('Unsupported extended public key format.');
       }
-      return;
-    }
-
-    if (!derivationScheme) {
-      return;
-    }
-
-    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Testnet wallets must not use mainnet extended keys.');
-    }
-
-    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Unsupported extended public key format.');
+      if (network === 'testnet' && MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+        throw new UnprocessableEntityException('Network mismatch: testnet instance cannot accept mainnet extended keys.');
+      }
+      if (network === 'mainnet' && TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+        throw new UnprocessableEntityException('Network mismatch: mainnet instance cannot accept testnet extended keys.');
+      }
     }
   }
 
-  private ensureTestnetKeyPrefix(prefixCandidate: string): void {
-    const prefix = prefixCandidate.slice(0, 4).toLowerCase();
-    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Testnet descriptors must not contain mainnet extended keys.');
+  private extractExtendedKeyPrefixes(value: string): Set<string> {
+    const prefixes = new Set<string>();
+    const regex = /(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+/giu;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(value)) !== null) {
+      const prefix = match[1]?.slice(0, 4).toLowerCase();
+      if (prefix) {
+        prefixes.add(prefix);
+      }
     }
-    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Unsupported extended public key format in descriptor.');
+    return prefixes;
+  }
+
+  private async fetchServerNetwork(storeId: string, requestId?: string): Promise<BitcoinNetwork> {
+    const info = await this.btcpay.proxy<BtcpayServerInfoResponse>({
+      storeId,
+      method: 'GET',
+      path: '/api/v1/server/info',
+      requestId,
+    });
+
+    return this.resolveNetwork(info);
+  }
+
+  private resolveNetwork(info: BtcpayServerInfoResponse | null | undefined): BitcoinNetwork {
+    if (info?.isTestnet === true) {
+      return 'testnet';
     }
+    if (info?.isTestnet === false) {
+      return 'mainnet';
+    }
+    const candidate = (info?.networkType ?? info?.network ?? '').toString().toLowerCase();
+    if (candidate.includes('test')) {
+      return 'testnet';
+    }
+    return 'mainnet';
   }
 }

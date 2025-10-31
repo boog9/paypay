@@ -81,6 +81,14 @@ describe("walletWizardFormSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts mainnet account key paths", () => {
+    const result = walletWizardFormSchema.safeParse({
+      derivationScheme: SAMPLE_XPUB,
+      accountKeyPath: "m/84'/0'/0'",
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("derivation helpers", () => {

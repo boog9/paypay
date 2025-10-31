@@ -39,6 +39,15 @@ const BIP39_WORD_SET = new Set<string>(
     : []
 );
 
+type HdKeyFactory = {
+  fromExtendedKey(extendedKey: string): unknown;
+};
+
+type HdKeyFingerprintCarrier = {
+  fingerprint?: number | Uint8Array;
+  parentFingerprint?: number | Uint8Array;
+};
+
 function normalizeString(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
@@ -216,7 +225,7 @@ export class WalletPreviewService {
     let pathSegments = segments;
 
     if (/^[0-9a-fA-F]{8}$/.test(segments[0] ?? '')) {
-      fingerprintFromDescriptor = segments[0]!.toUpperCase();
+      fingerprintFromDescriptor = segments[0].toUpperCase();
       pathSegments = segments.slice(1);
     }
 
@@ -274,18 +283,57 @@ export class WalletPreviewService {
 
   private deriveFingerprint(extendedKey: string): string | null {
     try {
-      const key = HDKey.fromExtendedKey(extendedKey);
-      const fp = key.fingerprint;
+      const hdKeyFactory: unknown = HDKey;
+      if (!this.isHdKeyFactory(hdKeyFactory)) {
+        return null;
+      }
+
+      const keyCandidate = hdKeyFactory.fromExtendedKey(extendedKey);
+      if (!this.isHdKeyFingerprintCarrier(keyCandidate)) {
+        return null;
+      }
+
+      const fp = keyCandidate.fingerprint;
       if (typeof fp === 'number') {
         return toHex(fp);
       }
-      if (typeof key.parentFingerprint === 'number') {
-        return toHex(key.parentFingerprint);
+      if (typeof keyCandidate.parentFingerprint === 'number') {
+        return toHex(keyCandidate.parentFingerprint);
       }
     } catch {
       return null;
     }
     return null;
+  }
+
+  private isHdKeyFactory(value: unknown): value is HdKeyFactory {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+      return false;
+    }
+
+    const candidate = value as { fromExtendedKey?: unknown };
+    return typeof candidate.fromExtendedKey === 'function';
+  }
+
+  private isHdKeyFingerprintCarrier(value: unknown): value is HdKeyFingerprintCarrier {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    const fingerprint = candidate.fingerprint;
+    const parentFingerprint = candidate.parentFingerprint;
+
+    const isFingerprintValid =
+      fingerprint === undefined ||
+      typeof fingerprint === 'number' ||
+      fingerprint instanceof Uint8Array;
+    const isParentFingerprintValid =
+      parentFingerprint === undefined ||
+      typeof parentFingerprint === 'number' ||
+      parentFingerprint instanceof Uint8Array;
+
+    return isFingerprintValid && isParentFingerprintValid;
   }
 
   private ensureTestnetExtendedKey(value: string): void {

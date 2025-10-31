@@ -299,8 +299,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         config: {
           derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "1234abcd/84'/1'/0'",
-          masterFingerprint: 'abcd1234'
+          accountKeyPath: "1234abcd/84'/1'/0'"
         }
       },
       { store }
@@ -439,8 +438,7 @@ describe('BtcpayPaymentMethodsService', () => {
       config: {
         derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
-        rootFingerprint: 'ABCD1234',
-        enabled: true
+        masterFingerprint: 'ABCD1234'
       }
     });
   });
@@ -491,8 +489,7 @@ describe('BtcpayPaymentMethodsService', () => {
         enabled: true,
         config: expect.objectContaining({
           derivationScheme: SAMPLE_XPUB,
-          accountKeyPath: "abcdef12/84'/0'/0'",
-          enabled: true
+          accountKeyPath: "abcdef12/84'/0'/0'"
         })
       })
     );
@@ -584,9 +581,8 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: 'xpubTemp',
           accountKeyPath: "m/84'/0'/0'",
-          rootFingerprint: 'ABCD1234',
-          label: 'Temporary import',
-          enabled: true
+          masterFingerprint: 'ABCD1234',
+          label: 'Temporary import'
         }
       }
     );
@@ -638,13 +634,25 @@ describe('BtcpayPaymentMethodsService', () => {
     ).rejects.toBeInstanceOf(BTCPayUpstreamError);
   });
 
-  it('rejects includeConfig requests without an override key', async () => {
+  it('loads configuration when includeConfig is requested', async () => {
+    const getMock = jest.fn().mockResolvedValue({
+      data: {
+        enabled: true,
+        paymentMethodId: 'BTC-CHAIN',
+        currency: 'btc',
+        config: { derivationScheme: SAMPLE_XPUB }
+      }
+    });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
     const service = buildService();
 
-    await expect(
-      service.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true })
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(mockedAxios.create).not.toHaveBeenCalled();
+    const result = await service.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true });
+
+    expect(getMock).toHaveBeenCalled();
+    expect(result.enabled).toBe(true);
+    expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
   });
 
   it('retrieves an on-chain wallet summary with preview fallback', async () => {

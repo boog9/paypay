@@ -28,7 +28,7 @@ describe('On-chain wallet controller (e2e)', () => {
   let store: ManagedStoreEntity;
 
   const paymentMethodsMock = {
-    getOnchainConfig: jest.fn(),
+    getOnchain: jest.fn(),
     updateOnchainPaymentMethod: jest.fn()
   } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
 
@@ -102,7 +102,10 @@ describe('On-chain wallet controller (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    paymentMethodsMock.getOnchainConfig.mockResolvedValue({ enabled: false });
+    paymentMethodsMock.getOnchain.mockResolvedValue({
+      enabled: false,
+      config: { derivationScheme: null }
+    });
   });
 
   async function fetchCsrf(): Promise<string> {
@@ -110,12 +113,22 @@ describe('On-chain wallet controller (e2e)', () => {
     return readCsrfToken(response);
   }
 
-  it('returns presence based on local metadata', async () => {
+  it('returns presence based on BTCPay response', async () => {
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
+      enabled: false,
+      config: { derivationScheme: null }
+    });
+
     const response = await agent
       .get(`/api/stores/${store.id}/wallets/btc/presence`)
       .expect(200);
 
     expect(response.body).toEqual({ enabled: false, config: { derivationScheme: null } });
+    expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
+      store.btcpayStoreId,
+      'BTC',
+      expect.objectContaining({ store: expect.any(Object), includeConfig: true })
+    );
   });
 
   it('validates testnet derivation schemes', async () => {
@@ -130,28 +143,29 @@ describe('On-chain wallet controller (e2e)', () => {
       .expect(422);
   });
 
-  it('updates wallet metadata after successful configuration', async () => {
+  it('requires derivationScheme when configuring the wallet', async () => {
+    const csrfToken = await fetchCsrf();
+
+    await agent
+      .put(`/api/stores/${store.id}/wallets/bitcoin`)
+      .set('x-csrf-token', csrfToken)
+      .send({ accountKeyPath: "m/84'/1'/0'" })
+      .expect(400);
+  });
+
+  it('enables wallet with extended key and null fingerprint', async () => {
     const csrfToken = await fetchCsrf();
 
     paymentMethodsMock.updateOnchainPaymentMethod.mockResolvedValueOnce();
-    paymentMethodsMock.getOnchainConfig.mockResolvedValueOnce({
-      enabled: true,
-      config: {
-        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: 'F00DBABE',
-        label: 'Primary'
-      }
-    });
+    const derivationScheme = 'tpubD6NzVbkrYhZ4YexampleExtendedKey';
 
     await agent
       .put(`/api/stores/${store.id}/wallets/bitcoin`)
       .set('x-csrf-token', csrfToken)
       .send({
-        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
+        derivationScheme,
         accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: 'f00dbabe',
-        label: 'Primary'
+        masterFingerprint: null
       })
       .expect(204);
 
@@ -159,16 +173,31 @@ describe('On-chain wallet controller (e2e)', () => {
       expect.objectContaining({
         storeId: store.btcpayStoreId,
         cryptoCode: 'BTC',
-        enabled: true
+        enabled: true,
+        config: expect.objectContaining({
+          derivationScheme,
+          accountKeyPath: "m/84'/1'/0'",
+          masterFingerprint: null
+        })
       }),
       expect.objectContaining({ store })
     );
+
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
+      enabled: true,
+      config: {
+        derivationScheme,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: null,
+        label: null
+      }
+    });
 
     const presence = await agent
       .get(`/api/stores/${store.id}/wallets/btc/presence`)
       .expect(200);
 
-    expect(presence.body).toEqual({ enabled: true, config: { derivationScheme: 'PRESENT' } });
+    expect(presence.body).toEqual({ enabled: true, config: { derivationScheme } });
 
     const metadata = await agent
       .get(`/api/stores/${store.id}/wallets/bitcoin`)
@@ -176,16 +205,56 @@ describe('On-chain wallet controller (e2e)', () => {
 
     expect(metadata.body).toMatchObject({
       enabled: true,
-      masterFingerprint: 'F00DBABE',
+      derivationScheme,
       accountKeyPath: "m/84'/1'/0'",
-      label: 'Primary'
+      masterFingerprint: null
     });
+  });
+
+  it('extracts fingerprint from descriptor when absent in payload', async () => {
+    const csrfToken = await fetchCsrf();
+
+    paymentMethodsMock.updateOnchainPaymentMethod.mockResolvedValueOnce();
+
+    const descriptor = "wpkh([d34db33f/84'/1'/0']tpubD6NzVbkrYhZ4Yexample/0/*)";
+
+    await agent
+      .put(`/api/stores/${store.id}/wallets/bitcoin`)
+      .set('x-csrf-token', csrfToken)
+      .send({
+        derivationScheme: descriptor,
+        accountKeyPath: "m/84'/1'/0'"
+      })
+      .expect(204);
+
+    expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ masterFingerprint: 'D34DB33F' })
+      }),
+      expect.anything()
+    );
+
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
+      enabled: true,
+      config: {
+        derivationScheme: descriptor,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: 'D34DB33F',
+        label: null
+      }
+    });
+
+    const metadata = await agent
+      .get(`/api/stores/${store.id}/wallets/bitcoin`)
+      .expect(200);
+
+    expect(metadata.body.masterFingerprint).toBe('D34DB33F');
   });
 
   it('disables wallet via delete endpoint', async () => {
     const csrfToken = await fetchCsrf();
 
-    paymentMethodsMock.getOnchainConfig.mockResolvedValueOnce({
+    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
       config: {
         derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
@@ -201,10 +270,10 @@ describe('On-chain wallet controller (e2e)', () => {
       .set('x-csrf-token', csrfToken)
       .expect(204);
 
-    expect(paymentMethodsMock.getOnchainConfig).toHaveBeenCalledWith(
+    expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
       store.btcpayStoreId,
-      true,
-      { store }
+      'BTC',
+      expect.objectContaining({ store, includeConfig: true })
     );
     expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
       expect.objectContaining({

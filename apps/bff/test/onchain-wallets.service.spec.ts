@@ -51,7 +51,7 @@ describe('OnchainWalletsService', () => {
         {
           provide: BtcpayPaymentMethodsService,
           useValue: {
-            getOnchainConfig: jest.fn()
+            getOnchain: jest.fn()
           }
         }
       ]
@@ -60,7 +60,18 @@ describe('OnchainWalletsService', () => {
     service = moduleRef.get(OnchainWalletsService);
     repository = moduleRef.get(getRepositoryToken(OnchainWalletEntity));
     paymentMethods = jest.mocked(moduleRef.get(BtcpayPaymentMethodsService));
-    paymentMethods.getOnchainConfig.mockResolvedValue({ enabled: false });
+    paymentMethods.getOnchain.mockResolvedValue({
+      storeId: store.btcpayStoreId,
+      currency: 'BTC',
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: false,
+      config: {
+        derivationScheme: null,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      }
+    });
   });
 
   it('returns disabled presence when no record exists', async () => {
@@ -72,15 +83,26 @@ describe('OnchainWalletsService', () => {
   });
 
   it('returns metadata and presence when wallet is enabled', async () => {
-    paymentMethods.getOnchainConfig.mockResolvedValue({ enabled: true });
+    paymentMethods.getOnchain.mockResolvedValue({
+      storeId: store.btcpayStoreId,
+      currency: 'BTC',
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      config: {
+        derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: 'ABCD1234',
+        label: 'Primary'
+      }
+    });
     repository.findOne.mockResolvedValue({
       id: 'wallet',
       storeId: store.id,
       paymentMethodId: 'BTC-CHAIN',
       enabled: true,
-      derivationScheme: 'PRESENT',
+      derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
       accountKeyPath: "m/84'/1'/0'",
-      masterFingerprint: '10B3BFC0',
+      masterFingerprint: 'ABCD1234',
       label: 'Primary',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -90,12 +112,15 @@ describe('OnchainWalletsService', () => {
     const presence = await service.getPresence(store);
     const metadata = await service.getMetadata(store);
 
-    expect(presence).toEqual({ enabled: true, derivationScheme: 'PRESENT' });
+    expect(presence).toEqual({
+      enabled: true,
+      derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)'
+    });
     expect(metadata).toEqual({
       enabled: true,
-      derivationScheme: 'PRESENT',
+      derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
       accountKeyPath: "m/84'/1'/0'",
-      masterFingerprint: '10B3BFC0',
+      masterFingerprint: 'ABCD1234',
       label: 'Primary'
     });
   });
@@ -114,7 +139,7 @@ describe('OnchainWalletsService', () => {
       expect.objectContaining({
         storeId: store.id,
         paymentMethodId: 'BTC-CHAIN',
-        derivationScheme: 'PRESENT',
+        derivationScheme: "wpkh([abcd1234/84'/1'/0']tpub123/0/*)",
         label: 'Primary',
         masterFingerprint: 'ABCD1234'
       })

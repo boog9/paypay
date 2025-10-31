@@ -35,27 +35,39 @@ export class OnchainWalletsService {
 
   async getPresence(store: ManagedStoreEntity): Promise<WalletPresenceState> {
     try {
-      await this.refreshFromBtcpay(store, false);
+      const remote = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+        store,
+        includeConfig: true
+      });
+
+      if (remote.enabled && remote.config?.derivationScheme) {
+        await this.upsertFromBtcpay(store, remote.config);
+      } else if (!remote.enabled) {
+        await this.disable(store);
+      }
+
+      return {
+        enabled: remote.enabled === true,
+        derivationScheme: remote.config?.derivationScheme ?? null
+      } satisfies WalletPresenceState;
     } catch {
-      // Ignore BTCPay errors during background refresh to avoid breaking UI presence checks.
+      const fallback = await this.walletsRepository.findOne({
+        where: {
+          storeId: store.id,
+          paymentMethodId: this.paymentMethodId
+        },
+        withDeleted: true
+      });
+
+      if (!fallback || fallback.enabled !== true) {
+        return { enabled: false, derivationScheme: null };
+      }
+
+      return {
+        enabled: true,
+        derivationScheme: fallback.derivationScheme ?? null
+      } satisfies WalletPresenceState;
     }
-
-    const record = await this.walletsRepository.findOne({
-      where: {
-        storeId: store.id,
-        paymentMethodId: this.paymentMethodId
-      },
-      withDeleted: true
-    });
-
-    if (!record || record.enabled !== true) {
-      return { enabled: false, derivationScheme: null };
-    }
-
-    return {
-      enabled: true,
-      derivationScheme: record.derivationScheme ?? null
-    } satisfies WalletPresenceState;
   }
 
   async getMetadata(store: ManagedStoreEntity): Promise<WalletMetadataState> {
@@ -87,8 +99,9 @@ export class OnchainWalletsService {
   }
 
   async refreshFromBtcpay(store: ManagedStoreEntity, includeConfig = true) {
-    const response = await this.paymentMethods.getOnchainConfig(store.btcpayStoreId, includeConfig, {
-      store
+    const response = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+      store,
+      includeConfig
     });
 
     if (!response?.enabled) {
@@ -100,7 +113,7 @@ export class OnchainWalletsService {
       await this.upsertFromBtcpay(store, response.config);
     } else {
       await this.upsertFromBtcpay(store, {
-        derivationScheme: response.config?.derivationScheme ?? 'PRESENT'
+        derivationScheme: response.config?.derivationScheme ?? null
       });
     }
 
@@ -158,7 +171,7 @@ export class OnchainWalletsService {
     const result: Partial<OnchainWalletEntity> = {};
 
     if (cfg.derivationScheme !== undefined) {
-      result.derivationScheme = this.hasValue(cfg.derivationScheme) ? 'PRESENT' : null;
+      result.derivationScheme = this.trimOrNull(cfg.derivationScheme);
     }
 
     if (cfg.accountKeyPath !== undefined) {
@@ -185,10 +198,4 @@ export class OnchainWalletsService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
-  private hasValue(value: string | null | undefined): boolean {
-    if (typeof value !== 'string') {
-      return false;
-    }
-    return value.trim().length > 0;
-  }
 }

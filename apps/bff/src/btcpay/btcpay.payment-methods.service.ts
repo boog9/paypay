@@ -44,8 +44,6 @@ export interface OnchainPreviewConfig {
   derivationScheme?: string;
   accountKeyPath?: string | null;
   label?: string | null;
-  masterFingerprint?: string | null;
-  rootFingerprint?: string | null;
 }
 
 export interface OnchainPreviewRequest {
@@ -56,8 +54,6 @@ export interface OnchainPreviewRequest {
 
 export interface OnchainPreviewAddressItem {
   address: string;
-  keyPath: string | null;
-  index: number | null;
 }
 
 export interface OnchainPreviewResponse {
@@ -111,7 +107,6 @@ export interface UpdateOnchainPaymentMethodPayload {
     accountKeyPath?: string | null;
     label?: string | null;
     masterFingerprint?: string | null;
-    rootFingerprint?: string | null;
   };
 }
 
@@ -176,7 +171,6 @@ export interface UpdateOnchainPaymentMethodRequest {
   derivationScheme: string;
   accountKeyPath?: string | null;
   masterFingerprint?: string | null;
-  rootFingerprint?: string | null;
   label?: string | null;
   enabled?: boolean;
 }
@@ -318,13 +312,6 @@ export class BtcpayPaymentMethodsService {
     currencyCode = 'BTC',
     options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
   ): Promise<OnchainPaymentMethodConfig> {
-    if (options?.includeConfig === true) {
-      const apiKey = this.normalizeApiKey(options.apiKeyOverride);
-      if (!apiKey) {
-        throw new ForbiddenException('Requesting payment method configuration requires elevated permissions.');
-      }
-      options = { ...options, apiKeyOverride: apiKey };
-    }
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
@@ -587,14 +574,13 @@ export class BtcpayPaymentMethodsService {
       store: options?.store,
       apiKeyOverride: options?.apiKey ?? null
     });
-    const paymentMethodId = normalizePaymentMethodId(params.cryptoCode, 'chain');
+    const paymentMethodId = BTC_CHAIN;
     const body = this.buildUpdateRequestBody({
       enabled: params.enabled ?? true,
       config: {
         derivationScheme: params.derivationScheme,
         accountKeyPath: params.accountKeyPath,
         masterFingerprint: params.masterFingerprint,
-        rootFingerprint: params.rootFingerprint,
         label: params.label
       }
     });
@@ -655,18 +641,22 @@ export class BtcpayPaymentMethodsService {
   }
 
   private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
-    const config = this.buildUpdateConfigPayload(payload.config, payload.enabled ?? true);
-    return { enabled: payload.enabled, config };
+    const config = this.buildUpdateConfigPayload(payload.config);
+    const body: Record<string, unknown> = { config };
+    if (payload.enabled !== undefined) {
+      body.enabled = payload.enabled;
+    }
+    return body;
   }
 
   private normalizePreviewConfig(
     config: OnchainPreviewConfig | null | undefined
-  ): { derivationScheme?: string; accountKeyPath?: string; masterFingerprint?: string } {
+  ): { derivationScheme?: string; accountKeyPath?: string } {
     if (!config || typeof config !== 'object') {
       return {};
     }
 
-    const payload: { derivationScheme?: string; accountKeyPath?: string; masterFingerprint?: string } = {};
+    const payload: { derivationScheme?: string; accountKeyPath?: string } = {};
 
     if (typeof config.derivationScheme === 'string' && config.derivationScheme.trim()) {
       payload.derivationScheme = config.derivationScheme.trim();
@@ -678,23 +668,15 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    const fingerprint = this.firstString([config.rootFingerprint, config.masterFingerprint]);
-    if (fingerprint) {
-      payload.masterFingerprint = fingerprint.toUpperCase();
-    }
-
     return payload;
   }
 
   private buildUpdateConfigPayload(
-    config: UpdateOnchainPaymentMethodPayload['config'],
-    enabled: boolean
+    config: UpdateOnchainPaymentMethodPayload['config']
   ): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
 
     payload.derivationScheme = config.derivationScheme;
-
-    payload.enabled = enabled;
 
     if (config.accountKeyPath !== undefined) {
       if (config.accountKeyPath === null) {
@@ -708,17 +690,11 @@ export class BtcpayPaymentMethodsService {
       payload.label = config.label;
     }
 
-    const fingerprintProvided =
-      config.rootFingerprint !== undefined || config.masterFingerprint !== undefined;
-
-    if (fingerprintProvided) {
-      if (config.rootFingerprint === null || config.masterFingerprint === null) {
-        payload.rootFingerprint = null;
-      } else {
-        const fingerprint = this.firstString([config.rootFingerprint, config.masterFingerprint]);
-        if (fingerprint) {
-          payload.rootFingerprint = fingerprint.toUpperCase();
-        }
+    if (config.masterFingerprint !== undefined) {
+      if (config.masterFingerprint === null) {
+        payload.masterFingerprint = null;
+      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
+        payload.masterFingerprint = config.masterFingerprint.toUpperCase();
       }
     }
 
@@ -837,19 +813,21 @@ export class BtcpayPaymentMethodsService {
   }
 
   private normalizeAddress(entry: unknown): OnchainPreviewAddressItem | null {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      return trimmed ? { address: trimmed } : null;
+    }
+
     if (!entry || typeof entry !== 'object') {
       return null;
     }
     const candidate = entry as PreviewAddressLike;
     const address = typeof candidate.address === 'string' ? candidate.address : null;
-    const keyPath = typeof candidate.keyPath === 'string' ? candidate.keyPath : null;
-    const index = typeof candidate.index === 'number' && Number.isFinite(candidate.index)
-      ? Math.trunc(candidate.index)
-      : null;
     if (!address) {
       return null;
     }
-    return { address, keyPath, index };
+    const trimmed = address.trim();
+    return trimmed ? { address: trimmed } : null;
   }
 
   private extractCurrencyMetadata(source: unknown, fallback: string): string {

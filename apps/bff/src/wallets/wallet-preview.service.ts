@@ -1,10 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  UnprocessableEntityException
-} from '@nestjs/common';
+import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { wordlists } from 'bip39';
-import { HDKey } from '@scure/bip32';
 import { BtcpayService } from '../btcpay/btcpay.service';
 import { SENSITIVE_ERROR_MESSAGE } from './dto/preview-onchain.dto';
 
@@ -13,13 +8,11 @@ interface PreviewRequestBody {
   descriptor?: unknown;
   accountKeyPath?: unknown;
   label?: unknown;
-  masterFingerprint?: unknown;
-  rootFingerprint?: unknown;
   config?: PreviewRequestBody;
 }
 
 interface NormalizedPreviewRequest {
-  descriptor: string;
+  derivationScheme: string;
   accountKeyPath: string;
   label?: string;
 }
@@ -39,24 +32,11 @@ const BIP39_WORD_SET = new Set<string>(
     : []
 );
 
-type HdKeyFactory = {
-  fromExtendedKey(extendedKey: string): unknown;
-};
-
-type HdKeyFingerprintCarrier = {
-  fingerprint?: number | Uint8Array;
-  parentFingerprint?: number | Uint8Array;
-};
-
 function normalizeString(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
   }
   return value.trim();
-}
-
-function toHex(value: number): string {
-  return value.toString(16).padStart(8, '0').toUpperCase();
 }
 
 @Injectable()
@@ -67,20 +47,11 @@ export class WalletPreviewService {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const normalized = this.normalizePreviewRequest(body);
 
-    const payload: Record<string, unknown> = {
-      descriptor: normalized.descriptor,
-      accountKeyPath: normalized.accountKeyPath
-    };
-
-    if (normalized.label) {
-      payload.label = normalized.label;
-    }
-
     return this.btcpay.proxy({
       storeId: normalizedStoreId,
-      method: 'POST',
+      method: 'GET',
       path: this.buildPreviewPath(normalizedStoreId),
-      data: payload,
+      params: this.buildPreviewParams(normalized),
       requestId: options?.requestId
     });
   }
@@ -97,7 +68,6 @@ export class WalletPreviewService {
     const derivationCandidate = normalizeString(source.derivationScheme);
     const accountKeyPathCandidate = normalizeString(source.accountKeyPath);
     const labelCandidate = normalizeString(source.label);
-    const fingerprintCandidate = normalizeString(source.masterFingerprint || source.rootFingerprint);
 
     const label = this.normalizeLabel(labelCandidate);
 
@@ -105,11 +75,19 @@ export class WalletPreviewService {
       throw new BadRequestException('descriptor or derivationScheme is required.');
     }
 
-    const result = descriptorCandidate
-      ? this.normalizeDescriptor(descriptorCandidate, accountKeyPathCandidate, fingerprintCandidate)
-      : this.normalizeDerivationScheme(derivationCandidate, accountKeyPathCandidate, fingerprintCandidate);
+    const derivationScheme = this.normalizeDerivationSchemeInput(
+      descriptorCandidate || derivationCandidate
+    );
+    const accountKeyPath = this.resolveAccountKeyPath(
+      derivationScheme,
+      accountKeyPathCandidate
+    );
 
-    return label ? { ...result, label } : result;
+    this.validateNetwork(derivationScheme);
+
+    return label
+      ? { derivationScheme, accountKeyPath, label }
+      : { derivationScheme, accountKeyPath };
   }
 
   private unwrapConfig(payload: PreviewRequestBody): PreviewRequestBody {
@@ -130,116 +108,6 @@ export class WalletPreviewService {
     return value;
   }
 
-  private normalizeDescriptor(
-    rawDescriptor: string,
-    accountKeyPathCandidate: string,
-    fingerprintCandidate: string
-  ): NormalizedPreviewRequest {
-    const sanitized = this.sanitizeDescriptor(rawDescriptor);
-    this.assertNoSensitiveSecrets(sanitized);
-
-    const match = sanitized.match(
-      /^wpkh\(\[(?<details>[^\]]*)\](?<extended>(?:tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+)\/(?<branch>0)\/\*\)$/iu
-    );
-
-    if (!match || !match.groups) {
-      throw new UnprocessableEntityException(
-        "Descriptor must follow wpkh([FPR/84'/1'/0']tpub.../0/*) with a testnet extended key."
-      );
-    }
-
-    const extendedKey = match.groups.extended;
-    this.ensureTestnetExtendedKey(extendedKey);
-
-    const details = match.groups.details ?? '';
-    const { fingerprintFromDescriptor, accountPathFromDescriptor } = this.extractDescriptorDetails(details);
-
-    const accountKeyPath = this.normalizeAccountKeyPath(
-      accountKeyPathCandidate || accountPathFromDescriptor || ''
-    );
-
-    const fingerprint = this.resolveFingerprint(
-      fingerprintCandidate || fingerprintFromDescriptor || '',
-      extendedKey
-    );
-
-    const descriptorPath = accountKeyPath.replace(/^m\//iu, '');
-    const descriptor = `wpkh([${fingerprint}/${descriptorPath}]${extendedKey}/0/*)`;
-
-    return {
-      descriptor,
-      accountKeyPath
-    };
-  }
-
-  private normalizeDerivationScheme(
-    derivationScheme: string,
-    accountKeyPathCandidate: string,
-    fingerprintCandidate: string
-  ): NormalizedPreviewRequest {
-    const trimmed = derivationScheme;
-    this.assertNoSensitiveSecrets(trimmed);
-
-    if (/^wpkh\(/iu.test(trimmed)) {
-      return this.normalizeDescriptor(trimmed, accountKeyPathCandidate, fingerprintCandidate);
-    }
-
-    const prefix = trimmed.slice(0, 4).toLowerCase();
-    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Testnet wallets must use tpub, upub, or vpub extended keys.');
-    }
-    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Unsupported extended public key format.');
-    }
-
-    const accountKeyPath = this.normalizeAccountKeyPath(accountKeyPathCandidate);
-    const fingerprint = this.resolveFingerprint(fingerprintCandidate, trimmed);
-    const descriptorPath = accountKeyPath.replace(/^m\//iu, '');
-    const descriptor = `wpkh([${fingerprint}/${descriptorPath}]${trimmed}/0/*)`;
-
-    return {
-      descriptor,
-      accountKeyPath
-    };
-  }
-
-  private sanitizeDescriptor(value: string): string {
-    const trimmed = value.replace(/\s+/gu, '');
-    return trimmed.replace(/#.+$/u, '');
-  }
-
-  private extractDescriptorDetails(details: string): {
-    fingerprintFromDescriptor?: string;
-    accountPathFromDescriptor?: string;
-  } {
-    if (!details) {
-      return {};
-    }
-
-    const segments = details.split('/').filter((segment) => segment.length > 0);
-    if (segments.length === 0) {
-      return {};
-    }
-
-    let fingerprintFromDescriptor: string | undefined;
-    let pathSegments = segments;
-
-    if (/^[0-9a-fA-F]{8}$/.test(segments[0] ?? '')) {
-      fingerprintFromDescriptor = segments[0].toUpperCase();
-      pathSegments = segments.slice(1);
-    }
-
-    if (pathSegments.length === 0) {
-      return { fingerprintFromDescriptor };
-    }
-
-    const path = pathSegments.join('/');
-    return {
-      fingerprintFromDescriptor,
-      accountPathFromDescriptor: `m/${path}`
-    };
-  }
-
   private normalizeAccountKeyPath(value: string): string {
     const candidate = value ? value : '';
     const withoutPrefix = candidate ? candidate.replace(/^m\//iu, '') : '';
@@ -254,96 +122,6 @@ export class WalletPreviewService {
     }
 
     return result;
-  }
-
-  private resolveFingerprint(provided: string, extendedKey: string): string {
-    const normalized = this.normalizeFingerprint(provided);
-    if (normalized) {
-      return normalized;
-    }
-
-    const derived = this.deriveFingerprint(extendedKey);
-    if (derived) {
-      return derived;
-    }
-
-    throw new BadRequestException('Unable to determine master fingerprint from extended key.');
-  }
-
-  private normalizeFingerprint(value: string): string | undefined {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-    if (!/^[0-9a-fA-F]{8}$/u.test(trimmed)) {
-      throw new BadRequestException('Master fingerprint must be 8 hexadecimal characters.');
-    }
-    return trimmed.toUpperCase();
-  }
-
-  private deriveFingerprint(extendedKey: string): string | null {
-    try {
-      const hdKeyFactory: unknown = HDKey;
-      if (!this.isHdKeyFactory(hdKeyFactory)) {
-        return null;
-      }
-
-      const keyCandidate = hdKeyFactory.fromExtendedKey(extendedKey);
-      if (!this.isHdKeyFingerprintCarrier(keyCandidate)) {
-        return null;
-      }
-
-      const fp = keyCandidate.fingerprint;
-      if (typeof fp === 'number') {
-        return toHex(fp);
-      }
-      if (typeof keyCandidate.parentFingerprint === 'number') {
-        return toHex(keyCandidate.parentFingerprint);
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-
-  private isHdKeyFactory(value: unknown): value is HdKeyFactory {
-    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
-      return false;
-    }
-
-    const candidate = value as { fromExtendedKey?: unknown };
-    return typeof candidate.fromExtendedKey === 'function';
-  }
-
-  private isHdKeyFingerprintCarrier(value: unknown): value is HdKeyFingerprintCarrier {
-    if (!value || typeof value !== 'object') {
-      return false;
-    }
-
-    const candidate = value as Record<string, unknown>;
-    const fingerprint = candidate.fingerprint;
-    const parentFingerprint = candidate.parentFingerprint;
-
-    const isFingerprintValid =
-      fingerprint === undefined ||
-      typeof fingerprint === 'number' ||
-      fingerprint instanceof Uint8Array;
-    const isParentFingerprintValid =
-      parentFingerprint === undefined ||
-      typeof parentFingerprint === 'number' ||
-      parentFingerprint instanceof Uint8Array;
-
-    return isFingerprintValid && isParentFingerprintValid;
-  }
-
-  private ensureTestnetExtendedKey(value: string): void {
-    const prefix = value.slice(0, 4).toLowerCase();
-    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Testnet descriptors must not contain mainnet extended keys.');
-    }
-    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
-      throw new UnprocessableEntityException('Unsupported extended public key format in descriptor.');
-    }
   }
 
   private assertNoSensitiveSecrets(value: string): void {
@@ -379,5 +157,112 @@ export class WalletPreviewService {
 
   private buildPreviewPath(storeId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/BTC-CHAIN/wallet/preview`;
+  }
+
+  private buildPreviewParams(request: NormalizedPreviewRequest): Record<string, string> {
+    const params: Record<string, string> = {
+      derivationScheme: request.derivationScheme,
+      count: '10'
+    };
+    if (request.accountKeyPath) {
+      params.accountKeyPath = request.accountKeyPath;
+    }
+    if (request.label) {
+      params.label = request.label;
+    }
+    return params;
+  }
+
+  private normalizeDerivationSchemeInput(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException('derivationScheme must be a non-empty string.');
+    }
+    this.assertNoSensitiveSecrets(trimmed);
+    if (/^wpkh\(/iu.test(trimmed)) {
+      return this.sanitizeDescriptor(trimmed);
+    }
+    return trimmed;
+  }
+
+  private sanitizeDescriptor(value: string): string {
+    const withoutWhitespace = value.replace(/\s+/gu, '');
+    const withoutComments = withoutWhitespace.replace(/#.+$/u, '');
+    return withoutComments.replace(/\[([0-9a-fA-F]{8})([^\]]*)/u, (_match, fp: string, rest: string) => {
+      return `[${fp.toUpperCase()}${rest}`;
+    });
+  }
+
+  private resolveAccountKeyPath(derivationScheme: string, provided: string): string {
+    if (provided) {
+      return this.normalizeAccountKeyPath(provided);
+    }
+
+    const inferred = this.extractAccountKeyPathFromDescriptor(derivationScheme);
+    if (inferred) {
+      return this.normalizeAccountKeyPath(inferred);
+    }
+
+    return this.normalizeAccountKeyPath('');
+  }
+
+  private extractAccountKeyPathFromDescriptor(descriptor: string): string | null {
+    const match = descriptor.match(/\[([^\]]+)\]/u);
+    if (!match) {
+      return null;
+    }
+
+    const details = match[1] ?? '';
+    if (!details) {
+      return null;
+    }
+
+    const segments = details.split('/').filter((segment) => segment.length > 0);
+    if (segments.length === 0) {
+      return null;
+    }
+
+    const [, ...pathSegments] = /^[0-9a-fA-F]{8}$/u.test(segments[0] ?? '')
+      ? segments
+      : [null, ...segments];
+
+    if (pathSegments.length === 0) {
+      return null;
+    }
+
+    return `m/${pathSegments.join('/')}`;
+  }
+
+  private validateNetwork(derivationScheme: string): void {
+    const prefix = derivationScheme.slice(0, 4).toLowerCase();
+    if (/^wpkh\(/iu.test(derivationScheme)) {
+      const match = derivationScheme.match(/\]([a-z0-9]+)\//iu);
+      if (match && match[1]) {
+        this.ensureTestnetKeyPrefix(match[1]);
+      }
+      return;
+    }
+
+    if (!derivationScheme) {
+      return;
+    }
+
+    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+      throw new UnprocessableEntityException('Testnet wallets must not use mainnet extended keys.');
+    }
+
+    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+      throw new UnprocessableEntityException('Unsupported extended public key format.');
+    }
+  }
+
+  private ensureTestnetKeyPrefix(prefixCandidate: string): void {
+    const prefix = prefixCandidate.slice(0, 4).toLowerCase();
+    if (MAINNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+      throw new UnprocessableEntityException('Testnet descriptors must not contain mainnet extended keys.');
+    }
+    if (!TESTNET_EXTENDED_KEY_PREFIXES.has(prefix)) {
+      throw new UnprocessableEntityException('Unsupported extended public key format in descriptor.');
+    }
   }
 }

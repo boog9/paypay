@@ -81,10 +81,13 @@ test.describe("Wallet wizard", () => {
     });
 
     await page.route(`**/api/stores/${storeId}/wallets/btc/preview`, async (route) => {
-      expect(route.request().method()).toBe("POST");
-      expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
-      const json = route.request().postDataJSON() as { descriptor?: string } | null;
-      expect(json?.descriptor).toBe(derivationScheme);
+      expect(route.request().method()).toBe("GET");
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get("derivationScheme")).toBe(
+        "wpkh([ABCD1234/84'/1'/0']tpub-example/0/*)"
+      );
+      expect(url.searchParams.get("accountKeyPath")).toBe("m/84'/1'/0'");
+      expect(url.searchParams.get("count")).toBe("10");
       await route.fulfill({
         status: 200,
         body: JSON.stringify(previewResponse),

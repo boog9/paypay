@@ -89,6 +89,9 @@ export class OnchainWalletsController {
     const store = await this.requireStore(user, storeId);
     this.validateNetwork(dto);
 
+    const resolvedFingerprint =
+      dto.masterFingerprint ?? this.extractFingerprintFromDescriptor(dto.derivationScheme);
+
     try {
       await this.paymentMethods.updateOnchainPaymentMethod(
         {
@@ -96,7 +99,7 @@ export class OnchainWalletsController {
           cryptoCode: 'BTC',
           derivationScheme: dto.derivationScheme,
           accountKeyPath: dto.accountKeyPath ?? null,
-          masterFingerprint: dto.masterFingerprint ?? null,
+          masterFingerprint: resolvedFingerprint,
           label: dto.label ?? null,
           enabled: true
         },
@@ -109,7 +112,7 @@ export class OnchainWalletsController {
     await this.walletsService.upsertFromBtcpay(store, {
       derivationScheme: dto.derivationScheme,
       accountKeyPath: dto.accountKeyPath ?? null,
-      masterFingerprint: dto.masterFingerprint ?? null,
+      masterFingerprint: resolvedFingerprint,
       label: dto.label ?? null
     });
   }
@@ -124,7 +127,10 @@ export class OnchainWalletsController {
     const store = await this.requireStore(user, storeId);
 
     try {
-      const remote = await this.paymentMethods.getOnchainConfig(store.btcpayStoreId, true, { store });
+      const remote = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
+        store,
+        includeConfig: true
+      });
       if (remote.enabled && remote.config?.derivationScheme) {
         await this.paymentMethods.updateOnchainPaymentMethod(
           {
@@ -198,6 +204,19 @@ export class OnchainWalletsController {
         );
       }
     }
+  }
+
+  private extractFingerprintFromDescriptor(derivationScheme: string): string | null {
+    if (typeof derivationScheme !== 'string') {
+      return null;
+    }
+
+    const match = derivationScheme.match(/\[\s*([0-9a-fA-F]{8})\//u);
+    if (!match || !match[1]) {
+      return null;
+    }
+
+    return match[1].toUpperCase();
   }
 
   private rethrowBtcpayError(error: unknown): never {

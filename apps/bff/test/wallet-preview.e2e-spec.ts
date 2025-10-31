@@ -84,11 +84,12 @@ describe('Wallet preview controller (e2e)', () => {
     expect(btcpayProxy).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId,
-        method: 'POST',
+        method: 'GET',
         path: `/api/v1/stores/${storeId}/payment-methods/BTC-CHAIN/wallet/preview`,
-        data: expect.objectContaining({
-          descriptor: "wpkh([ABCD1234/84'/1'/0']tpubD6NzVbkrYhZ4Yg2WvB3mMD1j3uF6q/0/*)",
-          accountKeyPath: "m/84'/1'/0'"
+        params: expect.objectContaining({
+          derivationScheme: "wpkh([ABCD1234/84'/1'/0']tpubD6NzVbkrYhZ4Yg2WvB3mMD1j3uF6q/0/*)",
+          accountKeyPath: "m/84'/1'/0'",
+          count: '10'
         }),
         requestId: 'req-stable-1'
       })
@@ -112,11 +113,12 @@ describe('Wallet preview controller (e2e)', () => {
     expect(btcpayProxy).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId,
-        method: 'POST',
+        method: 'GET',
         path: `/api/v1/stores/${storeId}/payment-methods/BTC-CHAIN/wallet/preview`,
-        data: expect.objectContaining({
-          descriptor: "wpkh([DEADBEEF/84'/1'/0']tpubD6NzVbkrYhZ4Yg2WvB3mMD1j3uF6q/0/*)",
-          accountKeyPath: "m/84'/1'/0'"
+        params: expect.objectContaining({
+          derivationScheme: "wpkh([DEADBEEF/84'/1'/0']tpubD6NzVbkrYhZ4Yg2WvB3mMD1j3uF6q/0/*)",
+          accountKeyPath: "m/84'/1'/0'",
+          count: '10'
         }),
         requestId: 'req-legacy-1'
       })

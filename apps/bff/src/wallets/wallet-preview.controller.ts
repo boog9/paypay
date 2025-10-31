@@ -1,9 +1,22 @@
-import { Body, Controller, HttpCode, HttpStatus, Logger, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Logger,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+  UsePipes,
+  ValidationPipe
+} from '@nestjs/common';
 import { Throttle, seconds } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { WalletPreviewService } from './wallet-preview.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../security/csrf.guard';
+import { PreviewBodyDto } from './dto/preview-onchain.dto';
 
 function extractRequestId(req: Request): string | undefined {
   const header = req.headers['x-request-id'] ?? req.headers['x-requestid'];
@@ -18,6 +31,13 @@ function extractRequestId(req: Request): string | undefined {
   return undefined;
 }
 
+const previewValidationPipe = new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+  errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY
+});
+
 @Controller()
 export class WalletPreviewController {
   private readonly logger = new Logger(WalletPreviewController.name, { timestamp: false });
@@ -28,32 +48,17 @@ export class WalletPreviewController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, CsrfGuard)
   @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
-  async previewOnchain(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
-    return this.forwardPreview('stores/:storeId/wallets/onchain/preview', storeId, body, req);
-  }
-
-  @Post('stores/:storeId/payment-methods/onchain/btc/preview')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard, CsrfGuard)
-  @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
-  async previewLegacy(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
-    return this.forwardPreview('stores/:storeId/payment-methods/onchain/btc/preview', storeId, body, req);
-  }
-
-  @Post('stores/:storeId/wallets/btc/preview')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard, CsrfGuard)
-  @Throttle({ minute: { limit: 30, ttl: seconds(60) } })
-  async previewStable(@Param('storeId') storeId: string, @Body() body: unknown, @Req() req: Request) {
-    return this.forwardPreview('stores/:storeId/wallets/btc/preview', storeId, body, req);
-  }
-
-  private forwardPreview(route: string, storeId: string, body: unknown, req: Request) {
+  @UsePipes(previewValidationPipe)
+  async previewOnchain(
+    @Param('storeId') storeId: string,
+    @Body() body: PreviewBodyDto,
+    @Req() req: Request
+  ) {
     const requestId = extractRequestId(req);
     this.logger.log(
       {
         action: 'preview.enter',
-        route,
+        route: 'stores/:storeId/wallets/onchain/preview',
         storeId,
         requestId
       },

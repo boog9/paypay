@@ -199,7 +199,7 @@ export class BtcpayWalletService {
     }
 
     if (typeof query.count === 'number' && Number.isFinite(query.count) && query.count > 0) {
-      params.limit = Math.max(1, Math.trunc(query.count));
+      params.take = Math.max(1, Math.trunc(query.count));
     }
 
     const labelFilter = this.normalizeLabelFilter(query.labels);

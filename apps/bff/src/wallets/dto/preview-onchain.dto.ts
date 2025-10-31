@@ -1,31 +1,19 @@
+import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
-  IsInt,
+  Equals,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
-  Max,
-  MaxLength,
-  Min,
-  MinLength,
   registerDecorator,
   ValidationOptions,
   ValidatorConstraint,
-  ValidatorConstraintInterface,
-  ValidateIf
+  ValidatorConstraintInterface
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { wordlists } from 'bip39';
 
-export const INVALID_DERIVATION_MESSAGE =
-  "Enter xpub/ypub/zpub/tpub/upub/vpub or a descriptor (e.g., wpkh([FPR/84'/1'/0']tpub.../0/*)). Account key path is optional.";
 export const SENSITIVE_ERROR_MESSAGE =
   "Never paste seeds or private keys. Provide an extended public key or output descriptor only.";
-export const ACCOUNT_KEY_PATH_MESSAGE = 'Account key path must be 1 to 255 characters long.';
-
-const MIN_DERIVATION_LENGTH = 7;
-const MAX_DERIVATION_LENGTH = 5000;
-const MAX_ACCOUNT_KEY_PATH_LENGTH = 255;
 
 function resolveEnglishWordlist(): string[] {
   const candidate = wordlists.english;
@@ -36,32 +24,6 @@ function resolveEnglishWordlist(): string[] {
 }
 
 const BIP39_WORD_SET = new Set<string>(resolveEnglishWordlist().map((word) => word.toLowerCase()));
-
-function normalizeString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? undefined : trimmed;
-}
-
-function coerceTrimmedString(value: unknown): string {
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value).trim();
-  }
-  if (value instanceof String) {
-    return value.valueOf().trim();
-  }
-  return '';
-}
-
-function coerceOptionalTrimmedString(value: unknown): string | undefined {
-  const normalized = coerceTrimmedString(value);
-  return normalized.length === 0 ? undefined : normalized;
-}
 
 @ValidatorConstraint({ name: 'noSensitiveSecrets', async: false })
 class NoSensitiveSecretsConstraint implements ValidatorConstraintInterface {
@@ -106,69 +68,48 @@ export function NoSensitiveSecrets(validationOptions?: ValidationOptions) {
   };
 }
 
-export class PreviewOnchainDto {
+function coerceTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+export class PreviewBodyDto {
   @IsString()
-  @Transform(({ value }: { value: unknown }) => {
-    if (value === undefined || value === null) {
-      return '';
-    }
-    return coerceTrimmedString(value);
-  })
-  @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  @MinLength(MIN_DERIVATION_LENGTH, { message: INVALID_DERIVATION_MESSAGE })
-  @MaxLength(MAX_DERIVATION_LENGTH, { message: INVALID_DERIVATION_MESSAGE })
-  derivationScheme!: string;
+  @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Equals('BTC', { message: 'Only BTC cryptoCode is supported.' })
+  cryptoCode!: 'BTC';
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }: { value: unknown }) => {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-    return coerceOptionalTrimmedString(value);
-  })
+  @Transform(({ value }) => coerceTrimmedString(value))
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  @MinLength(1, { message: ACCOUNT_KEY_PATH_MESSAGE })
-  @MaxLength(MAX_ACCOUNT_KEY_PATH_LENGTH, { message: ACCOUNT_KEY_PATH_MESSAGE })
+  derivationScheme?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => coerceTrimmedString(value))
+  @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
+  extendedPublicKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => coerceTrimmedString(value))
+  @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
+  @Matches(/^m\/84'\/1'\/\d+'?$/u, {
+    message: "Account key path must follow m/84'/1'/account'."
+  })
   accountKeyPath?: string;
 
   @IsOptional()
-  @ValidateIf((_obj, value) => typeof value === 'string')
   @IsString()
-  @Transform(({ value }) => normalizeString(value))
-  @Matches(/^[0-9a-fA-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
-  masterFingerprint?: string;
-
-  @IsOptional()
-  @ValidateIf((_obj, value) => typeof value === 'string')
-  @IsString()
-  @Transform(({ value }) => normalizeString(value))
-  @Matches(/^[0-9a-fA-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
-  rootFingerprint?: string;
-
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : value;
+  @Transform(({ value }) => {
+    const normalized = coerceTrimmedString(value);
+    return normalized ? normalized.toUpperCase() : undefined;
   })
-  @IsInt({ message: INVALID_DERIVATION_MESSAGE })
-  @Min(1, { message: INVALID_DERIVATION_MESSAGE })
-  @Max(100, { message: INVALID_DERIVATION_MESSAGE })
-  amount?: number;
-}
-
-export class UpdateOnchainDto extends PreviewOnchainDto {
-  @IsOptional()
-  @ValidateIf((_obj, value) => typeof value === 'string')
-  @IsString()
-  @Transform(({ value }) => normalizeString(value))
-  @MaxLength(120, { message: 'Label cannot exceed 120 characters.' })
-  label?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  enabled?: boolean;
+  @Matches(/^[0-9A-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
+  masterFingerprint?: string;
 }

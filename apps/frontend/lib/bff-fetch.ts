@@ -50,6 +50,10 @@ function encodeCookieValue(value: string): string {
 }
 
 async function serializeCookies(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    return null;
+  }
+
   const store = await cookies();
   const jar = store.getAll();
   if (!jar.length) {

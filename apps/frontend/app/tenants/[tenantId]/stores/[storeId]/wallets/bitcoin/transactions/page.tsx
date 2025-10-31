@@ -100,14 +100,15 @@ async function loadTransactions(
 ): Promise<LoadTransactionsResult> {
   const params = new URLSearchParams();
   params.set("skip", String((page - 1) * PAGE_SIZE));
-  params.set("count", String(PAGE_SIZE));
+  params.set("take", String(PAGE_SIZE));
   params.set("order", "desc");
+  params.set("cryptoCode", "BTC");
   if (status) {
     params.set("status", status);
   }
 
   try {
-    const response = await bffFetch(`/api/stores/${storeId}/wallets/btc/transactions?${params.toString()}`);
+    const response = await bffFetch(`/api/stores/${storeId}/wallets/onchain/transactions?${params.toString()}`);
     if (response.status === 404) {
       return { data: null, error: 'notFound' };
     }

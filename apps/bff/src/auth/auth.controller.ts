@@ -115,14 +115,13 @@ export class AuthController {
     }
   }
 
-  @HttpCode(HttpStatus.OK)
-  @Post('refresh')
-  @UseGuards(CsrfGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Get('refresh')
   @Throttle({ refresh: { limit: 30, ttl: seconds(60) } })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
-  ): Promise<AuthUserResponseDto> {
+  ): Promise<void> {
     const refreshToken = this.resolveRefreshToken(req);
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required.');
@@ -133,8 +132,7 @@ export class AuthController {
       accessJwt: result.accessToken,
       refreshJwt: result.refreshToken
     });
-    const response: AuthUserResponseDto = { user: result.user };
-    return response;
+    return;
   }
 
   @HttpCode(HttpStatus.NO_CONTENT)

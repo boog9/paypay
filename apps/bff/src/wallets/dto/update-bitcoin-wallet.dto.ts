@@ -4,7 +4,8 @@ import {
   IsString,
   Matches,
   MaxLength,
-  MinLength
+  MinLength,
+  ValidateIf
 } from 'class-validator';
 import { NoSensitiveSecrets, SENSITIVE_ERROR_MESSAGE } from './preview-onchain.dto';
 
@@ -50,10 +51,16 @@ export class UpdateBitcoinWalletDto {
   accountKeyPath?: string;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null) {
+      return null;
+    }
+    return coerceOptionalTrimmed(value);
+  })
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()
-  @Transform(({ value }) => coerceOptionalTrimmed(value))
   @Matches(/^[0-9a-fA-F]{8}$/u, { message: 'Master fingerprint must be 8 hexadecimal characters.' })
-  masterFingerprint?: string;
+  masterFingerprint?: string | null;
 
   @IsOptional()
   @IsString()

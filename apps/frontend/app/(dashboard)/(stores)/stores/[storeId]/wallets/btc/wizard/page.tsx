@@ -11,7 +11,6 @@ import { useToast } from "../../../../../../../../components/ui/toast";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
 import {
   detectNetworkFromInput,
-  isSupportedDescriptor,
   resolveInstanceNetwork,
   walletWizardFormSchema,
 } from "./validation";
@@ -233,14 +232,12 @@ export default function WalletWizardPage({ params }: WizardProps) {
     try {
       const csrfToken = await getCsrfToken();
       const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrfToken } as const;
-      const requestBody = isSupportedDescriptor(parsed.data.derivationScheme)
-        ? { descriptor: parsed.data.derivationScheme }
-        : {
-            derivationScheme: parsed.data.derivationScheme,
-            ...(parsed.data.accountKeyPath ? { accountKeyPath: parsed.data.accountKeyPath } : {}),
-          };
+      const requestBody = {
+        derivationScheme: parsed.data.derivationScheme,
+        ...(parsed.data.accountKeyPath ? { accountKeyPath: parsed.data.accountKeyPath } : {}),
+      } as const;
       const payload = await apiPost<unknown>(
-        `/api/stores/${storeId}/wallets/btc/preview`,
+        `/api/stores/${storeId}/wallets/onchain/preview`,
         requestBody,
         { headers },
       );
@@ -293,7 +290,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
       const payload = {
         derivationScheme,
         accountKeyPath: accountKeyPath ?? undefined,
-        enabled: true,
+        masterFingerprint: null,
       };
       await api<unknown>(`/api/stores/${storeId}/wallets/btc`, {
         method: "PUT",

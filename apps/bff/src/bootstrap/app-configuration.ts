@@ -77,12 +77,25 @@ export function configureApp(app: INestApplication, env: ReturnType<typeof getEn
 }
 
 export function configureCors(app: INestApplication, env: ReturnType<typeof getEnv>): void {
-  const allowedOrigin = env.FRONTEND_ORIGIN;
+  const originSet = new Set<string>();
+  const allowedOrigin = env.FRONTEND_ORIGIN?.trim();
+  if (allowedOrigin) {
+    originSet.add(allowedOrigin);
+  }
+
+  if ((env.NODE_ENV ?? '').toLowerCase() !== 'production') {
+    originSet.add('http://localhost:3000');
+    originSet.add('http://127.0.0.1:3000');
+  }
+
+  if (originSet.size === 0) {
+    originSet.add('https://paypay.iddqd.in');
+  }
+
+  const origins = Array.from(originSet);
+
   app.enableCors({
-    origin: (origin: string | undefined, callback: (err: Error | null, allow: boolean) => void) => {
-      const isAllowed = !origin || origin === allowedOrigin;
-      callback(null, isAllowed);
-    },
+    origin: origins,
     methods: CORS_ALLOWED_METHODS,
     allowedHeaders: CORS_ALLOWED_HEADERS,
     exposedHeaders: CORS_EXPOSED_HEADERS,

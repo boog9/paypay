@@ -8,7 +8,7 @@ export const SENSITIVE_ERROR_MESSAGE =
 
 const EXTENDED_KEY_RE = /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/;
 const DESCRIPTOR_RE = /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)(?:#[0-9a-z]+)?$/i;
-const ACCOUNT_KEY_PATH_RE = /^m\/(84|86)'\/1'\/\d+'$/;
+const ACCOUNT_KEY_PATH_RE = /^m\/(84|86)'\/(0|1)'\/\d+'$/;
 
 export type BitcoinNetwork = "mainnet" | "testnet";
 
@@ -79,7 +79,7 @@ export const walletWizardFormSchema = z.object({
     .transform((value) => (value ? value.trim() : ""))
     .transform((value) => (value.length === 0 ? undefined : value))
     .refine((value) => (value ? ACCOUNT_KEY_PATH_RE.test(value) : true), {
-      message: "Invalid BIP32 account key path (e.g., m/84'/1'/0')."
+      message: "Invalid BIP32 account key path (e.g., m/84'/1'/0' or m/84'/0'/0')."
     })
     .refine((value) => (value ? !SENSITIVE_PATTERN.test(value) : true), {
       message: SENSITIVE_ERROR_MESSAGE

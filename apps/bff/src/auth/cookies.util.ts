@@ -28,11 +28,16 @@ export const sharedCookieDomain = resolveCookieDomain();
   }
 })();
 
+const COOKIE_DOMAIN_FALLBACK = '.iddqd.in';
+
+const resolvedCookieDomain = sharedCookieDomain ?? (process.env.NODE_ENV === 'production' ? COOKIE_DOMAIN_FALLBACK : undefined);
+
 const legacyRemovalOptions: CookieOptions = {
   httpOnly: true,
   secure: true,
-  sameSite: 'lax',
+  sameSite: 'none',
   path: '/',
+  ...(resolvedCookieDomain ? { domain: resolvedCookieDomain } : {}),
   maxAge: 0,
 };
 
@@ -106,9 +111,9 @@ function resolveCookieDomain(): string | undefined {
 const baseCookieOptions: CookieOptions = {
   httpOnly: true,
   secure: true,
-  sameSite: 'lax',
+  sameSite: 'none',
   path: '/',
-  ...(sharedCookieDomain ? { domain: sharedCookieDomain } : {}),
+  ...(resolvedCookieDomain ? { domain: resolvedCookieDomain } : {}),
 };
 
 export function setAuthCookies(

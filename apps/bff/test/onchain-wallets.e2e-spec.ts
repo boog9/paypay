@@ -176,12 +176,15 @@ describe('On-chain wallet controller (e2e)', () => {
         enabled: true,
         config: expect.objectContaining({
           derivationScheme,
-          accountKeyPath: "m/84'/1'/0'",
-          masterFingerprint: null
+          accountKeyPath: "m/84'/1'/0'"
         })
       }),
       expect.objectContaining({ store })
     );
+
+    const callConfig = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0]?.config;
+    expect(callConfig).toBeDefined();
+    expect('masterFingerprint' in callConfig).toBe(false);
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
@@ -227,12 +230,8 @@ describe('On-chain wallet controller (e2e)', () => {
       })
       .expect(204);
 
-    expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: expect.objectContaining({ masterFingerprint: 'D34DB33F' })
-      }),
-      expect.anything()
-    );
+    const descriptorCall = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0];
+    expect(descriptorCall?.config?.masterFingerprint).toBe('D34DB33F');
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,

@@ -575,14 +575,25 @@ export class BtcpayPaymentMethodsService {
       apiKeyOverride: options?.apiKey ?? null
     });
     const paymentMethodId = BTC_CHAIN;
+    const config: UpdateOnchainPaymentMethodPayload['config'] = {
+      derivationScheme: params.derivationScheme
+    };
+
+    if (params.accountKeyPath !== undefined) {
+      config.accountKeyPath = params.accountKeyPath;
+    }
+
+    if (params.label !== undefined) {
+      config.label = params.label;
+    }
+
+    if (params.masterFingerprint !== undefined) {
+      config.masterFingerprint = params.masterFingerprint;
+    }
+
     const body = this.buildUpdateRequestBody({
       enabled: params.enabled ?? true,
-      config: {
-        derivationScheme: params.derivationScheme,
-        accountKeyPath: params.accountKeyPath,
-        masterFingerprint: params.masterFingerprint,
-        label: params.label
-      }
+      config
     });
 
     try {
@@ -686,14 +697,16 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    if (typeof config.label === 'string' && config.label.trim()) {
-      payload.label = config.label;
+    if (config.label !== undefined) {
+      if (config.label === null) {
+        payload.label = null;
+      } else if (typeof config.label === 'string' && config.label.trim()) {
+        payload.label = config.label;
+      }
     }
 
     if (config.masterFingerprint !== undefined) {
-      if (config.masterFingerprint === null) {
-        payload.masterFingerprint = null;
-      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
+      if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
         payload.masterFingerprint = config.masterFingerprint.toUpperCase();
       }
     }

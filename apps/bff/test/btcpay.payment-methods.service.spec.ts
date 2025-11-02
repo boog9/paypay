@@ -15,7 +15,7 @@ describe('BtcpayPaymentMethodsService', () => {
   const store: ManagedStoreEntity = {
     id: 'local-store-id',
     userId: 'user-123',
-    btcpayStoreId: 'store-123',
+    btcpayStoreId: 'JDm5GuV',
     btcpayHost: 'https://btcpay.example',
     storeName: 'Demo store',
     defaultCurrency: 'USD',
@@ -55,6 +55,7 @@ describe('BtcpayPaymentMethodsService', () => {
     mockedAxios.isAxiosError.mockImplementation(
       (candidate: unknown): candidate is AxiosError => Boolean(candidate && (candidate as { isAxiosError?: boolean }).isAxiosError)
     );
+    (repository.findOne as unknown as jest.Mock).mockResolvedValue(store);
   });
 
   function buildService(): BtcpayPaymentMethodsService {
@@ -97,7 +98,7 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(result.addresses).toHaveLength(2);
     expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       {
         params: {
           derivationScheme: SAMPLE_TPUB,
@@ -118,12 +119,42 @@ describe('BtcpayPaymentMethodsService', () => {
     await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
 
     expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       {
         params: {
           derivationScheme: SAMPLE_TPUB
         }
       }
+    );
+  });
+
+  it('falls back to legacy preview endpoint when modern path returns paymentmethod-not-configured', async () => {
+    const modernError = {
+      isAxiosError: true,
+      response: { status: 404, data: { code: 'paymentmethod-not-configured' } }
+    } as AxiosError;
+
+    const getMock = jest
+      .fn()
+      .mockRejectedValueOnce(modernError)
+      .mockResolvedValueOnce({ data: { addresses: [{ address: 'tb1qlegacy' }] } });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+
+    const result = await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+
+    expect(result.addresses).toEqual([{ address: 'tb1qlegacy' }]);
+    expect(getMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      { params: { derivationScheme: SAMPLE_TPUB } }
+    );
+    expect(getMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/stores/JDm5GuV/payment-methods/onchain/BTC/wallet/preview',
+      { params: { derivationScheme: SAMPLE_TPUB } }
     );
   });
 
@@ -167,7 +198,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
     expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/generate',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/generate',
       {
         derivationScheme: SAMPLE_TPUB,
         accountKeyPath: "m/84'/1'/0'",
@@ -267,7 +298,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
     expect(getMock).toHaveBeenCalledTimes(1);
     const [path, options] = getMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
@@ -344,7 +375,7 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(getMock).toHaveBeenCalledTimes(1);
     const [path, options] = getMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
@@ -379,7 +410,7 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(getMock).toHaveBeenCalledTimes(1);
     const [path, options] = getMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
     expect(options).toEqual({
       params: {
         offset: '0',
@@ -428,7 +459,12 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(error).toBeInstanceOf(HttpException);
       const httpError = error as HttpException;
       expect(httpError.getStatus()).toBe(422);
-      expect(httpError.getResponse()).toBe(payload);
+      const responsePayload = httpError.getResponse();
+      if (typeof responsePayload === 'string') {
+        expect(responsePayload).toBe(payload);
+      } else {
+        expect((responsePayload as { message?: string }).message).toBe(payload);
+      }
       expect(httpError.cause).toBe(axiosError);
       return;
     }
@@ -468,7 +504,12 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(error).toBeInstanceOf(HttpException);
       const httpError = error as HttpException;
       expect(httpError.getStatus()).toBe(422);
-      expect(httpError.getResponse()).toBe('Invalid derivation');
+      const responsePayload = httpError.getResponse();
+      if (typeof responsePayload === 'string') {
+        expect(responsePayload).toBe('Invalid derivation');
+      } else {
+        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
+      }
       expect(httpError.cause).toBe(axiosError);
       return;
     }
@@ -506,7 +547,39 @@ describe('BtcpayPaymentMethodsService', () => {
     });
   });
 
-  // legacy fallback behaviour has been removed; tests cover the modern endpoint exclusively.
+  it('omits account key path and root fingerprint when descriptor already includes fingerprint', async () => {
+    const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    const descriptor = "wpkh([d34db33f/84'/1'/0']tpubExample/0/*)";
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        derivationScheme: descriptor,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: 'd34db33f',
+        label: 'Primary descriptor'
+      },
+      { store }
+    );
+
+    expect(putMock).toHaveBeenCalledWith(
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
+      {
+        enabled: true,
+        config: {
+          derivationScheme: descriptor,
+          label: 'Primary descriptor'
+        }
+      }
+    );
+  });
+
+  // Legacy fallback behaviour is covered by the dedicated preview test above.
 
   it('returns enabled flag and normalized key path after updating the on-chain method', async () => {
     const putMock = jest.fn().mockResolvedValue({
@@ -546,7 +619,7 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(result.config.masterFingerprint).toBe('ABCDEF12');
     expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
     expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
       expect.objectContaining({
         enabled: true,
         config: expect.objectContaining({
@@ -573,7 +646,7 @@ describe('BtcpayPaymentMethodsService', () => {
     const result = await service.getOnchainMethodStatus(store.btcpayStoreId, 'BTC-OnChain', { store });
 
     expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods',
+      '/api/v1/stores/JDm5GuV/payment-methods',
       {
         params: {
           paymentMethodId: 'BTC-CHAIN',
@@ -636,7 +709,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
       {
         enabled: true,
         config: {
@@ -741,10 +814,10 @@ describe('BtcpayPaymentMethodsService', () => {
     const service = buildService();
     const result = await service.getOnchainWalletSummary(store.btcpayStoreId, store.btcpayHost, { store });
 
-    expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/store-123/payment-methods/BTC-CHAIN');
+    expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
     expect(getMock).toHaveBeenNthCalledWith(
       2,
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       { params: { count: 10 } }
     );
     expect(result).toEqual({

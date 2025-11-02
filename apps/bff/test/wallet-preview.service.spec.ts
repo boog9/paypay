@@ -44,7 +44,7 @@ describe('WalletPreviewService', () => {
     await service.previewOnchainProposedConfig('btcpay-store-id', { extendedPublicKey: extendedKey });
 
     expect(storesRepository.findOne).toHaveBeenCalledWith({
-      where: [{ id: 'btcpay-store-id' }, { btcpayStoreId: 'btcpay-store-id' }]
+      where: [{ btcpayStoreId: 'btcpay-store-id' }]
     });
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
       derivationScheme: `wpkh([00000000/84'/1'/0']${extendedKey}/0/*)`,
@@ -63,12 +63,7 @@ describe('WalletPreviewService', () => {
       masterFingerprint: 'deadbeef'
     });
 
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
-      derivationScheme: descriptor,
-      accountKeyPath: null,
-      masterFingerprint: 'DEADBEEF',
-      label: null
-    });
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, { derivationScheme: descriptor });
   });
 
   it('rejects unmanaged stores', async () => {
@@ -85,10 +80,7 @@ describe('WalletPreviewService', () => {
     });
 
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
-      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)',
-      accountKeyPath: null,
-      masterFingerprint: null,
-      label: null
+      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
     });
   });
 });

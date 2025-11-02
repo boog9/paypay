@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { Throttle, seconds } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../security/csrf.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
@@ -24,6 +24,7 @@ import { OnchainWalletsService } from './onchain-wallets.service';
 import { toWalletPresenceDto, WalletPresenceDto } from './dto/wallet-presence.dto';
 import { UpdateBitcoinWalletDto } from './dto/update-bitcoin-wallet.dto';
 import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
+import { isUuid } from '../shared/is-uuid';
 
 interface BitcoinWalletMetadataDto {
   enabled: boolean;
@@ -166,12 +167,14 @@ export class OnchainWalletsController {
       throw new UnauthorizedException('Authentication required.');
     }
 
-    const store = await this.storesRepository.findOne({
-      where: [
-        { btcpayStoreId: normalizedStoreId, userId },
-        { id: normalizedStoreId, userId }
-      ]
-    });
+    const where: FindOptionsWhere<ManagedStoreEntity>[] = isUuid(normalizedStoreId)
+      ? [
+          { id: normalizedStoreId, userId },
+          { btcpayStoreId: normalizedStoreId, userId }
+        ]
+      : [{ btcpayStoreId: normalizedStoreId, userId }];
+
+    const store = await this.storesRepository.findOne({ where });
 
     if (!store) {
       throw new UnauthorizedException('Store not found or inaccessible.');

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService, BTC_CHAIN } from '../btcpay/btcpay.payment-methods.service';
@@ -50,7 +50,10 @@ export class OnchainWalletsService {
         enabled: remote.enabled === true,
         derivationScheme: remote.config?.derivationScheme ?? null
       } satisfies WalletPresenceState;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
+        throw error;
+      }
       const fallback = await this.walletsRepository.findOne({
         where: {
           storeId: store.id,

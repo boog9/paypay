@@ -79,7 +79,7 @@ describe('On-chain wallet controller (e2e)', () => {
 
     store = storesRepository.create({
       userId: persistedUser.id,
-      btcpayStoreId: 'store-123',
+      btcpayStoreId: 'JDm5GuV',
       btcpayHost: 'https://btcpay.example',
       storeName: 'Demo store',
       defaultCurrency: 'USD',
@@ -129,6 +129,14 @@ describe('On-chain wallet controller (e2e)', () => {
       'BTC',
       expect.objectContaining({ store: expect.any(Object), includeConfig: true })
     );
+  });
+
+  it('returns presence when resolved via BTCPay store identifier', async () => {
+    const response = await agent
+      .get(`/api/stores/${store.btcpayStoreId}/wallets/btc/presence`)
+      .expect(200);
+
+    expect(response.body).toEqual({ enabled: false, config: { derivationScheme: null } });
   });
 
   it('validates testnet derivation schemes', async () => {

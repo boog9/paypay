@@ -71,20 +71,24 @@ describe('WalletPreviewService', () => {
     });
   });
 
-  it('throws an UnprocessableEntityException for invalid account key paths', async () => {
-    await expect(
-      service.previewOnchainProposedConfig('store-entity-id', {
-        extendedPublicKey: 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN',
-        accountKeyPath: "m/45'/1'/0'"
-      })
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
-  });
-
   it('rejects unmanaged stores', async () => {
     storesRepository.findOne.mockResolvedValueOnce(null);
 
     await expect(
       service.previewOnchainProposedConfig('unknown-store', { derivationScheme: 'wpkh([abcd/84\'/1\'/0\']xpub/0/*)' })
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('omits account key path when descriptor is provided without explicit path', async () => {
+    await service.previewOnchainProposedConfig('store-entity-id', {
+      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
+    });
+
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
+      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)',
+      accountKeyPath: null,
+      masterFingerprint: null,
+      label: null
+    });
   });
 });

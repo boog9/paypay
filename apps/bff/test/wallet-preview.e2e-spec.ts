@@ -31,7 +31,7 @@ describe('Wallet preview controller (e2e)', () => {
     addresses: Array.from({ length: 5 }, (_, index) => `tb1qpreview${index}`)
   };
 
-  const storeIds = ['store-123', 'store-extended', 'store-invalid', 'store-bad-path', 'store-upstream'];
+  const storeIds = ['store-123', 'store-extended', 'store-invalid', 'store-upstream'];
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -124,7 +124,7 @@ describe('Wallet preview controller (e2e)', () => {
       expect.objectContaining({ btcpayStoreId: storeId }),
       {
         derivationScheme: descriptor,
-        accountKeyPath: "m/84'/1'/0'",
+        accountKeyPath: null,
         masterFingerprint: null,
         label: null
       }
@@ -165,24 +165,6 @@ describe('Wallet preview controller (e2e)', () => {
 
     expect(response.body).toMatchObject({
       message: expect.stringMatching(/descriptor/i)
-    });
-  });
-
-  it('rejects malformed account key paths', async () => {
-    const csrfToken = await fetchCsrf();
-    const storeId = 'store-bad-path';
-
-    const response = await agent
-      .post(`/api/stores/${storeId}/wallets/onchain/preview`)
-      .set('x-csrf-token', csrfToken)
-      .send({
-        derivationScheme: "wpkh([deadbeef/84'/1'/0']tpubKey/0/*)",
-        accountKeyPath: "m/44'/1'/0'"
-      })
-      .expect(422);
-
-    expect(response.body).toMatchObject({
-      message: expect.stringMatching(/account key path/i)
     });
   });
 

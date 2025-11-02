@@ -205,7 +205,10 @@ test("api throws original 401 error when refresh fails", async () => {
   }
 
   expect(caught).toBeInstanceOf(ApiError);
-  expect((caught as InstanceType<typeof ApiError>).status).toBe(401);
+  if (!(caught instanceof ApiError)) {
+    throw new Error("Expected ApiError instance");
+  }
+  expect(caught.status).toBe(401);
   expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect((window.location as Location).href).toContain("/sign-in");
+    expect(window.location.href).toContain("/sign-in");
 });

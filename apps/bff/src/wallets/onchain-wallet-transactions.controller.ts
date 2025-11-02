@@ -10,7 +10,7 @@ import {
   UsePipes,
   ValidationPipe
 } from '@nestjs/common';
-import { Throttle, seconds } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
 import { ListWalletTxResponse, OnchainTransactionsQueryDto } from './dto/wallet-transactions.dto';

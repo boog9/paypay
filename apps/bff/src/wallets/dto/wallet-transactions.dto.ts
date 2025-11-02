@@ -65,7 +65,11 @@ export class ListWalletTransactionsQueryDto {
 
   @IsOptional()
   @Transform(({ value, obj }) => {
-    const raw = obj?.take ?? value;
+    const rawFromObject =
+      obj && typeof obj === 'object' && 'take' in obj
+        ? (obj as Record<string, unknown>).take
+        : undefined;
+    const raw: unknown = rawFromObject ?? value;
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : 50;
   })
@@ -102,7 +106,7 @@ export class ListWalletTransactionsQueryDto {
 }
 
 export class OnchainTransactionsQueryDto extends ListWalletTransactionsQueryDto {
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : undefined))
   @IsString()
   cryptoCode!: string;
 }

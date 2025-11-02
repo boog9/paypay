@@ -1,5 +1,8 @@
-import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { BtcpayService } from '../btcpay/btcpay.service';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ManagedStoreEntity } from '../stores/managed-store.entity';
+import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
 import { PreviewBodyDto } from './dto/preview-onchain.dto';
 
 interface PreviewOptions {
@@ -11,28 +14,26 @@ const DEFAULT_ACCOUNT_KEY_PATH = "m/84'/1'/0'";
 
 @Injectable()
 export class WalletPreviewService {
-  constructor(private readonly btcpay: BtcpayService) {}
+  constructor(
+    @InjectRepository(ManagedStoreEntity)
+    private readonly storesRepository: Repository<ManagedStoreEntity>,
+    private readonly paymentMethods: BtcpayPaymentMethodsService
+  ) {}
 
-  async previewOnchainProposedConfig(storeId: string, dto: PreviewBodyDto, options?: PreviewOptions) {
+  async previewOnchainProposedConfig(storeId: string, dto: PreviewBodyDto, _options?: PreviewOptions) {
     const normalizedStoreId = this.normalizeStoreId(storeId);
-    const cryptoCode = this.normalizeCryptoCode(dto.cryptoCode);
-    this.assertBitcoinOnly(cryptoCode);
+    const store = await this.lookupStore(normalizedStoreId);
 
     const accountKeyPath = this.normalizeAccountKeyPath(dto.accountKeyPath);
     const derivationScheme = this.resolveDerivationScheme(dto, accountKeyPath);
+    const descriptorFingerprint = this.normalizeFingerprint(dto.masterFingerprint);
+    const masterFingerprint = dto.masterFingerprint ? descriptorFingerprint : null;
 
-    const payload: Record<string, unknown> = {
+    return this.paymentMethods.previewOnchainAddresses(store, {
       derivationScheme,
       accountKeyPath,
-      count: 10
-    };
-
-    return this.btcpay.proxy({
-      storeId: normalizedStoreId,
-      method: 'POST',
-      path: this.buildPreviewPath(normalizedStoreId, cryptoCode),
-      data: payload,
-      requestId: options?.requestId
+      masterFingerprint,
+      label: null
     });
   }
 
@@ -118,23 +119,18 @@ export class WalletPreviewService {
     return trimmed;
   }
 
-  private normalizeCryptoCode(value: string): string {
-    const trimmed = typeof value === 'string' ? value.trim() : '';
-    if (!trimmed) {
-      throw new BadRequestException('cryptoCode is required.');
-    }
-    return trimmed.toUpperCase();
-  }
+  private async lookupStore(storeId: string): Promise<ManagedStoreEntity> {
+    const store = await this.storesRepository.findOne({
+      where: [{ id: storeId }, { btcpayStoreId: storeId }]
+    });
 
-  private assertBitcoinOnly(cryptoCode: string): void {
-    if (cryptoCode !== 'BTC') {
-      throw new BadRequestException('Only BTC on-chain wallets are supported.');
+    if (!store) {
+      throw new UnprocessableEntityException({
+        code: 'STORE_NOT_MANAGED',
+        message: 'Store is not managed by this portal.'
+      });
     }
-  }
 
-  private buildPreviewPath(storeId: string, cryptoCode: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/OnChain/${encodeURIComponent(
-      cryptoCode
-    )}/preview`;
+    return store;
   }
 }

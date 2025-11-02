@@ -24,7 +24,9 @@ const INVALID_DERIVATION_MESSAGE =
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
 
-export const BTC_CHAIN = 'BTC-CHAIN';
+const PM_ONCHAIN = 'BTC-CHAIN';
+
+export const BTC_CHAIN = PM_ONCHAIN;
 
 export function mask(value: string | null | undefined): string {
   if (!value) {
@@ -65,8 +67,7 @@ export interface OnchainPreviewResponse {
 
 export interface OnchainPaymentMethodConfig {
   storeId: string;
-  currency: string;
-  paymentMethodId: string;
+  paymentMethodId: 'BTC-CHAIN';
   enabled: boolean;
   config: {
     derivationScheme: string | null;
@@ -167,7 +168,6 @@ interface PaymentMethodRequestOptions {
 
 export interface UpdateOnchainPaymentMethodRequest {
   storeId: string;
-  cryptoCode: string;
   derivationScheme: string;
   accountKeyPath?: string | null;
   masterFingerprint?: string | null;
@@ -265,41 +265,64 @@ export class BtcpayPaymentMethodsService {
     throw new InternalServerErrorException('Failed to preview on-chain payment method.');
   }
 
-  async previewOnchainPaymentMethod(
-    storeId: string,
-    cryptoCode: 'BTC',
-    dto: { derivationScheme: string; accountKeyPath?: string | null; label?: string | null },
-    options?: PaymentMethodRequestOptions
-  ): Promise<OnchainPreviewResponse> {
-    const context = await this.prepareStoreContext(storeId, options);
-    const currency = cryptoCode.toUpperCase();
-    const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const url = this.buildOnchainPostPreviewPath(context.store.btcpayStoreId, paymentMethodId);
-    const derivationScheme =
-      typeof dto.derivationScheme === 'string' ? dto.derivationScheme.trim() : '';
-    const accountKeyPath =
-      typeof dto.accountKeyPath === 'string' ? dto.accountKeyPath.trim() : undefined;
-    const label = typeof dto.label === 'string' ? dto.label.trim() : undefined;
-    const body = this.buildWalletPreviewRequestBody({
-      derivationScheme,
-      accountKeyPath,
-      label
-    });
+  async previewOnchainAddresses(
+    store: ManagedStoreEntity,
+    payload: {
+      derivationScheme: string;
+      accountKeyPath?: string | null;
+      masterFingerprint?: string | null;
+      label?: string | null;
+    }
+  ): Promise<{ addresses: Array<{ address: string }> }> {
+    const context = await this.prepareStoreContext(store.id, { store });
+    const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, PM_ONCHAIN);
+    const body = {
+      derivationScheme: payload.derivationScheme,
+      accountKeyPath: payload.accountKeyPath ?? null,
+      masterFingerprint: payload.masterFingerprint ?? null,
+      label: payload.label ?? null
+    };
 
     try {
-      const response = await context.http.post(url, body);
-      return this.normalizePreviewResponse(
-        response.data,
+      const { data } = await context.http.post(url, body);
+      const addresses = this.extractPreviewAddresses(data).map((item) => ({ address: item.address }));
+      return { addresses };
+    } catch (error) {
+      throw this.mapPreviewAddressesError(error);
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  async generateOnchainWallet(
+    store: ManagedStoreEntity,
+    payload: {
+      derivationScheme: string;
+      accountKeyPath?: string | null;
+      masterFingerprint?: string | null;
+      label?: string | null;
+    },
+    options?: PaymentMethodRequestOptions
+  ): Promise<OnchainPaymentMethodConfig> {
+    const context = await this.prepareStoreContext(store.id, { ...options, store });
+    const url = this.buildOnchainGeneratePath(context.store.btcpayStoreId, PM_ONCHAIN);
+    const body = {
+      derivationScheme: payload.derivationScheme,
+      accountKeyPath: payload.accountKeyPath ?? null,
+      masterFingerprint: payload.masterFingerprint ? payload.masterFingerprint.toUpperCase() : null,
+      label: payload.label ?? null
+    };
+
+    try {
+      const { data } = await context.http.post(url, body);
+      return this.normalizePaymentMethodResponse(
+        data,
         context.store.btcpayStoreId,
-        currency,
-        paymentMethodId
+        'BTC',
+        PM_ONCHAIN
       );
     } catch (error) {
-      const masked = mask(derivationScheme);
-      this.logger.warn(
-        `onchain preview failed: ${masked}${accountKeyPath && accountKeyPath.trim() ? ' (account key path provided)' : ''}`
-      );
-      throw this.mapPreviewError(error);
+      throw this.mapGenerateWalletError(error);
     } finally {
       context.cleanup();
     }
@@ -488,7 +511,7 @@ export class BtcpayPaymentMethodsService {
         storeId: normalized.storeId,
         paymentMethodId: normalized.paymentMethodId,
         enabled: normalized.enabled,
-        currency: normalized.currency,
+        currency: 'BTC',
         previewAddresses: previewAddresses.length > 0 ? previewAddresses : undefined
       } satisfies OnchainWalletSummary;
     } catch (error) {
@@ -735,7 +758,7 @@ export class BtcpayPaymentMethodsService {
   private normalizePaymentMethodResponse(
     payload: unknown,
     storeId: string,
-    fallbackCurrency: string,
+    _fallbackCurrency: string,
     fallbackPaymentMethodId: string
   ): OnchainPaymentMethodConfig {
     if (!payload) {
@@ -744,7 +767,6 @@ export class BtcpayPaymentMethodsService {
 
     let enabled = false;
     let paymentMethodId = fallbackPaymentMethodId;
-    let currency = fallbackCurrency;
     let configPayload: unknown = payload;
     let label: string | null = null;
 
@@ -762,7 +784,6 @@ export class BtcpayPaymentMethodsService {
       if (typeof record.label === 'string' && record.label.trim()) {
         label = record.label.trim();
       }
-      currency = this.extractCurrencyMetadata(record, fallbackCurrency);
       if (typeof record.derivationScheme === 'string') {
         configPayload = {
           ...(typeof configPayload === 'object' && configPayload !== null ? (configPayload as Record<string, unknown>) : {}),
@@ -783,13 +804,11 @@ export class BtcpayPaymentMethodsService {
 
     const { derivationScheme, accountKeyPath, masterFingerprint, label: derivedLabel } =
       this.extractConfigMetadata(configPayload);
-    currency = this.extractCurrencyMetadata(payload, currency);
 
-    const resolvedPaymentMethodId = canonicalPaymentMethodId(paymentMethodId, 'chain') || paymentMethodId;
+    const resolvedPaymentMethodId = (canonicalPaymentMethodId(paymentMethodId, 'chain') || paymentMethodId) as 'BTC-CHAIN';
 
     return {
       storeId,
-      currency,
       paymentMethodId: resolvedPaymentMethodId,
       enabled,
       config: {
@@ -1115,13 +1134,12 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
-  private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
+  private buildOnchainGeneratePath(storeId: string, paymentMethodId: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/generate`;
   }
 
-  private buildOnchainPostPreviewPath(storeId: string, paymentMethodId: string): string {
-    const normalizedId = canonicalPaymentMethodId(paymentMethodId, 'chain') || paymentMethodId;
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(normalizedId)}/wallet/preview`;
+  private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
   private extractPaymentMethodStatus(
@@ -1249,6 +1267,52 @@ export class BtcpayPaymentMethodsService {
     }
 
     return new BadGatewayException('BTCPay preview failed', {
+      cause: error instanceof Error ? error : undefined
+    });
+  }
+
+  private mapPreviewAddressesError(error: unknown): never {
+    if (axios.isAxiosError<unknown>(error)) {
+      const status = error.response?.status ?? 0;
+      if (status === 422) {
+        throw new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
+          cause: error as Error
+        });
+      }
+      if (status === 401) {
+        throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+      }
+      if (status === 403) {
+        throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+      }
+      const message = this.extractErrorMessage(error);
+      throw new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+    }
+
+    throw new BadGatewayException('BTCPay request failed', {
+      cause: error instanceof Error ? error : undefined
+    });
+  }
+
+  private mapGenerateWalletError(error: unknown): never {
+    if (axios.isAxiosError<unknown>(error)) {
+      const status = error.response?.status ?? 0;
+      if (status === 422) {
+        throw new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
+          cause: error as Error
+        });
+      }
+      if (status === 401) {
+        throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+      }
+      if (status === 403) {
+        throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+      }
+      const message = this.extractErrorMessage(error);
+      throw new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+    }
+
+    throw new BadGatewayException('BTCPay request failed', {
       cause: error instanceof Error ? error : undefined
     });
   }

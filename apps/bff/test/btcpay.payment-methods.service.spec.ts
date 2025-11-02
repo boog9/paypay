@@ -75,11 +75,9 @@ describe('BtcpayPaymentMethodsService', () => {
     } as unknown as AxiosInstance;
   }
 
-  it('previews on-chain payment method proposals using POST preview endpoint', async () => {
+  it('previews proposed on-chain addresses via wallet preview endpoint', async () => {
     const postMock = jest.fn().mockResolvedValue({
       data: {
-        currency: 'btc',
-        paymentMethodId: 'BTC-OnChain',
         addresses: [
           { address: 'tb1qexample0', keyPath: '0/0', index: 0 },
           { address: 'tb1qexample1', keyPath: '0/1', index: 1 }
@@ -91,62 +89,138 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    const result = await service.previewOnchainPaymentMethod(
-      store.btcpayStoreId,
-      'BTC',
-      {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'"
-      },
-      { store, apiKeyOverride: 'scoped-key' }
-    );
+    const result = await service.previewOnchainAddresses(store, {
+      derivationScheme: SAMPLE_TPUB,
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: '10B3BFC0'
+    });
 
-    expect(result.paymentMethodId).toBe('BTC-CHAIN');
-    expect(result.currency).toBe('BTC');
     expect(result.addresses).toHaveLength(2);
     expect(postMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
       {
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'",
-          enabled: true
-        }
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: '10B3BFC0',
+        label: null
       }
     );
   });
 
-  it('omits account key path when previewing with a bare extended key', async () => {
+  it('omits optional fields when previewing without additional metadata', async () => {
+    const postMock = jest.fn().mockResolvedValue({ data: { addresses: [] } });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      }
+    );
+  });
+
+  it('generates on-chain wallet metadata via wallet generate endpoint', async () => {
     const postMock = jest.fn().mockResolvedValue({
-      data: { currency: 'btc', paymentMethodId: 'BTC-OnChain', addresses: [] }
+      data: {
+        enabled: true,
+        paymentMethodId: 'BTC-CHAIN',
+        config: {
+          derivationScheme: SAMPLE_TPUB,
+          accountKeyPath: "m/84'/1'/0'",
+          masterFingerprint: '10B3BFC0',
+          label: 'Primary'
+        }
+      }
     });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
-    await service.previewOnchainPaymentMethod(
-      store.btcpayStoreId,
-      'BTC',
-      { derivationScheme: SAMPLE_TPUB, accountKeyPath: null },
-      { store }
+    const result = await service.generateOnchainWallet(
+      store,
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: '10b3bfc0',
+        label: 'Primary'
+      }
     );
 
+    expect(result).toEqual({
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-CHAIN',
+      enabled: true,
+      config: {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "84'/1'/0'",
+        masterFingerprint: '10B3BFC0',
+        label: 'Primary'
+      }
+    });
     expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/generate',
       {
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          enabled: true
-        }
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'",
+        masterFingerprint: '10B3BFC0',
+        label: 'Primary'
       }
     );
   });
 
-  it('builds the OnChain preview path with canonical casing', () => {
+  it('maps generate validation errors to UnprocessableEntityException', async () => {
+    const response = {
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: 'Invalid derivation'
+    } as any;
+    const axiosError = new AxiosError(
+      'Invalid derivation',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response
+    );
+    axiosError.response = response;
+    axiosError.isAxiosError = true;
+
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
     const service = buildService();
-    const path = (service as any).buildOnchainPostPreviewPath('store-123', 'btc-onchain');
-    expect(path).toBe('/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview');
+
+    expect.assertions(4);
+
+    try {
+      await service.generateOnchainWallet(store, { derivationScheme: SAMPLE_TPUB });
+    } catch (error) {
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      const httpError = error as UnprocessableEntityException;
+      expect(httpError.getStatus()).toBe(422);
+      const responsePayload = httpError.getResponse();
+      if (typeof responsePayload === 'string') {
+        expect(responsePayload).toBe('Invalid derivation scheme or accountKeyPath');
+      } else {
+        expect((responsePayload as { message?: string }).message).toBe(
+          'Invalid derivation scheme or accountKeyPath'
+        );
+      }
+      return;
+    }
+
+    throw new Error('Expected UnprocessableEntityException to be thrown');
   });
 
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
@@ -390,12 +464,7 @@ describe('BtcpayPaymentMethodsService', () => {
     expect.assertions(4);
 
     try {
-      await service.previewOnchainPaymentMethod(
-        store.btcpayStoreId,
-        'BTC',
-        { derivationScheme: SAMPLE_TPUB },
-        { store }
-      );
+      await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
     } catch (error) {
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
@@ -403,9 +472,11 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe('Invalid derivation');
+        expect(responsePayload).toBe('Invalid derivation scheme or accountKeyPath');
       } else {
-        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
+        expect((responsePayload as { message?: string }).message).toBe(
+          'Invalid derivation scheme or accountKeyPath'
+        );
       }
       return;
     }
@@ -423,7 +494,6 @@ describe('BtcpayPaymentMethodsService', () => {
     await service.updateOnchainPaymentMethod(
       {
         storeId: store.btcpayStoreId,
-        cryptoCode: 'BTC',
         derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
         masterFingerprint: 'abcd1234'
@@ -479,7 +549,6 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(result.enabled).toBe(true);
     expect(result.paymentMethodId).toBe('BTC-CHAIN');
-    expect(result.currency).toBe('BTC');
     expect(result.config.accountKeyPath).toBe("84'/0'/0'");
     expect(result.config.masterFingerprint).toBe('abcdef12');
     expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
@@ -558,7 +627,6 @@ describe('BtcpayPaymentMethodsService', () => {
     await service.updateOnchainPaymentMethod(
       {
         storeId: store.btcpayStoreId,
-        cryptoCode: 'btc',
         derivationScheme: 'xpubTemp',
         accountKeyPath: "m/84'/0'/0'",
         masterFingerprint: 'abcd1234',
@@ -603,7 +671,6 @@ describe('BtcpayPaymentMethodsService', () => {
       service.updateOnchainPaymentMethod(
         {
           storeId: store.btcpayStoreId,
-          cryptoCode: 'BTC',
           derivationScheme: 'xpubAuth'
         },
         { store, apiKey: 'temp-key' }
@@ -626,7 +693,6 @@ describe('BtcpayPaymentMethodsService', () => {
       service.updateOnchainPaymentMethod(
         {
           storeId: store.btcpayStoreId,
-          cryptoCode: 'BTC',
           derivationScheme: 'xpubError'
         },
         { store, apiKey: 'temp-key' }
@@ -724,12 +790,12 @@ describe('BtcpayPaymentMethodsService', () => {
       expect.objectContaining({
         storeId: store.btcpayStoreId,
         paymentMethodId: 'BTC-CHAIN',
-        currency: 'BTC',
         enabled: true,
         config: expect.objectContaining({
           derivationScheme: 'xpub123',
           accountKeyPath: "84'/0'/0'",
-          masterFingerprint: 'abcdef12'
+          masterFingerprint: 'abcdef12',
+          label: null
         })
       })
     );

@@ -62,7 +62,6 @@ describe('OnchainWalletsService', () => {
     paymentMethods = jest.mocked(moduleRef.get(BtcpayPaymentMethodsService));
     paymentMethods.getOnchain.mockResolvedValue({
       storeId: store.btcpayStoreId,
-      currency: 'BTC',
       paymentMethodId: 'BTC-CHAIN',
       enabled: false,
       config: {
@@ -85,12 +84,11 @@ describe('OnchainWalletsService', () => {
   it('returns metadata and presence when wallet is enabled', async () => {
     paymentMethods.getOnchain.mockResolvedValue({
       storeId: store.btcpayStoreId,
-      currency: 'BTC',
       paymentMethodId: 'BTC-CHAIN',
       enabled: true,
       config: {
         derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
-        accountKeyPath: "m/84'/1'/0'",
+        accountKeyPath: "84'/1'/0'",
         masterFingerprint: 'ABCD1234',
         label: 'Primary'
       }
@@ -101,7 +99,7 @@ describe('OnchainWalletsService', () => {
       paymentMethodId: 'BTC-CHAIN',
       enabled: true,
       derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
-      accountKeyPath: "m/84'/1'/0'",
+      accountKeyPath: "84'/1'/0'",
       masterFingerprint: 'ABCD1234',
       label: 'Primary',
       createdAt: new Date(),
@@ -119,7 +117,7 @@ describe('OnchainWalletsService', () => {
     expect(metadata).toEqual({
       enabled: true,
       derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
-      accountKeyPath: "m/84'/1'/0'",
+      accountKeyPath: "84'/1'/0'",
       masterFingerprint: 'ABCD1234',
       label: 'Primary'
     });
@@ -130,7 +128,7 @@ describe('OnchainWalletsService', () => {
 
     await service.upsertFromBtcpay(store, {
       derivationScheme: "wpkh([abcd1234/84'/1'/0']tpub123/0/*)",
-      accountKeyPath: "m/84'/1'/0'",
+      accountKeyPath: "84'/1'/0'",
       masterFingerprint: 'abcd1234',
       label: 'Primary'
     });
@@ -154,7 +152,7 @@ describe('OnchainWalletsService', () => {
       paymentMethodId: 'BTC-CHAIN',
       enabled: true,
       derivationScheme: 'PRESENT',
-      accountKeyPath: "m/84'/1'/0'",
+      accountKeyPath: "84'/1'/0'",
       masterFingerprint: 'F00DBABE',
       label: 'Primary',
       createdAt: new Date(),
@@ -167,7 +165,7 @@ describe('OnchainWalletsService', () => {
     await service.upsertFromBtcpay(store, {});
 
     expect(existing.derivationScheme).toBe('PRESENT');
-    expect(existing.accountKeyPath).toBe("m/84'/1'/0'");
+    expect(existing.accountKeyPath).toBe("84'/1'/0'");
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
 
@@ -202,7 +200,7 @@ describe('OnchainWalletsService', () => {
       paymentMethodId: 'BTC-CHAIN',
       enabled: false,
       derivationScheme: 'PRESENT',
-      accountKeyPath: "m/84'/1'/0'",
+      accountKeyPath: "84'/1'/0'",
       masterFingerprint: 'CAFECAFE',
       label: 'Legacy',
       createdAt: new Date(),

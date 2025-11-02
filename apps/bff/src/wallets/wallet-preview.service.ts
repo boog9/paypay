@@ -5,7 +5,6 @@ import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
 import { PreviewBodyDto } from './dto/preview-onchain.dto';
 
-const EXTENDED_KEY_REGEX = /^(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/iu;
 const DEFAULT_ACCOUNT_KEY_PATH = "m/84'/1'/0'";
 
 @Injectable()
@@ -20,7 +19,8 @@ export class WalletPreviewService {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const store = await this.lookupStore(normalizedStoreId);
 
-    const accountKeyPath = this.normalizeAccountKeyPath(dto.accountKeyPath);
+    const requiresDefaultAccountPath = Boolean(dto.extendedPublicKey) && !dto.accountKeyPath;
+    const accountKeyPath = this.normalizeAccountKeyPath(dto.accountKeyPath, requiresDefaultAccountPath);
     const derivationScheme = this.resolveDerivationScheme(dto, accountKeyPath);
     const descriptorFingerprint = this.normalizeFingerprint(dto.masterFingerprint);
     const masterFingerprint = dto.masterFingerprint ? descriptorFingerprint : null;
@@ -33,12 +33,13 @@ export class WalletPreviewService {
     });
   }
 
-  private resolveDerivationScheme(dto: PreviewBodyDto, accountKeyPath: string): string {
+  private resolveDerivationScheme(dto: PreviewBodyDto, accountKeyPath: string | null): string {
     if (dto.derivationScheme) {
       return this.sanitizeDescriptor(dto.derivationScheme);
     }
     if (dto.extendedPublicKey) {
-      return this.buildDescriptorFromExtendedKey(dto.extendedPublicKey, accountKeyPath, dto.masterFingerprint);
+      const path = accountKeyPath ?? DEFAULT_ACCOUNT_KEY_PATH;
+      return this.buildDescriptorFromExtendedKey(dto.extendedPublicKey, path, dto.masterFingerprint);
     }
     throw new UnprocessableEntityException({
       code: 'INVALID_INPUT',
@@ -70,27 +71,27 @@ export class WalletPreviewService {
 
   private sanitizeExtendedKey(value: string): string {
     const trimmed = value.trim();
-    if (!EXTENDED_KEY_REGEX.test(trimmed)) {
+    if (!trimmed) {
       throw new UnprocessableEntityException({
         code: 'INVALID_INPUT',
-        message: 'Unsupported extended public key format.'
+        message: 'Provide a non-empty extended public key.'
       });
     }
     return trimmed;
   }
 
-  private normalizeAccountKeyPath(value?: string): string {
-    if (!value) {
+  private normalizeAccountKeyPath(value: string | undefined, fallback: boolean): string | null {
+    if (typeof value === 'string' && value.trim()) {
+      const compact = value.replace(/\s+/gu, '');
+      const prefixed = compact.startsWith('m/') ? compact : `m/${compact}`;
+      return prefixed.endsWith("'") ? prefixed : `${prefixed}'`;
+    }
+
+    if (fallback) {
       return DEFAULT_ACCOUNT_KEY_PATH;
     }
-    const compact = value.replace(/\s+/gu, '');
-    if (!/^m\/84'\/1'\/\d+'?$/iu.test(compact)) {
-      throw new UnprocessableEntityException({
-        code: 'INVALID_ACCOUNT_KEY_PATH',
-        message: "Account key path must follow m/84'/1'/account'."
-      });
-    }
-    return compact.endsWith("'") ? compact : `${compact}'`;
+
+    return null;
   }
 
   private normalizeFingerprint(value?: string): string {

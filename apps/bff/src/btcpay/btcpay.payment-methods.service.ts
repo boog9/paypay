@@ -276,15 +276,24 @@ export class BtcpayPaymentMethodsService {
   ): Promise<{ addresses: Array<{ address: string }> }> {
     const context = await this.prepareStoreContext(store.id, { store });
     const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, PM_ONCHAIN);
-    const body = {
-      derivationScheme: payload.derivationScheme,
-      accountKeyPath: payload.accountKeyPath ?? null,
-      masterFingerprint: payload.masterFingerprint ?? null,
-      label: payload.label ?? null
+    const params: Record<string, string> = {
+      derivationScheme: payload.derivationScheme.trim()
     };
 
+    if (typeof payload.accountKeyPath === 'string' && payload.accountKeyPath.trim()) {
+      params.accountKeyPath = payload.accountKeyPath.trim();
+    }
+
+    if (typeof payload.masterFingerprint === 'string' && payload.masterFingerprint.trim()) {
+      params.masterFingerprint = payload.masterFingerprint.trim();
+    }
+
+    if (typeof payload.label === 'string' && payload.label.trim()) {
+      params.label = payload.label.trim();
+    }
+
     try {
-      const response = await context.http.post<unknown>(url, body);
+      const response = await context.http.get<unknown>(url, { params });
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
@@ -1102,7 +1111,6 @@ export class BtcpayPaymentMethodsService {
       baseURL: baseUrl.replace(/\/$/, ''),
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
         Authorization: `token ${apiKey}`,
         'User-Agent': 'PayPay-BFF/1.0'
       },
@@ -1274,19 +1282,21 @@ export class BtcpayPaymentMethodsService {
   private mapPreviewAddressesError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
-      if (status === 422) {
-        return new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
-          cause: error as Error
-        });
-      }
-      if (status === 401) {
-        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
-      }
-      if (status === 403) {
-        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
-      }
+      const payload = this.normalizeErrorPayload(this.getResponseData(error));
       const message = this.extractErrorMessage(error);
-      return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+
+      if (status === 401) {
+        return new UnauthorizedException(message || 'BTCPay authentication failed', { cause: error as Error });
+      }
+
+      if (status >= 400 && status < 500) {
+        const responsePayload = payload ?? message ?? 'BTCPay request failed';
+        return new HttpException(responsePayload, status, { cause: error as Error });
+      }
+
+      if (status >= 500) {
+        return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+      }
     }
 
     return new BadGatewayException('BTCPay request failed', {

@@ -294,7 +294,6 @@ export class BtcpayService {
       baseURL: this.getBaseUrl(baseUrl),
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
         'User-Agent': 'PayPay-BFF/1.0',
         ...headers
       },

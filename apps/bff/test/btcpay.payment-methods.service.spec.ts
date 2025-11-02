@@ -76,7 +76,7 @@ describe('BtcpayPaymentMethodsService', () => {
   }
 
   it('previews proposed on-chain addresses via wallet preview endpoint', async () => {
-    const postMock = jest.fn().mockResolvedValue({
+    const getMock = jest.fn().mockResolvedValue({
       data: {
         addresses: [
           { address: 'tb1qexample0', keyPath: '0/0', index: 0 },
@@ -85,7 +85,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
@@ -96,33 +96,33 @@ describe('BtcpayPaymentMethodsService', () => {
     });
 
     expect(result.addresses).toHaveLength(2);
-    expect(postMock).toHaveBeenCalledWith(
+    expect(getMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
       {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: '10B3BFC0',
-        label: null
+        params: {
+          derivationScheme: SAMPLE_TPUB,
+          accountKeyPath: "m/84'/1'/0'",
+          masterFingerprint: '10B3BFC0'
+        }
       }
     );
   });
 
   it('omits optional fields when previewing without additional metadata', async () => {
-    const postMock = jest.fn().mockResolvedValue({ data: { addresses: [] } });
+    const getMock = jest.fn().mockResolvedValue({ data: { addresses: [] } });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
     await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
 
-    expect(postMock).toHaveBeenCalledWith(
+    expect(getMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/preview',
       {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: null,
-        masterFingerprint: null,
-        label: null
+        params: {
+          derivationScheme: SAMPLE_TPUB
+        }
       }
     );
   });
@@ -220,7 +220,7 @@ describe('BtcpayPaymentMethodsService', () => {
       return;
     }
 
-    throw new Error('Expected UnprocessableEntityException to be thrown');
+    throw new Error('Expected HttpException to be thrown');
   });
 
   it('previews 10 addresses for a proposed on-chain configuration', async () => {
@@ -438,7 +438,7 @@ describe('BtcpayPaymentMethodsService', () => {
     throw new Error('Expected HttpException to be thrown');
   });
 
-  it('maps preview validation errors to UnprocessableEntityException', async () => {
+  it('proxies preview validation errors from BTCPay', async () => {
     const response = {
       status: 422,
       statusText: 'Unprocessable Entity',
@@ -456,28 +456,22 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response;
     axiosError.isAxiosError = true;
 
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+    const getMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
     const service = buildService();
 
-    expect.assertions(4);
+    expect.assertions(5);
 
     try {
       await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
     } catch (error) {
-      expect(postMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(UnprocessableEntityException);
-      const httpError = error as UnprocessableEntityException;
+      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(error).toBeInstanceOf(HttpException);
+      const httpError = error as HttpException;
       expect(httpError.getStatus()).toBe(422);
-      const responsePayload = httpError.getResponse();
-      if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe('Invalid derivation scheme or accountKeyPath');
-      } else {
-        expect((responsePayload as { message?: string }).message).toBe(
-          'Invalid derivation scheme or accountKeyPath'
-        );
-      }
+      expect(httpError.getResponse()).toBe('Invalid derivation');
+      expect(httpError.cause).toBe(axiosError);
       return;
     }
 

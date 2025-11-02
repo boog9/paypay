@@ -91,9 +91,6 @@ export class PreviewBodyDto {
   @IsString()
   @Transform(({ value }) => coerceTrimmedString(value))
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  @Matches(/^m\/84'\/1'\/\d+'?$/u, {
-    message: "Account key path must follow m/84'/1'/account'."
-  })
   accountKeyPath?: string;
 
   @IsOptional()

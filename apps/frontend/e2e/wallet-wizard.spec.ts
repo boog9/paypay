@@ -3,6 +3,17 @@ import { expect, test } from "@playwright/test";
 import { makeSessionCookie } from "./utils/cookies";
 import { walletPresencePath } from "../lib/walletPaths";
 
+function parseJsonObject(payload: string | null | undefined): Record<string, unknown> {
+  if (!payload) {
+    return {};
+  }
+  const parsed: unknown = JSON.parse(payload);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  throw new Error("Expected JSON object payload");
+}
+
 test.describe("Wallet wizard", () => {
   test("connects an existing wallet and redirects to transactions", async ({ page }) => {
     const storeId = "store-wizard";
@@ -82,10 +93,14 @@ test.describe("Wallet wizard", () => {
 
     await page.route(`**/api/stores/${storeId}/wallets/onchain/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
-      const payload = JSON.parse(route.request().postData() ?? '{}');
-      expect(payload.derivationScheme).toBe("wpkh([ABCD1234/84'/1'/0']tpub-example/0/*)");
-      expect(payload.accountKeyPath).toBe("m/84'/1'/0'");
-      expect(payload.count).toBe(10);
+      const payload = parseJsonObject(route.request().postData());
+      const { derivationScheme, accountKeyPath, count } = payload;
+      expect(typeof derivationScheme).toBe("string");
+      expect(derivationScheme).toBe("wpkh([ABCD1234/84'/1'/0']tpub-example/0/*)");
+      expect(typeof accountKeyPath).toBe("string");
+      expect(accountKeyPath).toBe("m/84'/1'/0'");
+      expect(typeof count).toBe("number");
+      expect(count).toBe(10);
       await route.fulfill({
         status: 200,
         body: JSON.stringify(previewResponse),

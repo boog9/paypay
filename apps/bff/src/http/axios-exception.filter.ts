@@ -43,7 +43,7 @@ export class AxiosExceptionFilter extends BaseExceptionFilter {
       return;
     }
 
-    const axiosError = exception as AxiosError<unknown>;
+    const axiosError: AxiosError<unknown> = exception;
     const status = axiosError.response?.status ?? HttpStatus.BAD_GATEWAY;
     const rawBody = axiosError.response?.data;
     const payload = resolveErrorPayload(rawBody);

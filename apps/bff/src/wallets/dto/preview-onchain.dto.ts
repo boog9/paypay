@@ -79,7 +79,7 @@ function coerceTrimmedString(value: unknown): string | undefined {
 export class PreviewBodyDto {
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : undefined))
   @Equals('BTC', { message: 'Only BTC cryptoCode is supported.' })
   cryptoCode!: 'BTC';
 

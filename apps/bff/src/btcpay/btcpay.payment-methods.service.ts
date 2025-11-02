@@ -11,11 +11,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { BtcpayService } from './btcpay.service';
 import { BTCPayAuthError, BTCPayUpstreamError } from './btcpay.errors';
+import { isUuid } from '../shared/is-uuid';
 
 type Maybe<T> = T | null | undefined;
 
@@ -241,15 +242,13 @@ export class BtcpayPaymentMethodsService {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
+    const params = this.buildPreviewRequestParams(body);
+    const modernPath = this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId);
     try {
       this.logger.debug(
         `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
-      const params = this.buildPreviewRequestParams(body);
-      const response = await context.http.get(
-        this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
-        { params }
-      );
+      const response = await context.http.get(modernPath, { params });
       return this.normalizePreviewResponse(
         response.data,
         context.store.btcpayStoreId,
@@ -257,7 +256,35 @@ export class BtcpayPaymentMethodsService {
         paymentMethodId
       );
     } catch (error) {
-      this.handleBtcpayError(error);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 0;
+        const responseData = error.response?.data as { code?: string } | string | undefined;
+        const errorCode = typeof responseData === 'object' && responseData ? responseData.code : undefined;
+        const emptyBody =
+          responseData === undefined ||
+          responseData === null ||
+          (typeof responseData === 'string' && responseData.trim().length === 0);
+
+        if (status === 404 && (errorCode === 'paymentmethod-not-configured' || emptyBody)) {
+          this.logger.debug(
+            `Modern preview endpoint returned 404 for store ${context.store.btcpayStoreId}. Falling back to legacy preview.`
+          );
+          const legacyPath = this.buildLegacyOnchainPreviewPath(context.store.btcpayStoreId);
+          try {
+            const legacyResponse = await context.http.get(legacyPath, { params });
+            return this.normalizePreviewResponse(
+              legacyResponse.data,
+              context.store.btcpayStoreId,
+              currency,
+              paymentMethodId
+            );
+          } catch (legacyError) {
+            throw this.mapPreviewError(legacyError);
+          }
+        }
+      }
+
+      throw this.mapPreviewError(error);
     } finally {
       context.cleanup();
     }
@@ -297,6 +324,29 @@ export class BtcpayPaymentMethodsService {
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 0;
+        const responseData = error.response?.data as { code?: string } | string | undefined;
+        const errorCode = typeof responseData === 'object' && responseData ? responseData.code : undefined;
+        const emptyBody =
+          responseData === undefined ||
+          responseData === null ||
+          (typeof responseData === 'string' && responseData.trim().length === 0);
+
+        if (status === 404 && (errorCode === 'paymentmethod-not-configured' || emptyBody)) {
+          try {
+            const legacyResponse = await context.http.get<unknown>(
+              this.buildLegacyOnchainPreviewPath(context.store.btcpayStoreId),
+              { params }
+            );
+            const addresses = this.extractPreviewAddresses(legacyResponse.data).map((item) => ({ address: item.address }));
+            return { addresses };
+          } catch (legacyError) {
+            throw this.mapPreviewAddressesError(legacyError);
+          }
+        }
+      }
+
       throw this.mapPreviewAddressesError(error);
     } finally {
       context.cleanup();
@@ -607,22 +657,35 @@ export class BtcpayPaymentMethodsService {
       apiKeyOverride: options?.apiKey ?? null
     });
     const paymentMethodId = BTC_CHAIN;
+    const descriptorIncludesFingerprint = this.descriptorContainsFingerprint(params.derivationScheme);
+    const config: {
+      derivationScheme: string;
+      accountKeyPath?: string | null;
+      rootFingerprint?: string | null;
+      label?: string | null;
+    } = {
+      derivationScheme: params.derivationScheme
+    };
+
+    if (!descriptorIncludesFingerprint) {
+      if (params.accountKeyPath !== undefined) {
+        config.accountKeyPath = params.accountKeyPath ?? null;
+      }
+
+      if (params.masterFingerprint !== undefined) {
+        if (params.masterFingerprint === null) {
+          config.rootFingerprint = null;
+        } else if (typeof params.masterFingerprint === 'string' && params.masterFingerprint.trim()) {
+          config.rootFingerprint = params.masterFingerprint.trim().toUpperCase();
+        }
+      }
+    }
+
+    config.label = params.label ?? null;
+
     const body = {
       enabled: params.enabled ?? true,
-      config: {
-        derivationScheme: params.derivationScheme,
-        accountKeyPath: params.accountKeyPath ?? null,
-        rootFingerprint: params.masterFingerprint ? params.masterFingerprint.toUpperCase() : null,
-        label: params.label ?? null
-      }
-    } satisfies {
-      enabled: boolean;
-      config: {
-        derivationScheme: string;
-        accountKeyPath: string | null;
-        rootFingerprint: string | null;
-        label: string | null;
-      };
+      config
     };
 
     try {
@@ -1133,9 +1196,10 @@ export class BtcpayPaymentMethodsService {
     if (!trimmed) {
       throw new NotFoundException('Store not found');
     }
-    const store = await this.storesRepository.findOne({
-      where: [{ btcpayStoreId: trimmed }, { id: trimmed }]
-    });
+    const where: FindOptionsWhere<ManagedStoreEntity>[] = isUuid(trimmed)
+      ? [{ id: trimmed }, { btcpayStoreId: trimmed }]
+      : [{ btcpayStoreId: trimmed }];
+    const store = await this.storesRepository.findOne({ where });
     if (!store) {
       return null;
     }
@@ -1150,12 +1214,23 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
+  private buildLegacyOnchainPreviewPath(storeId: string): string {
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/onchain/BTC/wallet/preview`;
+  }
+
   private buildOnchainGeneratePath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/generate`;
   }
 
   private buildModernPaymentMethodPath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
+  }
+
+  private descriptorContainsFingerprint(derivationScheme: string): boolean {
+    if (typeof derivationScheme !== 'string') {
+      return false;
+    }
+    return /\[[0-9a-f]{8}\//i.test(derivationScheme);
   }
 
   private extractPaymentMethodStatus(

@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { BTCPAY_CONFIG, type BtcpayRuntimeConfig } from './btcpay.tokens';
 import {
   BTCPAY_INVOICE_WEBHOOK_EVENTS,
@@ -22,6 +22,7 @@ import {
 } from './btcpay.constants';
 import { StoreEntity } from '../tenants/entities/store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
+import { isUuid } from '../shared/is-uuid';
 
 export interface CreateInvoiceRequest {
   amount: number;
@@ -689,9 +690,16 @@ export class BtcpayService {
   }
 
   private async getStoreApiKeySafe(storeId: string): Promise<string | undefined> {
-    const store = await this.storesRepository.findOne({
-      where: [{ btcpayStoreId: storeId }, { id: storeId }]
-    });
+    const normalizedId = typeof storeId === 'string' ? storeId.trim() : '';
+    if (!normalizedId) {
+      return undefined;
+    }
+
+    const where: FindOptionsWhere<StoreEntity>[] = isUuid(normalizedId)
+      ? [{ id: normalizedId }, { btcpayStoreId: normalizedId }]
+      : [{ btcpayStoreId: normalizedId }];
+
+    const store = await this.storesRepository.findOne({ where });
     if (!store) {
       return undefined;
     }
@@ -800,12 +808,14 @@ export class BtcpayService {
       throw new BadRequestException('Store identifier is required');
     }
 
-    const store = await this.storesRepository.findOne({
-      where: [
-        { btcpayStoreId: normalizedId },
-        { id: normalizedId },
-      ],
-    });
+    const where: FindOptionsWhere<StoreEntity>[] = isUuid(normalizedId)
+      ? [
+          { id: normalizedId },
+          { btcpayStoreId: normalizedId }
+        ]
+      : [{ btcpayStoreId: normalizedId }];
+
+    const store = await this.storesRepository.findOne({ where });
 
     if (!store) {
       throw new NotFoundException('Store not found or not managed by this portal');

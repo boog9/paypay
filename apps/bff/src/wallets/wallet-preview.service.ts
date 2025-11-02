@@ -1,8 +1,9 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
+import { isUuid } from '../shared/is-uuid';
 import { PreviewBodyDto } from './dto/preview-onchain.dto';
 
 const DEFAULT_ACCOUNT_KEY_PATH = "m/84'/1'/0'";
@@ -25,10 +26,7 @@ export class WalletPreviewService {
 
     if (normalizedDescriptor) {
       return this.paymentMethods.previewOnchainAddresses(store, {
-        derivationScheme: normalizedDescriptor,
-        accountKeyPath: null,
-        masterFingerprint,
-        label: null
+        derivationScheme: normalizedDescriptor
       });
     }
 
@@ -122,9 +120,11 @@ export class WalletPreviewService {
   }
 
   private async lookupStore(storeId: string): Promise<ManagedStoreEntity> {
-    const store = await this.storesRepository.findOne({
-      where: [{ id: storeId }, { btcpayStoreId: storeId }]
-    });
+    const where: FindOptionsWhere<ManagedStoreEntity>[] = isUuid(storeId)
+      ? [{ id: storeId }, { btcpayStoreId: storeId }]
+      : [{ btcpayStoreId: storeId }];
+
+    const store = await this.storesRepository.findOne({ where });
 
     if (!store) {
       throw new UnprocessableEntityException({

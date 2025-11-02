@@ -9,11 +9,12 @@ import {
   UnprocessableEntityException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { BtcpayService } from './btcpay.service';
+import { isUuid } from '../shared/is-uuid';
 
 interface WalletRequestOptions {
   store?: ManagedStoreEntity;
@@ -412,9 +413,11 @@ export class BtcpayWalletService {
       return null;
     }
 
-    const store = await this.storesRepository.findOne({
-      where: [{ btcpayStoreId: trimmed }, { id: trimmed }]
-    });
+    const where: FindOptionsWhere<ManagedStoreEntity>[] = isUuid(trimmed)
+      ? [{ id: trimmed }, { btcpayStoreId: trimmed }]
+      : [{ btcpayStoreId: trimmed }];
+
+    const store = await this.storesRepository.findOne({ where });
     return store ?? null;
   }
 

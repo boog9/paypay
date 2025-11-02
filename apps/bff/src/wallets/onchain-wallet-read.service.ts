@@ -5,7 +5,7 @@ import {
   UnauthorizedException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import {
   FeeRateQueryDto,
   ListWalletTransactionsQueryDto,
@@ -24,6 +24,7 @@ import { BtcpayKeysService } from '../btcpay/btcpay.keys.service';
 import { normalizeEmail } from '../auth/email.utils';
 import { BtcpayServerInfoService } from '../btcpay/btcpay.server-info.service';
 import { ListTransactionsQuery } from '../btcpay/btcpay.wallets.service';
+import { isUuid } from '../shared/is-uuid';
 
 interface RequestUserContext {
   id: string | null;
@@ -766,12 +767,13 @@ export class OnchainWalletReadService {
     if (!trimmed) {
       throw new NotFoundException('Store not found');
     }
-    const store = await this.storesRepository.findOne({
-      where: [
-        { btcpayStoreId: trimmed, userId },
-        { id: trimmed, userId }
-      ]
-    });
+    const where: FindOptionsWhere<ManagedStoreEntity>[] = isUuid(trimmed)
+      ? [
+          { id: trimmed, userId },
+          { btcpayStoreId: trimmed, userId }
+        ]
+      : [{ btcpayStoreId: trimmed, userId }];
+    const store = await this.storesRepository.findOne({ where });
     if (!store) {
       throw new NotFoundException('Store not found');
     }

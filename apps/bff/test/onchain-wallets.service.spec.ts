@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { UnauthorizedException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OnchainWalletsService } from '../src/wallets/onchain-wallets.service';
@@ -217,5 +218,11 @@ describe('OnchainWalletsService', () => {
       masterFingerprint: null,
       label: null
     });
+  });
+
+  it('rethrows unauthorized errors from BTCPay when fetching presence', async () => {
+    paymentMethods.getOnchain.mockRejectedValue(new UnauthorizedException('BTCPay authentication failed'));
+
+    await expect(service.getPresence(store)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

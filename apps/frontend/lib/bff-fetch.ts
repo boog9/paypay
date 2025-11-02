@@ -1,5 +1,3 @@
-import { cookies } from "next/headers";
-
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_HEADER = "X-CSRF-Token";
 const CSRF_PATH = "/api/auth/csrf";
@@ -54,14 +52,19 @@ async function serializeCookies(): Promise<string | null> {
     return null;
   }
 
-  const store = await cookies();
-  const jar = store.getAll();
-  if (!jar.length) {
+  try {
+    const { cookies } = await import("next/headers");
+    const store = await cookies();
+    const jar = store.getAll();
+    if (!jar.length) {
+      return null;
+    }
+    return jar
+      .map((entry) => `${entry.name}=${encodeCookieValue(entry.value)}`)
+      .join("; ");
+  } catch {
     return null;
   }
-  return jar
-    .map((entry) => `${entry.name}=${encodeCookieValue(entry.value)}`)
-    .join("; ");
 }
 
 async function ensureCsrfToken(headers: Headers, cookieHeader: string | null): Promise<void> {

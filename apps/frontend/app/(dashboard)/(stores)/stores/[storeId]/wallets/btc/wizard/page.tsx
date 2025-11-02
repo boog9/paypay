@@ -7,6 +7,7 @@ import { Button } from "../../../../../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { Input } from "../../../../../../../../components/ui/input";
 import { ApiError, api, isApiError } from "../../../../../../../../lib/api";
+import { getCsrfToken } from "../../../../../../../../lib/auth";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { bffFetch } from "../../../../../../../../lib/bff-fetch";
 import {

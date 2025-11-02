@@ -57,7 +57,7 @@ function parseSearchParams(params?: Record<string, string | string[] | undefined
 }
 
 function parseIntParam(
-  value: string | string[] | undefined,
+  value: string | string[] | null | undefined,
   fallback: number,
   min = Number.MIN_SAFE_INTEGER,
   max = Number.MAX_SAFE_INTEGER
@@ -80,7 +80,7 @@ function parseIntParam(
   return normalized;
 }
 
-function extractString(value: string | string[] | undefined): string | null {
+function extractString(value: string | string[] | null | undefined): string | null {
   if (Array.isArray(value)) {
     const first = value[0];
     return typeof first === "string" && first.trim() ? first.trim() : null;

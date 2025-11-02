@@ -97,7 +97,6 @@ export class OnchainWalletsController {
       await this.paymentMethods.updateOnchainPaymentMethod(
         {
           storeId: store.btcpayStoreId,
-          cryptoCode: 'BTC',
           derivationScheme: dto.derivationScheme,
           ...(dto.accountKeyPath !== undefined ? { accountKeyPath: dto.accountKeyPath } : {}),
           ...(masterFingerprintForBtcpay !== undefined ? { masterFingerprint: masterFingerprintForBtcpay } : {}),
@@ -136,7 +135,6 @@ export class OnchainWalletsController {
         await this.paymentMethods.updateOnchainPaymentMethod(
           {
             storeId: store.btcpayStoreId,
-            cryptoCode: 'BTC',
             derivationScheme: remote.config.derivationScheme,
             ...(remote.config.accountKeyPath !== undefined
               ? { accountKeyPath: remote.config.accountKeyPath }

@@ -1,7 +1,5 @@
 import { Transform } from 'class-transformer';
 import {
-  Equals,
-  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
@@ -77,12 +75,6 @@ function coerceTrimmedString(value: unknown): string | undefined {
 }
 
 export class PreviewBodyDto {
-  @IsString()
-  @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : undefined))
-  @Equals('BTC', { message: 'Only BTC cryptoCode is supported.' })
-  cryptoCode!: 'BTC';
-
   @IsOptional()
   @IsString()
   @Transform(({ value }) => coerceTrimmedString(value))

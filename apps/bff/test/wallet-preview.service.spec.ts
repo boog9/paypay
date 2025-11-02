@@ -1,70 +1,90 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { WalletPreviewService } from '../src/wallets/wallet-preview.service';
+import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 
 describe('WalletPreviewService', () => {
-  const proxy = jest.fn();
+  const store: ManagedStoreEntity = {
+    id: 'store-entity-id',
+    userId: 'user-id',
+    btcpayStoreId: 'btcpay-store-id',
+    btcpayHost: 'https://btcpay.example',
+    storeName: 'Demo store',
+    defaultCurrency: 'USD',
+    apiKeyCiphertext: 'cipher',
+    apiKeyDekWrapped: 'dek',
+    webhookId: null,
+    webhookSecretCiphertext: null,
+    webhookSecretDekWrapped: null,
+    storeKeyLastFour: null,
+    lastActiveAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  } as ManagedStoreEntity;
+
+  const storesRepository = {
+    findOne: jest.fn()
+  } as unknown as { findOne: jest.Mock };
+
+  const paymentMethods = {
+    previewOnchainAddresses: jest.fn()
+  } as unknown as { previewOnchainAddresses: jest.Mock };
+
   let service: WalletPreviewService;
 
   beforeEach(() => {
-    proxy.mockReset();
-    proxy.mockResolvedValue({ addresses: [] });
-    service = new WalletPreviewService({ proxy } as any);
+    jest.clearAllMocks();
+    storesRepository.findOne.mockResolvedValue(store);
+    paymentMethods.previewOnchainAddresses.mockResolvedValue({ addresses: [] });
+    service = new WalletPreviewService(storesRepository as any, paymentMethods as any);
   });
 
   it('builds descriptors from extended public keys', async () => {
     const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
 
-    await service.previewOnchainProposedConfig(
-      'store-1',
-      { cryptoCode: 'BTC', extendedPublicKey: extendedKey },
-      { requestId: 'req-1' }
-    );
+    await service.previewOnchainProposedConfig('btcpay-store-id', { extendedPublicKey: extendedKey });
 
-    expect(proxy).toHaveBeenCalledWith({
-      storeId: 'store-1',
-      method: 'POST',
-      path: '/api/v1/stores/store-1/payment-methods/OnChain/BTC/preview',
-      data: {
-        derivationScheme: `wpkh([00000000/84'/1'/0']${extendedKey}/0/*)`,
-        accountKeyPath: "m/84'/1'/0'",
-        count: 10
-      },
-      requestId: 'req-1'
+    expect(storesRepository.findOne).toHaveBeenCalledWith({
+      where: [{ id: 'btcpay-store-id' }, { btcpayStoreId: 'btcpay-store-id' }]
+    });
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
+      derivationScheme: `wpkh([00000000/84'/1'/0']${extendedKey}/0/*)`,
+      accountKeyPath: "m/84'/1'/0'",
+      masterFingerprint: null,
+      label: null
     });
   });
 
-  it('forwards descriptors unchanged', async () => {
+  it('forwards provided descriptors and metadata unchanged', async () => {
     const descriptor = "wpkh([deadbeef/84'/1'/0']tpubKey/0/*)";
 
-    await service.previewOnchainProposedConfig(
-      'store-2',
-      { cryptoCode: 'BTC', derivationScheme: descriptor, accountKeyPath: "m/84'/1'/5'" },
-      { requestId: 'req-2' }
-    );
+    await service.previewOnchainProposedConfig('store-entity-id', {
+      derivationScheme: descriptor,
+      accountKeyPath: "m/84'/1'/5'",
+      masterFingerprint: 'deadbeef'
+    });
 
-    expect(proxy).toHaveBeenCalledWith({
-      storeId: 'store-2',
-      method: 'POST',
-      path: '/api/v1/stores/store-2/payment-methods/OnChain/BTC/preview',
-      data: {
-        derivationScheme: descriptor,
-        accountKeyPath: "m/84'/1'/5'",
-        count: 10
-      },
-      requestId: 'req-2'
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
+      derivationScheme: descriptor,
+      accountKeyPath: "m/84'/1'/5'",
+      masterFingerprint: 'DEADBEEF',
+      label: null
     });
   });
 
   it('throws an UnprocessableEntityException for invalid account key paths', async () => {
     await expect(
-      service.previewOnchainProposedConfig(
-        'store-3',
-        {
-          cryptoCode: 'BTC',
-          extendedPublicKey: 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN',
-          accountKeyPath: "m/45'/1'/0'"
-        }
-      )
+      service.previewOnchainProposedConfig('store-entity-id', {
+        extendedPublicKey: 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN',
+        accountKeyPath: "m/45'/1'/0'"
+      })
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('rejects unmanaged stores', async () => {
+    storesRepository.findOne.mockResolvedValueOnce(null);
+
+    await expect(
+      service.previewOnchainProposedConfig('unknown-store', { derivationScheme: 'wpkh([abcd/84\'/1\'/0\']xpub/0/*)' })
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
   });
 });

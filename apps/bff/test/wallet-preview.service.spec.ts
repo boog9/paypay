@@ -54,7 +54,7 @@ describe('WalletPreviewService', () => {
     });
   });
 
-  it('forwards provided descriptors and metadata unchanged', async () => {
+  it('uses provided descriptor without forwarding account key path', async () => {
     const descriptor = "wpkh([deadbeef/84'/1'/0']tpubKey/0/*)";
 
     await service.previewOnchainProposedConfig('store-entity-id', {
@@ -65,7 +65,7 @@ describe('WalletPreviewService', () => {
 
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
       derivationScheme: descriptor,
-      accountKeyPath: "m/84'/1'/5'",
+      accountKeyPath: null,
       masterFingerprint: 'DEADBEEF',
       label: null
     });

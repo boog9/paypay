@@ -397,7 +397,6 @@ export class BtcpayWalletService {
       baseURL: baseUrl.replace(/\/$/, ''),
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
         Authorization: `token ${apiKey}`,
         'User-Agent': 'PayPay-BFF/1.0'
       },

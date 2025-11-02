@@ -169,22 +169,16 @@ describe('On-chain wallet controller (e2e)', () => {
       })
       .expect(204);
 
-    expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
-      expect.objectContaining({
-        storeId: store.btcpayStoreId,
-        cryptoCode: 'BTC',
-        enabled: true,
-        config: expect.objectContaining({
-          derivationScheme,
-          accountKeyPath: "m/84'/1'/0'"
-        })
-      }),
-      expect.objectContaining({ store })
-    );
-
-    const callConfig = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0]?.config;
-    expect(callConfig).toBeDefined();
-    expect('masterFingerprint' in callConfig).toBe(false);
+    const [payload, options] = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0];
+    expect(payload).toMatchObject({
+      storeId: store.btcpayStoreId,
+      derivationScheme,
+      accountKeyPath: "m/84'/1'/0'",
+      label: null,
+      enabled: true
+    });
+    expect('masterFingerprint' in payload).toBe(false);
+    expect(options).toMatchObject({ store });
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
@@ -231,7 +225,7 @@ describe('On-chain wallet controller (e2e)', () => {
       .expect(204);
 
     const descriptorCall = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0];
-    expect(descriptorCall?.config?.masterFingerprint).toBe('D34DB33F');
+    expect(descriptorCall?.masterFingerprint).toBe('D34DB33F');
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,

@@ -5,10 +5,6 @@ import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
 import { PreviewBodyDto } from './dto/preview-onchain.dto';
 
-interface PreviewOptions {
-  requestId?: string;
-}
-
 const EXTENDED_KEY_REGEX = /^(xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/iu;
 const DEFAULT_ACCOUNT_KEY_PATH = "m/84'/1'/0'";
 
@@ -20,7 +16,7 @@ export class WalletPreviewService {
     private readonly paymentMethods: BtcpayPaymentMethodsService
   ) {}
 
-  async previewOnchainProposedConfig(storeId: string, dto: PreviewBodyDto, _options?: PreviewOptions) {
+  async previewOnchainProposedConfig(storeId: string, dto: PreviewBodyDto) {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const store = await this.lookupStore(normalizedStoreId);
 

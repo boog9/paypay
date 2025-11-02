@@ -284,8 +284,8 @@ export class BtcpayPaymentMethodsService {
     };
 
     try {
-      const { data } = await context.http.post(url, body);
-      const addresses = this.extractPreviewAddresses(data).map((item) => ({ address: item.address }));
+      const response = await context.http.post<unknown>(url, body);
+      const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
       throw this.mapPreviewAddressesError(error);
@@ -314,9 +314,9 @@ export class BtcpayPaymentMethodsService {
     };
 
     try {
-      const { data } = await context.http.post(url, body);
+      const response = await context.http.post<unknown>(url, body);
       return this.normalizePaymentMethodResponse(
-        data,
+        response.data,
         context.store.btcpayStoreId,
         'BTC',
         PM_ONCHAIN
@@ -1271,48 +1271,48 @@ export class BtcpayPaymentMethodsService {
     });
   }
 
-  private mapPreviewAddressesError(error: unknown): never {
+  private mapPreviewAddressesError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
       if (status === 422) {
-        throw new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
+        return new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
           cause: error as Error
         });
       }
       if (status === 401) {
-        throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
       if (status === 403) {
-        throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
       const message = this.extractErrorMessage(error);
-      throw new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+      return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
     }
 
-    throw new BadGatewayException('BTCPay request failed', {
+    return new BadGatewayException('BTCPay request failed', {
       cause: error instanceof Error ? error : undefined
     });
   }
 
-  private mapGenerateWalletError(error: unknown): never {
+  private mapGenerateWalletError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
       if (status === 422) {
-        throw new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
+        return new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
           cause: error as Error
         });
       }
       if (status === 401) {
-        throw new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
       }
       if (status === 403) {
-        throw new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
       const message = this.extractErrorMessage(error);
-      throw new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+      return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
     }
 
-    throw new BadGatewayException('BTCPay request failed', {
+    return new BadGatewayException('BTCPay request failed', {
       cause: error instanceof Error ? error : undefined
     });
   }

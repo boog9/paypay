@@ -64,8 +64,6 @@ export class WalletPreviewController {
       },
       'walletPreview'
     );
-    return this.previewService.previewOnchainProposedConfig(storeId, body, {
-      requestId
-    });
+    return this.previewService.previewOnchainProposedConfig(storeId, body);
   }
 }

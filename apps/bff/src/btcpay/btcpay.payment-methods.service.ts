@@ -107,7 +107,7 @@ export interface UpdateOnchainPaymentMethodPayload {
     derivationScheme: string;
     accountKeyPath?: string | null;
     label?: string | null;
-    masterFingerprint?: string | null;
+    rootFingerprint?: string | null;
   };
 }
 
@@ -285,7 +285,7 @@ export class BtcpayPaymentMethodsService {
     }
 
     if (typeof payload.masterFingerprint === 'string' && payload.masterFingerprint.trim()) {
-      params.masterFingerprint = payload.masterFingerprint.trim();
+      params.masterFingerprint = payload.masterFingerprint.trim().toUpperCase();
     }
 
     if (typeof payload.label === 'string' && payload.label.trim()) {
@@ -318,7 +318,7 @@ export class BtcpayPaymentMethodsService {
     const body = {
       derivationScheme: payload.derivationScheme,
       accountKeyPath: payload.accountKeyPath ?? null,
-      masterFingerprint: payload.masterFingerprint ? payload.masterFingerprint.toUpperCase() : null,
+      rootFingerprint: payload.masterFingerprint ? payload.masterFingerprint.toUpperCase() : null,
       label: payload.label ?? null
     };
 
@@ -607,26 +607,23 @@ export class BtcpayPaymentMethodsService {
       apiKeyOverride: options?.apiKey ?? null
     });
     const paymentMethodId = BTC_CHAIN;
-    const config: UpdateOnchainPaymentMethodPayload['config'] = {
-      derivationScheme: params.derivationScheme
-    };
-
-    if (params.accountKeyPath !== undefined) {
-      config.accountKeyPath = params.accountKeyPath;
-    }
-
-    if (params.label !== undefined) {
-      config.label = params.label;
-    }
-
-    if (params.masterFingerprint !== undefined) {
-      config.masterFingerprint = params.masterFingerprint;
-    }
-
-    const body = this.buildUpdateRequestBody({
+    const body = {
       enabled: params.enabled ?? true,
-      config
-    });
+      config: {
+        derivationScheme: params.derivationScheme,
+        accountKeyPath: params.accountKeyPath ?? null,
+        rootFingerprint: params.masterFingerprint ? params.masterFingerprint.toUpperCase() : null,
+        label: params.label ?? null
+      }
+    } satisfies {
+      enabled: boolean;
+      config: {
+        derivationScheme: string;
+        accountKeyPath: string | null;
+        rootFingerprint: string | null;
+        label: string | null;
+      };
+    };
 
     try {
       await context.http.put(
@@ -737,9 +734,11 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    if (config.masterFingerprint !== undefined) {
-      if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
-        payload.masterFingerprint = config.masterFingerprint.toUpperCase();
+    if (config.rootFingerprint !== undefined) {
+      if (config.rootFingerprint === null) {
+        payload.rootFingerprint = null;
+      } else if (typeof config.rootFingerprint === 'string' && config.rootFingerprint.trim()) {
+        payload.rootFingerprint = config.rootFingerprint.toUpperCase();
       }
     }
 
@@ -957,11 +956,20 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
+    if (!masterFingerprint && typeof record.rootFingerprint === 'string' && record.rootFingerprint.trim()) {
+      masterFingerprint = record.rootFingerprint.trim();
+    }
+
     if (!masterFingerprint && typeof record.masterFingerprint === 'string' && record.masterFingerprint.trim()) {
       masterFingerprint = record.masterFingerprint.trim();
     }
 
-    return { derivationScheme: derivationScheme ?? null, accountKeyPath, masterFingerprint, label: label ?? null };
+    return {
+      derivationScheme: derivationScheme ?? null,
+      accountKeyPath,
+      masterFingerprint: masterFingerprint ? masterFingerprint.toUpperCase() : null,
+      label: label ?? null
+    };
   }
 
   private firstString(values: Maybe<unknown>[]): string | null {
@@ -988,9 +996,9 @@ export class BtcpayPaymentMethodsService {
     }
 
     const fingerprintCandidate = segments[0] ?? '';
-    if (/^[0-9a-fA-F]{8}$/.test(fingerprintCandidate)) {
+    if (/^[0-9a-fA-F]{8}$/u.test(fingerprintCandidate)) {
       return {
-        masterFingerprint: fingerprintCandidate.toLowerCase(),
+        masterFingerprint: fingerprintCandidate.toUpperCase(),
         keyPath: segments.slice(1).join('/') || null
       };
     }
@@ -1289,6 +1297,10 @@ export class BtcpayPaymentMethodsService {
         return new UnauthorizedException(message || 'BTCPay authentication failed', { cause: error as Error });
       }
 
+      if (status === 403) {
+        return new ForbiddenException(message || 'BTCPay returned limited permissions', { cause: error as Error });
+      }
+
       if (status >= 400 && status < 500) {
         const responsePayload = payload ?? message ?? 'BTCPay request failed';
         return new HttpException(responsePayload, status, { cause: error as Error });
@@ -1307,18 +1319,33 @@ export class BtcpayPaymentMethodsService {
   private mapGenerateWalletError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
+      const payload = this.normalizeErrorPayload(this.getResponseData(error));
+      const message = this.extractErrorMessage(error);
+
       if (status === 422) {
-        return new UnprocessableEntityException('Invalid derivation scheme or accountKeyPath', {
+        const responsePayload = payload ?? message ?? 'BTCPay validation failed';
+        return new UnprocessableEntityException(responsePayload, {
           cause: error as Error
         });
       }
+
       if (status === 401) {
-        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+        return new UnauthorizedException(message || 'BTCPay authentication failed', { cause: error as Error });
       }
+
       if (status === 403) {
-        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+        return new ForbiddenException(message || 'BTCPay returned limited permissions', { cause: error as Error });
       }
-      const message = this.extractErrorMessage(error);
+
+      if (status >= 500) {
+        return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+      }
+
+      if (status >= 400 && status < 500) {
+        const responsePayload = payload ?? message ?? 'BTCPay request failed';
+        return new HttpException(responsePayload, status, { cause: error as Error });
+      }
+
       return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
     }
 

@@ -172,7 +172,6 @@ export class BtcpayProvisioningService {
       baseURL,
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
         'User-Agent': 'PayPay-BFF/1.0',
         Authorization: `token ${this.config.adminApiKey}`
       },

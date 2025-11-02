@@ -171,7 +171,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         derivationScheme: SAMPLE_TPUB,
         accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: '10B3BFC0',
+        rootFingerprint: '10B3BFC0',
         label: 'Primary'
       }
     );
@@ -211,11 +211,9 @@ describe('BtcpayPaymentMethodsService', () => {
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe('Invalid derivation scheme or accountKeyPath');
+        expect(responsePayload).toBe('Invalid derivation');
       } else {
-        expect((responsePayload as { message?: string }).message).toBe(
-          'Invalid derivation scheme or accountKeyPath'
-        );
+        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
       }
       return;
     }
@@ -502,7 +500,8 @@ describe('BtcpayPaymentMethodsService', () => {
       config: {
         derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
-        masterFingerprint: 'ABCD1234'
+        rootFingerprint: 'ABCD1234',
+        label: null
       }
     });
   });
@@ -544,7 +543,7 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(result.enabled).toBe(true);
     expect(result.paymentMethodId).toBe('BTC-CHAIN');
     expect(result.config.accountKeyPath).toBe("84'/0'/0'");
-    expect(result.config.masterFingerprint).toBe('abcdef12');
+    expect(result.config.masterFingerprint).toBe('ABCDEF12');
     expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
     expect(putMock).toHaveBeenCalledWith(
       '/api/v1/stores/store-123/payment-methods/BTC-CHAIN',
@@ -643,7 +642,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: 'xpubTemp',
           accountKeyPath: "m/84'/0'/0'",
-          masterFingerprint: 'ABCD1234',
+          rootFingerprint: 'ABCD1234',
           label: 'Temporary import'
         }
       }
@@ -788,7 +787,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: expect.objectContaining({
           derivationScheme: 'xpub123',
           accountKeyPath: "84'/0'/0'",
-          masterFingerprint: 'abcdef12',
+          masterFingerprint: 'ABCDEF12',
           label: null
         })
       })

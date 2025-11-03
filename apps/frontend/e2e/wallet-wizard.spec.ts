@@ -93,14 +93,15 @@ test.describe("Wallet wizard", () => {
 
     await page.route(`**/api/stores/${storeId}/wallets/onchain/preview`, async (route) => {
       expect(route.request().method()).toBe("POST");
+      expect(route.request().headerValue("x-csrf-token")).toBe("test-csrf");
       const payload = parseJsonObject(route.request().postData());
-      const { derivationScheme, accountKeyPath, count } = payload;
+      const { derivationScheme, accountKeyPath } = payload;
+      expect(payload).not.toHaveProperty("cryptoCode");
+      expect(payload).not.toHaveProperty("extendedPublicKey");
       expect(typeof derivationScheme).toBe("string");
       expect(derivationScheme).toBe("wpkh([ABCD1234/84'/1'/0']tpub-example/0/*)");
       expect(typeof accountKeyPath).toBe("string");
       expect(accountKeyPath).toBe("m/84'/1'/0'");
-      expect(typeof count).toBe("number");
-      expect(count).toBe(10);
       await route.fulfill({
         status: 200,
         body: JSON.stringify(previewResponse),

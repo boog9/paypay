@@ -30,6 +30,7 @@ describe('Tenants onboarding (e2e)', () => {
       `btcpay.store.cancreateinvoice:${storeId}`,
       `btcpay.store.canviewinvoices:${storeId}`,
       `btcpay.store.canmodifyinvoices:${storeId}`,
+      `btcpay.store.canmodifystoresettings:${storeId}`,
       `btcpay.store.canviewstoresettings:${storeId}`,
       `btcpay.store.webhooks.canmodifywebhooks:${storeId}`
     ]),
@@ -124,6 +125,7 @@ describe('Tenants onboarding (e2e)', () => {
       'merchant@example.com',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:greenfield-store-id',
+        'btcpay.store.canmodifystoresettings:greenfield-store-id',
         'btcpay.store.canviewstoresettings:greenfield-store-id'
       ]),
       { label: 'PayPay internal greenfield-store-id' }

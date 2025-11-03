@@ -83,7 +83,7 @@ describe('BtcpayWalletService', () => {
     );
 
     expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/payment-methods/onchain/BTC/wallet/transactions',
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/transactions',
       {
         params: { skip: 10, take: 25, labelFilter: 'invoice', order: 'asc' }
       }

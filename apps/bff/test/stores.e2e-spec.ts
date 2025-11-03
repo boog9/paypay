@@ -41,6 +41,7 @@ describe('Stores onboarding (e2e)', () => {
       `btcpay.store.cancreateinvoice:${storeId}`,
       `btcpay.store.canviewinvoices:${storeId}`,
       `btcpay.store.canmodifyinvoices:${storeId}`,
+      `btcpay.store.canmodifystoresettings:${storeId}`,
       `btcpay.store.canviewstoresettings:${storeId}`,
       `btcpay.store.webhooks.canmodifywebhooks:${storeId}`,
     ]),
@@ -160,6 +161,7 @@ describe('Stores onboarding (e2e)', () => {
       'portal-internal-store-1',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:store-1',
+        'btcpay.store.canmodifystoresettings:store-1',
         'btcpay.store.canviewstoresettings:store-1',
       ])
     );

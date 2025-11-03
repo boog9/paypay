@@ -85,12 +85,6 @@ export class PreviewBodyDto {
   @IsString()
   @Transform(({ value }) => coerceTrimmedString(value))
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  extendedPublicKey?: string;
-
-  @IsOptional()
-  @IsString()
-  @Transform(({ value }) => coerceTrimmedString(value))
-  @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   accountKeyPath?: string;
 
   @IsOptional()

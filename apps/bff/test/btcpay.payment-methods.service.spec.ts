@@ -93,7 +93,6 @@ describe('BtcpayPaymentMethodsService', () => {
     const result = await service.previewOnchainAddresses(store, {
       derivationScheme: SAMPLE_TPUB,
       accountKeyPath: "m/84'/1'/0'",
-      masterFingerprint: '10B3BFC0'
     });
 
     expect(result.addresses).toHaveLength(2);
@@ -101,9 +100,10 @@ describe('BtcpayPaymentMethodsService', () => {
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       {
         params: {
+          offset: '0',
+          count: '10',
           derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'",
-          masterFingerprint: '10B3BFC0'
+          accountKeyPath: "m/84'/1'/0'"
         }
       }
     );
@@ -122,39 +122,11 @@ describe('BtcpayPaymentMethodsService', () => {
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       {
         params: {
+          offset: '0',
+          count: '10',
           derivationScheme: SAMPLE_TPUB
         }
       }
-    );
-  });
-
-  it('falls back to legacy preview endpoint when modern path returns paymentmethod-not-configured', async () => {
-    const modernError = {
-      isAxiosError: true,
-      response: { status: 404, data: { code: 'paymentmethod-not-configured' } }
-    } as AxiosError;
-
-    const getMock = jest
-      .fn()
-      .mockRejectedValueOnce(modernError)
-      .mockResolvedValueOnce({ data: { addresses: [{ address: 'tb1qlegacy' }] } });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
-
-    const service = buildService();
-
-    const result = await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
-
-    expect(result.addresses).toEqual([{ address: 'tb1qlegacy' }]);
-    expect(getMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      { params: { derivationScheme: SAMPLE_TPUB } }
-    );
-    expect(getMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/stores/JDm5GuV/payment-methods/onchain/BTC/wallet/preview',
-      { params: { derivationScheme: SAMPLE_TPUB } }
     );
   });
 
@@ -202,7 +174,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         derivationScheme: SAMPLE_TPUB,
         accountKeyPath: "m/84'/1'/0'",
-        rootFingerprint: '10B3BFC0',
+        masterFingerprint: '10B3BFC0',
         label: 'Primary'
       }
     );
@@ -307,6 +279,7 @@ describe('BtcpayPaymentMethodsService', () => {
         accountKeyPath: "1234abcd/84'/1'/0'"
       }
     });
+    expect((options as any).params.masterFingerprint).toBeUndefined();
   });
 
   it('returns disabled presence when on-chain config is missing', async () => {
@@ -456,8 +429,8 @@ describe('BtcpayPaymentMethodsService', () => {
       );
     } catch (error) {
       expect(getMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(HttpException);
-      const httpError = error as HttpException;
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      const httpError = error as UnprocessableEntityException;
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
@@ -501,8 +474,8 @@ describe('BtcpayPaymentMethodsService', () => {
       await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
     } catch (error) {
       expect(getMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(HttpException);
-      const httpError = error as HttpException;
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      const httpError = error as UnprocessableEntityException;
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
@@ -517,7 +490,7 @@ describe('BtcpayPaymentMethodsService', () => {
     throw new Error('Expected UnprocessableEntityException to be thrown');
   });
 
-  it('sends rootFingerprint when updating payment method metadata', async () => {
+  it('sends masterFingerprint when updating payment method metadata', async () => {
     const putMock = jest.fn().mockResolvedValue({ data: {} });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
@@ -541,13 +514,13 @@ describe('BtcpayPaymentMethodsService', () => {
       config: {
         derivationScheme: SAMPLE_XPUB,
         accountKeyPath: "abcd1234/84'/0'/0'",
-        rootFingerprint: 'ABCD1234',
+        masterFingerprint: 'ABCD1234',
         label: null
       }
     });
   });
 
-  it('omits account key path and root fingerprint when descriptor already includes fingerprint', async () => {
+  it('omits account key path and master fingerprint when descriptor already includes fingerprint', async () => {
     const putMock = jest.fn().mockResolvedValue({ data: {} });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
@@ -590,7 +563,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: SAMPLE_XPUB,
           accountKeySettings: [
-            { accountKeyPath: "84'/0'/0'", rootFingerprint: 'abcdef12' }
+            { accountKeyPath: "84'/0'/0'", masterFingerprint: 'abcdef12' }
           ]
         }
       }
@@ -715,7 +688,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: 'xpubTemp',
           accountKeyPath: "m/84'/0'/0'",
-          rootFingerprint: 'ABCD1234',
+          masterFingerprint: 'ABCD1234',
           label: 'Temporary import'
         }
       }
@@ -815,11 +788,9 @@ describe('BtcpayPaymentMethodsService', () => {
     const result = await service.getOnchainWalletSummary(store.btcpayStoreId, store.btcpayHost, { store });
 
     expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
-    expect(getMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      { params: { count: 10 } }
-    );
+    expect(getMock).toHaveBeenNthCalledWith(2, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview', {
+      params: { count: 10 }
+    });
     expect(result).toEqual({
       storeId: store.btcpayStoreId,
       paymentMethodId: 'BTC-CHAIN',

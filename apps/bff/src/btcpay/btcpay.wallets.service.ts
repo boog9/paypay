@@ -14,6 +14,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../security/envelope-encryption.service';
 import { BtcpayService } from './btcpay.service';
+import { normalizePaymentMethodId } from './btcpay.payment-methods.service';
 import { isUuid } from '../shared/is-uuid';
 
 interface WalletRequestOptions {
@@ -423,7 +424,8 @@ export class BtcpayWalletService {
 
   private buildWalletBasePath(storeId: string, cryptoCode: string): string {
     const normalizedCode = this.normalizeCryptoCode(cryptoCode);
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/onchain/${encodeURIComponent(normalizedCode)}/wallet`;
+    const paymentMethodId = normalizePaymentMethodId(normalizedCode, 'chain');
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet`;
   }
 
   private buildTransactionsPath(storeId: string, cryptoCode: string): string {

@@ -61,6 +61,7 @@ describe('OnchainWalletsService', () => {
     service = moduleRef.get(OnchainWalletsService);
     repository = moduleRef.get(getRepositoryToken(OnchainWalletEntity));
     paymentMethods = jest.mocked(moduleRef.get(BtcpayPaymentMethodsService));
+    repository.findOne.mockResolvedValue(null);
     paymentMethods.getOnchain.mockResolvedValue({
       storeId: store.btcpayStoreId,
       paymentMethodId: 'BTC-CHAIN',

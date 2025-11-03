@@ -26,19 +26,27 @@ export class WalletPreviewService {
 
     if (this.isDescriptor(derivationInput)) {
       const descriptor = this.sanitizeDescriptor(derivationInput);
-      return this.paymentMethods.previewOnchainAddresses(store, {
-        derivationScheme: descriptor
-      });
+      return this.paymentMethods.previewOnchainAddresses(
+        normalizedStoreId,
+        {
+          derivationScheme: descriptor
+        },
+        { store }
+      );
     }
 
     if (this.isExtendedPublicKey(derivationInput)) {
       const extendedKey = this.sanitizeExtendedKey(derivationInput);
       const accountKeyPath = this.normalizeAccountKeyPath(dto.accountKeyPath) ?? DEFAULT_ACCOUNT_KEY_PATH;
       this.assertValidAccountKeyPath(extendedKey, accountKeyPath);
-      return this.paymentMethods.previewOnchainAddresses(store, {
-        derivationScheme: extendedKey,
-        accountKeyPath
-      });
+      return this.paymentMethods.previewOnchainAddresses(
+        normalizedStoreId,
+        {
+          derivationScheme: extendedKey,
+          accountKeyPath
+        },
+        { store }
+      );
     }
 
     throw new UnprocessableEntityException({

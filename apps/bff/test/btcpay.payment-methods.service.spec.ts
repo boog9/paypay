@@ -1,7 +1,7 @@
-import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import { BadGatewayException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
-import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
+import { BtcpayPaymentMethodsService, DEFAULT_PREVIEW_ADDRESS_COUNT } from '../src/btcpay/btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
@@ -90,10 +90,14 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    const result = await service.previewOnchainAddresses(store, {
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "m/84'/1'/0'",
-    });
+    const result = await service.previewOnchainAddresses(
+      store.btcpayStoreId,
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      { store }
+    );
 
     expect(result.addresses).toHaveLength(2);
     expect(getMock).toHaveBeenCalledWith(
@@ -101,7 +105,7 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         params: {
           offset: '0',
-          count: '10',
+          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
           derivationScheme: SAMPLE_TPUB,
           accountKeyPath: "m/84'/1'/0'"
         }
@@ -116,18 +120,47 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+    await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
 
     expect(getMock).toHaveBeenCalledWith(
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
       {
         params: {
           offset: '0',
-          count: '10',
+          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
           derivationScheme: SAMPLE_TPUB
         }
       }
     );
+  });
+
+  it('maps missing wallet preview endpoint to BadGatewayException', async () => {
+    const response404 = {
+      status: 404,
+      statusText: 'Not Found',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: 'Not Found'
+    } as any;
+    const axiosError = new AxiosError(
+      'Not Found',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response404
+    );
+    axiosError.response = response404;
+    axiosError.isAxiosError = true;
+
+    const getMock = jest.fn().mockRejectedValue(axiosError);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store })
+    ).rejects.toBeInstanceOf(BadGatewayException);
   });
 
   it('generates on-chain wallet metadata via wallet generate endpoint', async () => {
@@ -474,10 +507,10 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    expect.assertions(5);
+    expect.assertions(6);
 
     try {
-      await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+      await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
     } catch (error) {
       expect(getMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
@@ -493,6 +526,16 @@ describe('BtcpayPaymentMethodsService', () => {
         expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
       }
       expect(httpError.cause).toBe(axiosError);
+      expect(getMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+        {
+          params: {
+            offset: '0',
+            count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
+            derivationScheme: SAMPLE_TPUB
+          }
+        }
+      );
       return;
     }
 

@@ -46,10 +46,14 @@ describe('WalletPreviewService', () => {
     expect(storesRepository.findOne).toHaveBeenCalledWith({
       where: [{ btcpayStoreId: 'btcpay-store-id' }]
     });
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
-      derivationScheme: extendedKey,
-      accountKeyPath: "m/84'/1'/0'"
-    });
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
+      'btcpay-store-id',
+      {
+        derivationScheme: extendedKey,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      { store }
+    );
   });
 
   it('uses provided descriptor without forwarding account key path', async () => {
@@ -61,7 +65,11 @@ describe('WalletPreviewService', () => {
       masterFingerprint: 'deadbeef'
     });
 
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, { derivationScheme: descriptor });
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
+      'store-entity-id',
+      { derivationScheme: descriptor },
+      { store }
+    );
   });
 
   it('rejects unmanaged stores', async () => {
@@ -77,8 +85,12 @@ describe('WalletPreviewService', () => {
       derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
     });
 
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
-      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
-    });
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
+      'store-entity-id',
+      {
+        derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
+      },
+      { store }
+    );
   });
 });

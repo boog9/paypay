@@ -285,11 +285,15 @@ export class BtcpayPaymentMethodsService {
       apiKeyOverride: options?.apiKey ?? null
     });
     const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, BTC_CHAIN_PMID);
-    const payload = {
+    const accountKeyPath =
+      typeof input.accountKeyPath === 'string' && input.accountKeyPath.trim()
+        ? input.accountKeyPath.trim()
+        : undefined;
+    const params = {
+      offset: '0',
+      count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
       derivationScheme: input.derivationScheme,
-      accountKeyPath: input.accountKeyPath ?? null,
-      from: 0,
-      count: DEFAULT_PREVIEW_ADDRESS_COUNT
+      ...(accountKeyPath ? { accountKeyPath } : {})
     };
     const derivationLog = this.describeDerivationForLog(input.derivationScheme);
 
@@ -301,44 +305,16 @@ export class BtcpayPaymentMethodsService {
           paymentMethodId: BTC_CHAIN_PMID,
           derivationType: derivationLog.type,
           derivationPrefix: derivationLog.prefix,
-          mode: 'GET'
+          mode: 'GET',
+          query: {
+            offset: params.offset,
+            count: params.count,
+            hasAccountKeyPath: Boolean(accountKeyPath)
+          }
         },
         'btcpayPreview'
       );
-
-      let response: { data: unknown };
-
-      try {
-        response = await context.http.request<unknown>({
-          method: 'GET',
-          url,
-          data: payload,
-          headers: { Authorization: `token ${context.apiKey}` }
-        });
-      } catch (error) {
-        if (this.shouldRetryPreviewWithPost(error)) {
-          this.logger.warn(
-            {
-              action: 'wallet.preview.retry',
-              storeId: context.store.btcpayStoreId,
-              paymentMethodId: BTC_CHAIN_PMID,
-              derivationType: derivationLog.type,
-              derivationPrefix: derivationLog.prefix,
-              mode: 'POST'
-            },
-            'btcpayPreview'
-          );
-          response = await context.http.request<unknown>({
-            method: 'POST',
-            url,
-            data: payload,
-            headers: { Authorization: `token ${context.apiKey}` }
-          });
-        } else {
-          throw error;
-        }
-      }
-
+      const response = await context.http.get<unknown>(url, { params });
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
@@ -1412,14 +1388,6 @@ export class BtcpayPaymentMethodsService {
     return new BadGatewayException('BTCPay preview failed', {
       cause: error instanceof Error ? error : undefined
     });
-  }
-
-  private shouldRetryPreviewWithPost(error: unknown): boolean {
-    if (!axios.isAxiosError<unknown>(error)) {
-      return false;
-    }
-    const status = error.response?.status ?? 0;
-    return status === 405 || status === 415;
   }
 
   private mapPreviewAddressesError(error: unknown): Error {

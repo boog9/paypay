@@ -279,12 +279,15 @@ export class BtcpayPaymentMethodsService {
     },
     options?: PreviewOnchainAddressesOptions
   ): Promise<{ addresses: Array<{ address: string }> }> {
-    const context = await this.prepareStoreContext(storeId, {
-      store: options?.store,
+    const preferredStore = options?.store;
+    const context = await this.prepareStoreContext(preferredStore?.id ?? storeId, {
+      store: preferredStore,
       host: options?.host ?? null,
       apiKeyOverride: options?.apiKey ?? null
     });
     const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, BTC_CHAIN_PMID);
+    const target = this.combineTarget(context.baseUrl, url);
+    const keyLast4 = context.apiKey && context.apiKey.length >= 4 ? context.apiKey.slice(-4) : null;
     const accountKeyPath =
       typeof input.accountKeyPath === 'string' && input.accountKeyPath.trim()
         ? input.accountKeyPath.trim()
@@ -296,28 +299,53 @@ export class BtcpayPaymentMethodsService {
       ...(accountKeyPath ? { accountKeyPath } : {})
     };
     const derivationLog = this.describeDerivationForLog(input.derivationScheme);
+    const baseLog = {
+      action: 'wallet.preview.request',
+      storeId: context.store.id,
+      btcpayStoreId: context.store.btcpayStoreId,
+      paymentMethodId: BTC_CHAIN_PMID,
+      derivationType: derivationLog.type,
+      derivationPrefix: derivationLog.prefix,
+      baseUrl: context.baseUrl,
+      url,
+      target,
+      keyLast4,
+      mode: 'GET',
+      query: {
+        offset: params.offset,
+        count: params.count,
+        hasAccountKeyPath: Boolean(accountKeyPath)
+      }
+    };
 
     try {
-      this.logger.debug(
-        {
-          action: 'wallet.preview.request',
-          storeId: context.store.btcpayStoreId,
-          paymentMethodId: BTC_CHAIN_PMID,
-          derivationType: derivationLog.type,
-          derivationPrefix: derivationLog.prefix,
-          mode: 'GET',
-          query: {
-            offset: params.offset,
-            count: params.count,
-            hasAccountKeyPath: Boolean(accountKeyPath)
-          }
-        },
-        'btcpayPreview'
-      );
       const response = await context.http.get<unknown>(url, { params });
+      this.logger.debug({ ...baseLog, status: response.status ?? 0, payload: null }, 'btcpayPreview');
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
+      let status = 0;
+      let payload: ReturnType<typeof this.normalizeErrorPayload> = null;
+      if (axios.isAxiosError(error)) {
+        status = error.response?.status ?? 0;
+        payload = this.normalizeErrorPayload(this.getResponseData(error));
+        this.logger.debug({ ...baseLog, status, payload: payload ?? null }, 'btcpayPreview');
+        this.logger.warn(
+          {
+            ...baseLog,
+            action: 'wallet.preview.error',
+            status,
+            body: payload ?? null
+          },
+          'btcpayPreview'
+        );
+      } else {
+        this.logger.debug({ ...baseLog, status, payload: null }, 'btcpayPreview');
+        this.logger.warn(
+          { ...baseLog, action: 'wallet.preview.error', status: 0, body: null },
+          'btcpayPreview'
+        );
+      }
       throw this.mapPreviewAddressesError(error);
     } finally {
       context.cleanup();
@@ -1254,6 +1282,16 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
+  private combineTarget(baseUrl: string, path: string): string {
+    try {
+      return new URL(path, baseUrl).toString();
+    } catch {
+      const normalizedBase = typeof baseUrl === 'string' ? baseUrl.replace(/\/$/, '') : '';
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+      return `${normalizedBase}${normalizedPath}`;
+    }
+  }
+
   private descriptorContainsFingerprint(derivationScheme: string): boolean {
     if (typeof derivationScheme !== 'string') {
       return false;
@@ -1397,9 +1435,7 @@ export class BtcpayPaymentMethodsService {
       const message = this.extractErrorMessage(error);
 
       if (status === 401 || status === 403) {
-        return new ForbiddenException(message || 'BTCPay returned limited permissions', {
-          cause: error as Error
-        });
+        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
 
       if (status === 400 || status === 422) {
@@ -1408,10 +1444,9 @@ export class BtcpayPaymentMethodsService {
       }
 
       if (status === 404) {
-        return new BadGatewayException(
-          'BTCPay endpoint not found: /payment-methods/BTC-CHAIN/wallet/preview; check server >= v2.0',
-          { cause: error as Error }
-        );
+        return new ForbiddenException('API key is not scoped to this store or storeId is wrong', {
+          cause: error as Error
+        });
       }
 
       if (status >= 400 && status < 500) {
@@ -1420,7 +1455,7 @@ export class BtcpayPaymentMethodsService {
       }
 
       if (status >= 500) {
-        return new BadGatewayException(message || 'BTCPay request failed', { cause: error as Error });
+        return new BadGatewayException('BTCPay request failed', { cause: error as Error });
       }
     }
 

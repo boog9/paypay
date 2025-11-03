@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
@@ -75,17 +76,26 @@ function coerceTrimmedString(value: unknown): string | undefined {
 }
 
 export class PreviewBodyDto {
-  @IsOptional()
   @IsString()
-  @Transform(({ value }) => coerceTrimmedString(value))
+  @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  derivationScheme?: string;
+  derivationScheme!: string;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => coerceTrimmedString(value))
+  @Transform(({ value }) => {
+    if (value === null) {
+      return null;
+    }
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  accountKeyPath?: string;
+  accountKeyPath?: string | null;
 
   @IsOptional()
   @IsString()

@@ -1,4 +1,4 @@
-import { BadGatewayException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService, DEFAULT_PREVIEW_ADDRESS_COUNT } from '../src/btcpay/btcpay.payment-methods.service';

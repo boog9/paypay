@@ -47,7 +47,7 @@ describe('WalletPreviewService', () => {
       where: [{ btcpayStoreId: 'btcpay-store-id' }]
     });
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
-      'btcpay-store-id',
+      'store-entity-id',
       {
         derivationScheme: extendedKey,
         accountKeyPath: "m/84'/1'/0'"

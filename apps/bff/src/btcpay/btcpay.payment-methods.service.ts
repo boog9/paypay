@@ -25,7 +25,8 @@ const INVALID_DERIVATION_MESSAGE =
 
 export const DEFAULT_PREVIEW_ADDRESS_COUNT = 10;
 
-const PM_ONCHAIN = 'BTC-CHAIN';
+const BTC_CHAIN_PMID = 'BTC-CHAIN';
+const PM_ONCHAIN = BTC_CHAIN_PMID;
 
 export const BTC_CHAIN = PM_ONCHAIN;
 
@@ -166,6 +167,12 @@ interface PaymentMethodRequestOptions {
   host?: string | null;
 }
 
+interface PreviewOnchainAddressesOptions {
+  host?: string;
+  apiKey?: string;
+  store?: ManagedStoreEntity;
+}
+
 export interface UpdateOnchainPaymentMethodRequest {
   storeId: string;
   derivationScheme: string;
@@ -265,26 +272,73 @@ export class BtcpayPaymentMethodsService {
   }
 
   async previewOnchainAddresses(
-    store: ManagedStoreEntity,
-    payload: {
+    storeId: string,
+    input: {
       derivationScheme: string;
       accountKeyPath?: string | null;
-    }
+    },
+    options?: PreviewOnchainAddressesOptions
   ): Promise<{ addresses: Array<{ address: string }> }> {
-    const context = await this.prepareStoreContext(store.id, { store });
-    const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, PM_ONCHAIN);
-    const params = this.buildPreviewRequestParams(
-      undefined,
-      this.normalizePreviewConfig({
-        derivationScheme: payload.derivationScheme,
-        accountKeyPath: payload.accountKeyPath ?? undefined
-      })
-    );
+    const context = await this.prepareStoreContext(storeId, {
+      store: options?.store,
+      host: options?.host ?? null,
+      apiKeyOverride: options?.apiKey ?? null
+    });
+    const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, BTC_CHAIN_PMID);
+    const payload = {
+      derivationScheme: input.derivationScheme,
+      accountKeyPath: input.accountKeyPath ?? null,
+      from: 0,
+      count: DEFAULT_PREVIEW_ADDRESS_COUNT
+    };
+    const derivationLog = this.describeDerivationForLog(input.derivationScheme);
 
     try {
-      const response = await context.http.get<unknown>(url, {
-        params: Object.keys(params).length > 0 ? params : undefined
-      });
+      this.logger.debug(
+        {
+          action: 'wallet.preview.request',
+          storeId: context.store.btcpayStoreId,
+          paymentMethodId: BTC_CHAIN_PMID,
+          derivationType: derivationLog.type,
+          derivationPrefix: derivationLog.prefix,
+          mode: 'GET'
+        },
+        'btcpayPreview'
+      );
+
+      let response: { data: unknown };
+
+      try {
+        response = await context.http.request<unknown>({
+          method: 'GET',
+          url,
+          data: payload,
+          headers: { Authorization: `token ${context.apiKey}` }
+        });
+      } catch (error) {
+        if (this.shouldRetryPreviewWithPost(error)) {
+          this.logger.warn(
+            {
+              action: 'wallet.preview.retry',
+              storeId: context.store.btcpayStoreId,
+              paymentMethodId: BTC_CHAIN_PMID,
+              derivationType: derivationLog.type,
+              derivationPrefix: derivationLog.prefix,
+              mode: 'POST'
+            },
+            'btcpayPreview'
+          );
+          response = await context.http.request<unknown>({
+            method: 'POST',
+            url,
+            data: payload,
+            headers: { Authorization: `token ${context.apiKey}` }
+          });
+        } else {
+          throw error;
+        }
+      }
+
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
@@ -907,6 +961,31 @@ export class BtcpayPaymentMethodsService {
     return trimmed ? { address: trimmed } : null;
   }
 
+  private describeDerivationForLog(value: string): { type: string; prefix: string } {
+    if (typeof value !== 'string') {
+      return { type: 'unknown', prefix: '' };
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return { type: 'unknown', prefix: '' };
+    }
+
+    const normalized = trimmed.replace(/\s+/gu, '');
+    const prefix = normalized.slice(0, 8);
+    const extendedMatch = normalized.match(/^(xpub|ypub|zpub|tpub|upub|vpub)/iu);
+
+    if (extendedMatch) {
+      return { type: extendedMatch[1].toLowerCase(), prefix };
+    }
+
+    if (/^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(/iu.test(normalized)) {
+      return { type: 'descriptor', prefix };
+    }
+
+    return { type: 'unknown', prefix };
+  }
+
   private extractCurrencyMetadata(source: unknown, fallback: string): string {
     let currency = fallback;
 
@@ -1335,23 +1414,36 @@ export class BtcpayPaymentMethodsService {
     });
   }
 
+  private shouldRetryPreviewWithPost(error: unknown): boolean {
+    if (!axios.isAxiosError<unknown>(error)) {
+      return false;
+    }
+    const status = error.response?.status ?? 0;
+    return status === 405 || status === 415;
+  }
+
   private mapPreviewAddressesError(error: unknown): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
       const payload = this.normalizeErrorPayload(this.getResponseData(error));
       const message = this.extractErrorMessage(error);
 
-      if (status === 401) {
-        return new UnauthorizedException(message || 'BTCPay authentication failed', { cause: error as Error });
-      }
-
-      if (status === 403) {
-        return new ForbiddenException(message || 'BTCPay returned limited permissions', { cause: error as Error });
+      if (status === 401 || status === 403) {
+        return new ForbiddenException(message || 'BTCPay returned limited permissions', {
+          cause: error as Error
+        });
       }
 
       if (status === 400 || status === 422) {
         const responsePayload = payload ?? message ?? 'BTCPay request failed';
         return new UnprocessableEntityException(responsePayload, { cause: error as Error });
+      }
+
+      if (status === 404) {
+        return new BadGatewayException(
+          'BTCPay endpoint not found: /payment-methods/BTC-CHAIN/wallet/preview; check server >= v2.0',
+          { cause: error as Error }
+        );
       }
 
       if (status >= 400 && status < 500) {

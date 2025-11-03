@@ -121,8 +121,11 @@ describe('Wallet preview controller (e2e)', () => {
     expect(response.body).toEqual(previewResponse);
     expect(previewOnchainAddresses).toHaveBeenCalledTimes(1);
     expect(previewOnchainAddresses).toHaveBeenCalledWith(
-      expect.objectContaining({ btcpayStoreId: storeId }),
-      { derivationScheme: descriptor }
+      storeId,
+      { derivationScheme: descriptor },
+      expect.objectContaining({
+        store: expect.objectContaining({ btcpayStoreId: storeId })
+      })
     );
   });
 
@@ -138,11 +141,14 @@ describe('Wallet preview controller (e2e)', () => {
       .expect(200);
 
     expect(previewOnchainAddresses).toHaveBeenCalledWith(
-      expect.objectContaining({ btcpayStoreId: storeId }),
+      storeId,
       {
         derivationScheme: extendedKey,
         accountKeyPath: "m/84'/1'/0'"
-      }
+      },
+      expect.objectContaining({
+        store: expect.objectContaining({ btcpayStoreId: storeId })
+      })
     );
   });
 

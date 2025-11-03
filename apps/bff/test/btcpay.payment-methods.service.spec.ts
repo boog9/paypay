@@ -1,7 +1,7 @@
-import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import { BadGatewayException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
-import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
+import { BtcpayPaymentMethodsService, DEFAULT_PREVIEW_ADDRESS_COUNT } from '../src/btcpay/btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
@@ -77,7 +77,7 @@ describe('BtcpayPaymentMethodsService', () => {
   }
 
   it('previews proposed on-chain addresses via wallet preview endpoint', async () => {
-    const getMock = jest.fn().mockResolvedValue({
+    const requestMock = jest.fn().mockResolvedValue({
       data: {
         addresses: [
           { address: 'tb1qexample0', keyPath: '0/0', index: 0 },
@@ -86,48 +86,136 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ request: requestMock }));
 
     const service = buildService();
 
-    const result = await service.previewOnchainAddresses(store, {
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "m/84'/1'/0'",
-    });
+    const result = await service.previewOnchainAddresses(
+      store.btcpayStoreId,
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      { store }
+    );
 
     expect(result.addresses).toHaveLength(2);
-    expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      {
-        params: {
-          offset: '0',
-          count: '10',
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'"
-        }
-      }
-    );
+    expect(requestMock).toHaveBeenCalledWith({
+      method: 'GET',
+      url: '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      data: {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'",
+        from: 0,
+        count: DEFAULT_PREVIEW_ADDRESS_COUNT
+      },
+      headers: { Authorization: 'token store-api-key' }
+    });
   });
 
   it('omits optional fields when previewing without additional metadata', async () => {
-    const getMock = jest.fn().mockResolvedValue({ data: { addresses: [] } });
+    const requestMock = jest.fn().mockResolvedValue({ data: { addresses: [] } });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ request: requestMock }));
 
     const service = buildService();
 
-    await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+    await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
 
-    expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      {
-        params: {
-          offset: '0',
-          count: '10',
-          derivationScheme: SAMPLE_TPUB
-        }
-      }
+    expect(requestMock).toHaveBeenCalledWith({
+      method: 'GET',
+      url: '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      data: {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null,
+        from: 0,
+        count: DEFAULT_PREVIEW_ADDRESS_COUNT
+      },
+      headers: { Authorization: 'token store-api-key' }
+    });
+  });
+
+  it('retries wallet preview with POST when GET payload is rejected', async () => {
+    const response405 = {
+      status: 405,
+      statusText: 'Method Not Allowed',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: { message: 'Method not allowed' }
+    } as any;
+    const axiosError = new AxiosError(
+      'Method not allowed',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response405
     );
+    axiosError.response = response405;
+    axiosError.isAxiosError = true;
+
+    const requestMock = jest
+      .fn()
+      .mockRejectedValueOnce(axiosError)
+      .mockResolvedValueOnce({ data: { addresses: [] } });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ request: requestMock }));
+
+    const service = buildService();
+
+    await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
+
+    expect(requestMock).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      url: '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      data: {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null,
+        from: 0,
+        count: DEFAULT_PREVIEW_ADDRESS_COUNT
+      },
+      headers: { Authorization: 'token store-api-key' }
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(2, {
+      method: 'POST',
+      url: '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      data: {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null,
+        from: 0,
+        count: DEFAULT_PREVIEW_ADDRESS_COUNT
+      },
+      headers: { Authorization: 'token store-api-key' }
+    });
+  });
+
+  it('maps missing wallet preview endpoint to BadGatewayException', async () => {
+    const response404 = {
+      status: 404,
+      statusText: 'Not Found',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: 'Not Found'
+    } as any;
+    const axiosError = new AxiosError(
+      'Not Found',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response404
+    );
+    axiosError.response = response404;
+    axiosError.isAxiosError = true;
+
+    const requestMock = jest.fn().mockRejectedValue(axiosError);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ request: requestMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store })
+    ).rejects.toBeInstanceOf(BadGatewayException);
   });
 
   it('generates on-chain wallet metadata via wallet generate endpoint', async () => {
@@ -469,17 +557,17 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response;
     axiosError.isAxiosError = true;
 
-    const getMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    const requestMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ request: requestMock }));
 
     const service = buildService();
 
-    expect.assertions(5);
+    expect.assertions(6);
 
     try {
-      await service.previewOnchainAddresses(store, { derivationScheme: SAMPLE_TPUB });
+      await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
     } catch (error) {
-      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(requestMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
       if (!(error instanceof UnprocessableEntityException)) {
         throw error;
@@ -493,6 +581,17 @@ describe('BtcpayPaymentMethodsService', () => {
         expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
       }
       expect(httpError.cause).toBe(axiosError);
+      expect(requestMock).toHaveBeenCalledWith({
+        method: 'GET',
+        url: '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+        data: {
+          derivationScheme: SAMPLE_TPUB,
+          accountKeyPath: null,
+          from: 0,
+          count: DEFAULT_PREVIEW_ADDRESS_COUNT
+        },
+        headers: { Authorization: 'token store-api-key' }
+      });
       return;
     }
 

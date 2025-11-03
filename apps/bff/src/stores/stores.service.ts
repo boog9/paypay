@@ -108,12 +108,9 @@ export class StoresService {
 
       await this.btcpayService.setCoinGeckoAsDefaultRateSource(baseUrl, bootstrapKey, createdStore.id);
 
-      const storeScopedKey = await this.btcpayService.issueStoreScopedApiKey(
-        subject,
-        createdStore.id,
-        `portal-internal-${createdStore.id}`,
-        this.btcpayService.buildStorePermissions(createdStore.id),
-      );
+      const storeScopedKey = await this.btcpayService.issueStoreScopedApiKey(subject, createdStore.id, {
+        labelPrefix: 'portal-internal',
+      });
 
       issuedStoreKey = storeScopedKey.apiKey;
 

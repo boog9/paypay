@@ -158,12 +158,7 @@ describe('Stores onboarding (e2e)', () => {
     expect(btcpayMock.issueStoreScopedApiKey).toHaveBeenCalledWith(
       'user-btcpay-id',
       'store-1',
-      'portal-internal-store-1',
-      expect.arrayContaining([
-        'btcpay.store.cancreateinvoice:store-1',
-        'btcpay.store.canmodifystoresettings:store-1',
-        'btcpay.store.canviewstoresettings:store-1',
-      ])
+      { labelPrefix: 'portal-internal' }
     );
     expect(btcpayMock.registerWebhook).toHaveBeenCalledWith(
       'https://btcpay.example',

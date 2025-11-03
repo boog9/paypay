@@ -114,7 +114,8 @@ describe('BtcpayPaymentMethodsService', () => {
           offset: '0',
           count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
           derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'"
+          accountKeyPath: "m/84'/1'/0'",
+          hasAccountKeyPath: 'true'
         }
       }
     );
@@ -135,7 +136,8 @@ describe('BtcpayPaymentMethodsService', () => {
         params: {
           offset: '0',
           count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
-          derivationScheme: SAMPLE_TPUB
+          derivationScheme: SAMPLE_TPUB,
+          hasAccountKeyPath: 'false'
         }
       }
     );
@@ -379,7 +381,8 @@ describe('BtcpayPaymentMethodsService', () => {
         offset: '0',
         count: '10',
         derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "1234abcd/84'/1'/0'"
+        accountKeyPath: "1234abcd/84'/1'/0'",
+        hasAccountKeyPath: 'true'
       }
     });
     expect(options.params.masterFingerprint).toBeUndefined();
@@ -455,7 +458,8 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10'
+        count: '10',
+        hasAccountKeyPath: 'false'
       }
     });
   });
@@ -492,7 +496,8 @@ describe('BtcpayPaymentMethodsService', () => {
         offset: '0',
         count: '10',
         derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "1234abcd/84'/1'/0'"
+        accountKeyPath: "1234abcd/84'/1'/0'",
+        hasAccountKeyPath: 'true'
       }
     });
   });
@@ -544,7 +549,7 @@ describe('BtcpayPaymentMethodsService', () => {
       } else {
         expect((responsePayload as { message?: string }).message).toBe(payload);
       }
-      expect(httpError.cause).toBe(axiosError);
+      expect(httpError.cause).toBeUndefined();
       return;
     }
 
@@ -599,7 +604,8 @@ describe('BtcpayPaymentMethodsService', () => {
           params: {
             offset: '0',
             count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
-            derivationScheme: SAMPLE_TPUB
+            derivationScheme: SAMPLE_TPUB,
+            hasAccountKeyPath: 'false'
           }
         }
       );
@@ -908,7 +914,7 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
     expect(getMock).toHaveBeenNthCalledWith(2, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview', {
-      params: { count: 10 }
+      params: { count: '10', hasAccountKeyPath: 'false', offset: '0' }
     });
     expect(result).toEqual({
       storeId: store.btcpayStoreId,

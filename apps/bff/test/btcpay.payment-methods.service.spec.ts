@@ -231,7 +231,7 @@ describe('BtcpayPaymentMethodsService', () => {
       service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store })
     ).rejects.toMatchObject({
       status: 422,
-      message: 'Payment method is not configured yet'
+      message: 'Payment method is not configured yet.'
     });
   });
 
@@ -268,6 +268,46 @@ describe('BtcpayPaymentMethodsService', () => {
     await expect(previewPromise).rejects.toBeInstanceOf(UnprocessableEntityException);
     await previewPromise.catch((error) => {
       expect(error.message).toContain('Descriptor is invalid');
+      const payload = error.getResponse();
+      expect(payload).toEqual({ message: 'Descriptor is invalid' });
+    });
+  });
+
+  it('returns raw string payloads from BTCPay validation errors', async () => {
+    const response422 = {
+      status: 422,
+      statusText: 'Unprocessable',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: 'Invalid derivation scheme'
+    } as any;
+    const axiosError = new AxiosError(
+      'Unprocessable',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response422
+    );
+    axiosError.response = response422;
+    axiosError.isAxiosError = true;
+
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    const previewPromise = service.previewOnchainAddresses(
+      store.id,
+      { derivationScheme: SAMPLE_XPUB },
+      { store }
+    );
+
+    await expect(previewPromise).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await previewPromise.catch((error) => {
+      if (error instanceof UnprocessableEntityException) {
+        expect(error.getResponse()).toBe('Invalid derivation scheme');
+      }
     });
   });
 

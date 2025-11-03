@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  ValidateIf,
   registerDecorator,
   ValidationOptions,
   ValidatorConstraint,
@@ -83,6 +84,7 @@ export class PreviewBodyDto {
   derivationScheme!: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsString()
   @Transform(({ value }) => {
     if (value === null) {

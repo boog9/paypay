@@ -337,7 +337,30 @@ export default function WalletWizardPage({ params }: WizardProps) {
       setStep("confirm");
     } catch (error: unknown) {
       if (isApiError(error)) {
-        if (error.status === 422 || error.status === 400) {
+        if (error.status === 422) {
+          const payload =
+            (error as ApiError & { response?: { data?: unknown } }).response?.data ?? error.body;
+          let message: string | null = null;
+          if (typeof payload === "string") {
+            const sanitized = sanitizePreviewMessage(payload);
+            if (!containsExtendedKeySnippet(sanitized)) {
+              message = sanitized.length > 0 ? sanitized : null;
+            }
+          } else if (payload && typeof payload === "object" && typeof (payload as { message?: unknown }).message === "string") {
+            const sanitized = sanitizePreviewMessage((payload as { message: string }).message);
+            if (!containsExtendedKeySnippet(sanitized)) {
+              message = sanitized.length > 0 ? sanitized : null;
+            }
+          }
+
+          setFormErrors({
+            derivationScheme: message ?? "Unknown validation error.",
+            accountKeyPath: undefined,
+          });
+          setFormError(null);
+          return;
+        }
+        if (error.status === 400) {
           const message = normalizePreviewErrorMessage(error);
           setFormErrors({
             derivationScheme: message,
@@ -539,7 +562,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
                 </p>
                 {showTestnetAccountHint && !formErrors.accountKeyPath && (
                   <p className="text-xs text-sky-600">
-                    For testnet BIP84 you usually want m/84&apos;/1&apos;/0&apos;. Alternatively, paste a descriptor like
+                    Typical path for testnet BIP84: <code>m/84&apos;/1&apos;/0&apos;</code>. Alternatively, paste a descriptor like
                     wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub.../0/*).
                   </p>
                 )}

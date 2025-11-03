@@ -1,4 +1,4 @@
-import { HttpException, INestApplication, ValidationPipe } from '@nestjs/common';
+import { HttpException, INestApplication, UnprocessableEntityException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -129,7 +129,7 @@ describe('Wallet preview controller (e2e)', () => {
     );
   });
 
-  it('sends extended public keys with default account key path', async () => {
+  it('converts extended public keys into descriptors for preview', async () => {
     const csrfToken = await fetchCsrf();
     const storeId = 'store-extended';
     const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
@@ -143,8 +143,8 @@ describe('Wallet preview controller (e2e)', () => {
     expect(previewOnchainAddresses).toHaveBeenCalledWith(
       storeId,
       {
-        derivationScheme: extendedKey,
-        accountKeyPath: "m/84'/1'/0'"
+        derivationScheme: `wpkh(${extendedKey}/0/*)`,
+        accountKeyPath: null
       },
       expect.objectContaining({
         store: expect.objectContaining({ btcpayStoreId: storeId })
@@ -181,5 +181,39 @@ describe('Wallet preview controller (e2e)', () => {
       .expect(502);
 
     expect(response.body).toMatchObject({ message: 'Upstream error' });
+  });
+
+  it('exposes BTCPay validation messages for 422 responses', async () => {
+    const csrfToken = await fetchCsrf();
+    const storeId = 'store-extended';
+    previewOnchainAddresses.mockImplementationOnce(() => {
+      const error = new HttpException('Descriptor invalid', 422);
+      (error as any).response = 'Descriptor invalid';
+      throw error;
+    });
+
+    const response = await agent
+      .post(`/api/stores/${storeId}/wallets/onchain/preview`)
+      .set('x-csrf-token', csrfToken)
+      .send({ derivationScheme: 'tpubExample' })
+      .expect(422);
+
+    expect(response.text).toBe('Descriptor invalid');
+  });
+
+  it('returns a friendly message when payment method is not configured', async () => {
+    const csrfToken = await fetchCsrf();
+    const storeId = 'store-extended';
+    previewOnchainAddresses.mockImplementationOnce(() => {
+      throw new UnprocessableEntityException('Payment method is not configured yet.');
+    });
+
+    const response = await agent
+      .post(`/api/stores/${storeId}/wallets/onchain/preview`)
+      .set('x-csrf-token', csrfToken)
+      .send({ derivationScheme: 'tpubExample' })
+      .expect(422);
+
+    expect(response.body).toMatchObject({ message: 'Payment method is not configured yet.' });
   });
 });

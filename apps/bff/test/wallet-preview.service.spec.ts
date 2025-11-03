@@ -38,7 +38,7 @@ describe('WalletPreviewService', () => {
     service = new WalletPreviewService(storesRepository as any, paymentMethods as any);
   });
 
-  it('passes extended public keys with the default account path', async () => {
+  it('transforms extended public keys into BIP84 descriptors', async () => {
     const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
 
     await service.previewOnchainProposedConfig('btcpay-store-id', { derivationScheme: extendedKey });
@@ -49,8 +49,8 @@ describe('WalletPreviewService', () => {
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
       'store-entity-id',
       {
-        derivationScheme: extendedKey,
-        accountKeyPath: "m/84'/1'/0'"
+        derivationScheme: `wpkh(${extendedKey}/0/*)`,
+        accountKeyPath: null
       },
       { store }
     );
@@ -68,6 +68,25 @@ describe('WalletPreviewService', () => {
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
       'store-entity-id',
       { derivationScheme: descriptor, accountKeyPath: null },
+      { store }
+    );
+  });
+
+  it('derives account index and fingerprint when provided alongside extended key', async () => {
+    const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
+
+    await service.previewOnchainProposedConfig('btcpay-store-id', {
+      derivationScheme: extendedKey,
+      accountKeyPath: "m/84'/1'/5'",
+      masterFingerprint: '1a2b3c4d'
+    });
+
+    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
+      'store-entity-id',
+      {
+        derivationScheme: `wpkh([1A2B3C4D/84'/1'/5']${extendedKey}/0/*)`,
+        accountKeyPath: null
+      },
       { store }
     );
   });

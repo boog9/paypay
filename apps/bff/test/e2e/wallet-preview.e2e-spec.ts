@@ -179,8 +179,8 @@ describe('Wallet preview (e2e)', () => {
     const scope = nock('https://tenant-btcpay.example')
       .post('/api/v1/stores/BTCPAYSUCCESS/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
         expect(body).toEqual({
-          derivationScheme,
-          accountKeyPath: "m/84'/1'/0'"
+          derivationScheme: `wpkh(${derivationScheme}/0/*)`,
+          accountKeyPath: null
         });
         return true;
       })
@@ -213,28 +213,10 @@ describe('Wallet preview (e2e)', () => {
   });
 
   it('returns validation error when BTCPay rejects the account key path', async () => {
-    const { store, storeApiKey, cookieHeader, csrfToken } = await preparePreviewSession('invalid');
+    const { store, cookieHeader, csrfToken } = await preparePreviewSession('invalid');
 
     const derivationScheme =
       "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
-
-    const scope = nock('https://tenant-btcpay.example')
-      .post('/api/v1/stores/BTCPAYINVALID/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
-        expect(body).toEqual({
-          derivationScheme,
-          accountKeyPath: "m/84'/1'/0'/0"
-        });
-        return true;
-      })
-      .query((actual) => {
-        expect(actual).toEqual({ offset: '0', count: '10' });
-        return true;
-      })
-      .matchHeader('Authorization', `token ${storeApiKey}`)
-      .reply(422, {
-        code: 'InvalidAccountKeyPath',
-        message: 'Account key path is invalid.'
-      });
 
     const response = await agent
       .post(`/api/stores/${store.id}/wallets/onchain/preview`)
@@ -243,8 +225,7 @@ describe('Wallet preview (e2e)', () => {
       .send({ derivationScheme, accountKeyPath: "m/84'/1'/0'/0" })
       .expect(422);
 
-    expect(scope.isDone()).toBe(true);
-    expect(response.body).toMatchObject({ message: 'Account key path is invalid.' });
+    expect(response.body).toMatchObject({ message: "Account key path must follow m/84'/1'/account' format." });
   });
 
   it('surfaces payment method configuration errors from BTCPay', async () => {
@@ -256,8 +237,8 @@ describe('Wallet preview (e2e)', () => {
     const scope = nock('https://tenant-btcpay.example')
       .post('/api/v1/stores/BTCPAYNOTCONFIGURED/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
         expect(body).toEqual({
-          derivationScheme,
-          accountKeyPath: "m/84'/1'/0'"
+          derivationScheme: `wpkh(${derivationScheme}/0/*)`,
+          accountKeyPath: null
         });
         return true;
       })
@@ -279,6 +260,6 @@ describe('Wallet preview (e2e)', () => {
       .expect(422);
 
     expect(scope.isDone()).toBe(true);
-    expect(response.body).toMatchObject({ message: 'Payment method is not configured yet' });
+    expect(response.body).toMatchObject({ message: 'Payment method is not configured yet.' });
   });
 });

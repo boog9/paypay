@@ -268,7 +268,10 @@ export class BtcpayPaymentMethodsService {
         paymentMethodId
       );
     } catch (error) {
-      throw this.mapPreviewError(error);
+      throw this.mapPreviewError(error, {
+        storeId: context.store.id,
+        paymentMethodId
+      });
     } finally {
       context.cleanup();
     }
@@ -310,15 +313,7 @@ export class BtcpayPaymentMethodsService {
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
-      let status = 0;
-      if (axios.isAxiosError(error)) {
-        status = error.response?.status ?? 0;
-        const code = this.extractErrorCode(this.getResponseData(error));
-        this.logger.warn({ ...logContext, status, code: code ?? undefined }, 'btcpayPreview');
-      } else {
-        this.logger.warn({ ...logContext, status: 0 }, 'btcpayPreview');
-      }
-      throw this.mapPreviewAddressesError(error);
+      throw this.mapPreviewAddressesError(error, logContext);
     } finally {
       context.cleanup();
     }
@@ -1380,8 +1375,12 @@ export class BtcpayPaymentMethodsService {
     return 'BTCPay request failed';
   }
 
-  private mapPreviewError(error: unknown): HttpException {
+  private mapPreviewError(
+    error: unknown,
+    context: Record<string, unknown> = {}
+  ): HttpException {
     if (!axios.isAxiosError<{ code?: string; message?: string }>(error)) {
+      this.logger.warn({ ...context, status: 0, code: undefined, errorMessage: 'BTCPay preview failed' }, 'btcpayPreview');
       return new BadGatewayException('BTCPay preview failed');
     }
 
@@ -1389,10 +1388,16 @@ export class BtcpayPaymentMethodsService {
     const rawPayload = this.getResponseData(error);
     const normalizedPayload = this.normalizeErrorPayload(rawPayload);
     const code = this.extractErrorCode(rawPayload);
-    const fallback = this.extractErrorMessage(error) ?? 'BTCPay preview failed';
+    const resolvedMessage = this.resolveErrorMessage(rawPayload);
+    const fallback = resolvedMessage ?? this.extractErrorMessage(error) ?? 'BTCPay preview failed';
+
+    this.logger.warn(
+      { ...context, status, code: code ?? undefined, errorMessage: fallback },
+      'btcpayPreview'
+    );
 
     if (status === 404 && code === 'paymentmethod-not-configured') {
-      return new UnprocessableEntityException('Payment method is not configured yet');
+      return this.buildValidationException('Payment method is not configured yet.');
     }
     if (status === 401) {
       return new UnauthorizedException();
@@ -1401,8 +1406,21 @@ export class BtcpayPaymentMethodsService {
       return new ForbiddenException();
     }
     if (status === 400 || status === 422) {
+      if (typeof rawPayload === 'string') {
+        const sanitized = this.sanitizeMessage(rawPayload) || fallback;
+        return this.buildValidationException(sanitized);
+      }
+      if (this.isRecord(rawPayload) && typeof rawPayload.message === 'string') {
+        const sanitizedMessage = this.sanitizeMessage(rawPayload.message) || fallback;
+        const responsePayload: Record<string, unknown> = { message: sanitizedMessage };
+        const payloadCode = this.extractErrorCode(rawPayload);
+        if (payloadCode) {
+          responsePayload.code = payloadCode;
+        }
+        return this.buildValidationException(responsePayload);
+      }
       const responsePayload = normalizedPayload ?? fallback;
-      return new UnprocessableEntityException(responsePayload ?? 'BTCPay validation failed');
+      return this.buildValidationException(responsePayload ?? 'BTCPay validation failed');
     }
     if (status === 404) {
       return new NotFoundException(normalizedPayload ?? fallback);
@@ -1411,13 +1429,22 @@ export class BtcpayPaymentMethodsService {
     return new BadGatewayException('BTCPay preview failed');
   }
 
-  private mapPreviewAddressesError(error: unknown): Error {
+  private mapPreviewAddressesError(
+    error: unknown,
+    context: Record<string, unknown> = {}
+  ): Error {
     if (axios.isAxiosError<unknown>(error)) {
       const status = error.response?.status ?? 0;
       const rawPayload = this.getResponseData(error);
       const payload = this.normalizeErrorPayload(rawPayload);
-      const message = this.extractErrorMessage(error);
+      const resolvedMessage = this.resolveErrorMessage(rawPayload);
+      const message = resolvedMessage ?? this.extractErrorMessage(error);
       const code = this.extractErrorCode(rawPayload);
+
+      this.logger.warn(
+        { ...context, status, code: code ?? undefined, errorMessage: message ?? 'BTCPay request failed' },
+        'btcpayPreview'
+      );
 
       if (status === 401) {
         return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
@@ -1430,14 +1457,25 @@ export class BtcpayPaymentMethodsService {
       }
 
       if (status === 400 || status === 422) {
+        if (typeof rawPayload === 'string') {
+          const sanitized = this.sanitizeMessage(rawPayload) || message || 'BTCPay request failed';
+          return this.buildValidationException(sanitized, error as Error);
+        }
+        if (this.isRecord(rawPayload) && typeof rawPayload.message === 'string') {
+          const sanitizedMessage = this.sanitizeMessage(rawPayload.message) || message || 'BTCPay request failed';
+          const responsePayload: Record<string, unknown> = { message: sanitizedMessage };
+          const payloadCode = this.extractErrorCode(rawPayload);
+          if (payloadCode) {
+            responsePayload.code = payloadCode;
+          }
+          return this.buildValidationException(responsePayload, error as Error);
+        }
         const responsePayload = payload ?? message ?? 'BTCPay request failed';
-        return new UnprocessableEntityException(responsePayload, { cause: error as Error });
+        return this.buildValidationException(responsePayload, error as Error);
       }
 
       if (status === 404 && code === 'paymentmethod-not-configured') {
-        return new UnprocessableEntityException('Payment method is not configured yet', {
-          cause: error as Error
-        });
+        return this.buildValidationException('Payment method is not configured yet.', error as Error);
       }
 
       if (status === 404) {
@@ -1454,11 +1492,32 @@ export class BtcpayPaymentMethodsService {
       if (status >= 500) {
         return new BadGatewayException('BTCPay request failed', { cause: error as Error });
       }
+      return new BadGatewayException(message ?? 'BTCPay request failed', {
+        cause: error as Error
+      });
     }
+
+    this.logger.warn({ ...context, status: 0, code: undefined, errorMessage: 'BTCPay request failed' }, 'btcpayPreview');
 
     return new BadGatewayException('BTCPay request failed', {
       cause: error instanceof Error ? error : undefined
     });
+  }
+
+  private buildValidationException(
+    payload: string | Record<string, unknown>,
+    cause?: Error
+  ): UnprocessableEntityException {
+    if (typeof payload === 'string') {
+      const sanitized = this.sanitizeMessage(payload);
+      const exception = new UnprocessableEntityException(sanitized, { cause });
+      (exception as any).response = sanitized;
+      return exception;
+    }
+
+    const exception = new UnprocessableEntityException(payload, { cause });
+    (exception as any).response = payload;
+    return exception;
   }
 
   private mapGenerateWalletError(error: unknown): Error {

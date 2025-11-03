@@ -122,7 +122,7 @@ describe('Wallet preview controller (e2e)', () => {
     expect(previewOnchainAddresses).toHaveBeenCalledTimes(1);
     expect(previewOnchainAddresses).toHaveBeenCalledWith(
       storeId,
-      { derivationScheme: descriptor },
+      { derivationScheme: descriptor, accountKeyPath: null },
       expect.objectContaining({
         store: expect.objectContaining({ btcpayStoreId: storeId })
       })

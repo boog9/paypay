@@ -77,7 +77,7 @@ describe('BtcpayPaymentMethodsService', () => {
   }
 
   it('previews proposed on-chain addresses via wallet preview endpoint', async () => {
-    const getMock = jest.fn().mockResolvedValue({
+    const postMock = jest.fn().mockResolvedValue({
       status: 200,
       data: {
         addresses: [
@@ -87,7 +87,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -107,46 +107,49 @@ describe('BtcpayPaymentMethodsService', () => {
         headers: expect.objectContaining({ Authorization: 'token store-api-key' })
       })
     );
-    expect(getMock).toHaveBeenCalledWith(
+    expect(postMock).toHaveBeenCalledWith(
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
       {
         params: {
           offset: '0',
-          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'",
-          hasAccountKeyPath: 'true'
+          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT)
         }
       }
     );
   });
 
   it('omits optional fields when previewing without additional metadata', async () => {
-    const getMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
+    const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
     await service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store });
 
-    expect(getMock).toHaveBeenCalledWith(
+    expect(postMock).toHaveBeenCalledWith(
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      {
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: null
+      },
       {
         params: {
           offset: '0',
-          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
-          derivationScheme: SAMPLE_TPUB,
-          hasAccountKeyPath: 'false'
+          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT)
         }
       }
     );
   });
 
   it('prefers the provided store context for API key and host resolution', async () => {
-    const getMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
+    const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
     const customStore: ManagedStoreEntity = {
@@ -154,7 +157,11 @@ describe('BtcpayPaymentMethodsService', () => {
       btcpayHost: 'https://tenant-btcpay.example'
     } as ManagedStoreEntity;
 
-    await service.previewOnchainAddresses('fallback-store-id', { derivationScheme: SAMPLE_TPUB }, { store: customStore });
+    await service.previewOnchainAddresses(
+      'fallback-store-id',
+      { derivationScheme: SAMPLE_TPUB },
+      { store: customStore }
+    );
 
     expect(repository.findOne).not.toHaveBeenCalled();
     expect(encryptionService.decrypt).toHaveBeenCalledWith(
@@ -182,9 +189,9 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response404;
     axiosError.isAxiosError = true;
 
-    const getMock = jest.fn().mockRejectedValue(axiosError);
+    const postMock = jest.fn().mockRejectedValue(axiosError);
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -193,6 +200,38 @@ describe('BtcpayPaymentMethodsService', () => {
     await expect(previewPromise).rejects.toBeInstanceOf(ForbiddenException);
     await previewPromise.catch((error) => {
       expect(error.message).toContain('API key is not scoped to this store or storeId is wrong');
+    });
+  });
+
+  it('propagates payment method configuration requirement as unprocessable entity', async () => {
+    const response404 = {
+      status: 404,
+      statusText: 'Not Found',
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() },
+      data: { code: 'paymentmethod-not-configured', message: 'Payment method not configured' }
+    } as any;
+    const axiosError = new AxiosError(
+      'Not Found',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      response404
+    );
+    axiosError.response = response404;
+    axiosError.isAxiosError = true;
+
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store })
+    ).rejects.toMatchObject({
+      status: 422,
+      message: 'Payment method is not configured yet'
     });
   });
 
@@ -214,9 +253,9 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response422;
     axiosError.isAxiosError = true;
 
-    const getMock = jest.fn().mockRejectedValue(axiosError);
+    const postMock = jest.fn().mockRejectedValue(axiosError);
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -336,7 +375,7 @@ describe('BtcpayPaymentMethodsService', () => {
       index
     }));
 
-    const getMock = jest.fn().mockResolvedValue({
+    const postMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses,
@@ -347,7 +386,7 @@ describe('BtcpayPaymentMethodsService', () => {
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -373,19 +412,19 @@ describe('BtcpayPaymentMethodsService', () => {
         headers: expect.objectContaining({ Authorization: 'token store-api-key' })
       })
     );
-    expect(getMock).toHaveBeenCalledTimes(1);
-    const [path, options] = getMock.mock.calls[0];
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [path, body, options] = postMock.mock.calls[0];
     expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(body).toEqual({
+      derivationScheme: SAMPLE_TPUB,
+      accountKeyPath: "1234abcd/84'/1'/0'"
+    });
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10',
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "1234abcd/84'/1'/0'",
-        hasAccountKeyPath: 'true'
+        count: '10'
       }
     });
-    expect(options.params.masterFingerprint).toBeUndefined();
   });
 
   it('returns disabled presence when on-chain config is missing', async () => {
@@ -458,21 +497,20 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10',
-        hasAccountKeyPath: 'false'
+        count: '10'
       }
     });
   });
 
   it('does not include master fingerprint in preview parameters', async () => {
-    const getMock = jest.fn().mockResolvedValue({
+    const postMock = jest.fn().mockResolvedValue({
       data: {
         currency: 'btc',
         addresses: []
       }
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -488,16 +526,17 @@ describe('BtcpayPaymentMethodsService', () => {
       { store }
     );
 
-    expect(getMock).toHaveBeenCalledTimes(1);
-    const [path, options] = getMock.mock.calls[0];
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [path, body, options] = postMock.mock.calls[0];
     expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
+    expect(body).toEqual({
+      derivationScheme: SAMPLE_TPUB,
+      accountKeyPath: "1234abcd/84'/1'/0'"
+    });
     expect(options).toEqual({
       params: {
         offset: '0',
-        count: '10',
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "1234abcd/84'/1'/0'",
-        hasAccountKeyPath: 'true'
+        count: '10'
       }
     });
   });
@@ -521,8 +560,8 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response;
     axiosError.isAxiosError = true;
 
-    const getMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
@@ -536,7 +575,7 @@ describe('BtcpayPaymentMethodsService', () => {
         { store }
       );
     } catch (error) {
-      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(postMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
       if (!(error instanceof UnprocessableEntityException)) {
         throw error;
@@ -574,17 +613,21 @@ describe('BtcpayPaymentMethodsService', () => {
     axiosError.response = response;
     axiosError.isAxiosError = true;
 
-    const getMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
     const service = buildService();
 
     expect.assertions(6);
 
     try {
-      await service.previewOnchainAddresses(store.btcpayStoreId, { derivationScheme: SAMPLE_TPUB }, { store });
+      await service.previewOnchainAddresses(
+        store.btcpayStoreId,
+        { derivationScheme: SAMPLE_TPUB },
+        { store }
+      );
     } catch (error) {
-      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(postMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
       if (!(error instanceof UnprocessableEntityException)) {
         throw error;
@@ -598,14 +641,16 @@ describe('BtcpayPaymentMethodsService', () => {
         expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
       }
       expect(httpError.cause).toBe(axiosError);
-      expect(getMock).toHaveBeenCalledWith(
+      expect(postMock).toHaveBeenCalledWith(
         '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+        {
+          derivationScheme: SAMPLE_TPUB,
+          accountKeyPath: null
+        },
         {
           params: {
             offset: '0',
-            count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
-            derivationScheme: SAMPLE_TPUB,
-            hasAccountKeyPath: 'false'
+            count: String(DEFAULT_PREVIEW_ADDRESS_COUNT)
           }
         }
       );
@@ -913,9 +958,13 @@ describe('BtcpayPaymentMethodsService', () => {
     const result = await service.getOnchainWalletSummary(store.btcpayStoreId, store.btcpayHost, { store });
 
     expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
-    expect(getMock).toHaveBeenNthCalledWith(2, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview', {
-      params: { count: '10', hasAccountKeyPath: 'false', offset: '0' }
-    });
+    expect(getMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+      {
+        params: { count: '10', offset: '0' }
+      }
+    );
     expect(result).toEqual({
       storeId: store.btcpayStoreId,
       paymentMethodId: 'BTC-CHAIN',

@@ -93,33 +93,36 @@ describe('Wallet preview (e2e)', () => {
     await app.close();
   });
 
-  it('returns on-chain preview addresses when BTCPay responds successfully', async () => {
-    const credentials = { email: 'preview@example.com', password: 'SecurePassword!234' };
+  async function preparePreviewSession(label: string) {
     const usersRepository = dataSource.getRepository(UserEntity);
     const storesRepository = dataSource.getRepository(ManagedStoreEntity);
-    const passwordHash = await argon2.hash(credentials.password, {
+    const email = `preview-${label}@example.com`;
+    const password = 'SecurePassword!234';
+
+    const passwordHash = await argon2.hash(password, {
       type: argon2.argon2id,
       memoryCost: 19_456,
       timeCost: 2,
       parallelism: 1
     });
+
     const user = usersRepository.create({
-      email: credentials.email,
+      email,
       passwordHash,
-      btcpayUserId: 'btcpay-user-preview',
+      btcpayUserId: `btcpay-user-${label}`,
       btcpayApiKeyHash: null,
       btcpayApiKeyLabel: null,
       btcpayApiKeyPermissions: null
     });
     await usersRepository.save(user);
 
-    const storeApiKey = 'store-api-key-1234';
+    const storeApiKey = `store-api-key-${label}`;
     const encrypted = encryptionService.encrypt(storeApiKey);
     const store = storesRepository.create({
       userId: user.id,
       user,
-      btcpayStoreId: 'BTCPAYPREVIEW',
-      storeName: 'Preview Store',
+      btcpayStoreId: `BTCPAY${label.toUpperCase()}`,
+      storeName: `Preview Store ${label}`,
       defaultCurrency: 'BTC',
       btcpayHost: 'https://tenant-btcpay.example',
       apiKeyCiphertext: encrypted.ciphertext,
@@ -133,7 +136,7 @@ describe('Wallet preview (e2e)', () => {
     await storesRepository.save(store);
 
     const csrfResponse = await agent.get('/api/auth/csrf').expect(204);
-    const initialCookies = getCookies(csrfResponse);
+    let cookies = getCookies(csrfResponse);
     const csrfToken = csrfResponse.headers['x-csrf-token'];
     if (typeof csrfToken !== 'string') {
       throw new Error('Expected csrf token string');
@@ -141,35 +144,48 @@ describe('Wallet preview (e2e)', () => {
 
     const loginResponse = await agent
       .post('/api/auth/login')
-      .set('Cookie', formatCookieHeader(initialCookies))
+      .set('Cookie', formatCookieHeader(cookies))
       .set('X-CSRF-Token', csrfToken)
-      .send(credentials)
+      .send({ email, password })
       .expect(204);
-    const loginCookies = getCookies(loginResponse);
-    const sessionCookies = initialCookies.concat(loginCookies);
+
+    cookies = cookies.concat(getCookies(loginResponse));
 
     const previewCsrf = await agent
       .get('/api/auth/csrf')
-      .set('Cookie', formatCookieHeader(sessionCookies))
+      .set('Cookie', formatCookieHeader(cookies))
       .expect(204);
     const previewToken = previewCsrf.headers['x-csrf-token'];
     if (typeof previewToken !== 'string') {
       throw new Error('Expected preview csrf token string');
     }
-    const previewCookies = sessionCookies.concat(getCookies(previewCsrf));
+
+    cookies = cookies.concat(getCookies(previewCsrf));
+
+    return {
+      store,
+      storeApiKey,
+      cookieHeader: formatCookieHeader(cookies),
+      csrfToken: previewToken
+    };
+  }
+
+  it('returns on-chain preview addresses when BTCPay responds successfully', async () => {
+    const { store, storeApiKey, cookieHeader, csrfToken } = await preparePreviewSession('success');
 
     const derivationScheme =
       "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
 
     const scope = nock('https://tenant-btcpay.example')
-      .get('/api/v1/stores/BTCPAYPREVIEW/payment-methods/BTC-CHAIN/wallet/preview')
-      .query((actual) => {
-        expect(actual).toEqual({
+      .post('/api/v1/stores/BTCPAYSUCCESS/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
+        expect(body).toEqual({
           derivationScheme,
-          accountKeyPath: "m/84'/1'/0'",
-          offset: '0',
-          count: '10'
+          accountKeyPath: "m/84'/1'/0'"
         });
+        return true;
+      })
+      .query((actual) => {
+        expect(actual).toEqual({ offset: '0', count: '10' });
         return true;
       })
       .matchHeader('Authorization', `token ${storeApiKey}`)
@@ -182,8 +198,8 @@ describe('Wallet preview (e2e)', () => {
 
     const response = await agent
       .post(`/api/stores/${store.id}/wallets/onchain/preview`)
-      .set('Cookie', formatCookieHeader(previewCookies))
-      .set('X-CSRF-Token', previewToken)
+      .set('Cookie', cookieHeader)
+      .set('X-CSRF-Token', csrfToken)
       .send({ derivationScheme })
       .expect(200);
 
@@ -194,5 +210,75 @@ describe('Wallet preview (e2e)', () => {
         { address: 'tb1qpreview1111111111111111111111111111111111' }
       ]
     });
+  });
+
+  it('returns validation error when BTCPay rejects the account key path', async () => {
+    const { store, storeApiKey, cookieHeader, csrfToken } = await preparePreviewSession('invalid');
+
+    const derivationScheme =
+      "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
+
+    const scope = nock('https://tenant-btcpay.example')
+      .post('/api/v1/stores/BTCPAYINVALID/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
+        expect(body).toEqual({
+          derivationScheme,
+          accountKeyPath: "m/84'/1'/0'/0"
+        });
+        return true;
+      })
+      .query((actual) => {
+        expect(actual).toEqual({ offset: '0', count: '10' });
+        return true;
+      })
+      .matchHeader('Authorization', `token ${storeApiKey}`)
+      .reply(422, {
+        code: 'InvalidAccountKeyPath',
+        message: 'Account key path is invalid.'
+      });
+
+    const response = await agent
+      .post(`/api/stores/${store.id}/wallets/onchain/preview`)
+      .set('Cookie', cookieHeader)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme, accountKeyPath: "m/84'/1'/0'/0" })
+      .expect(422);
+
+    expect(scope.isDone()).toBe(true);
+    expect(response.body).toMatchObject({ message: 'Account key path is invalid.' });
+  });
+
+  it('surfaces payment method configuration errors from BTCPay', async () => {
+    const { store, storeApiKey, cookieHeader, csrfToken } = await preparePreviewSession('notconfigured');
+
+    const derivationScheme =
+      "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
+
+    const scope = nock('https://tenant-btcpay.example')
+      .post('/api/v1/stores/BTCPAYNOTCONFIGURED/payment-methods/BTC-CHAIN/wallet/preview', (body) => {
+        expect(body).toEqual({
+          derivationScheme,
+          accountKeyPath: "m/84'/1'/0'"
+        });
+        return true;
+      })
+      .query((actual) => {
+        expect(actual).toEqual({ offset: '0', count: '10' });
+        return true;
+      })
+      .matchHeader('Authorization', `token ${storeApiKey}`)
+      .reply(404, {
+        code: 'paymentmethod-not-configured',
+        message: 'Payment method not configured.'
+      });
+
+    const response = await agent
+      .post(`/api/stores/${store.id}/wallets/onchain/preview`)
+      .set('Cookie', cookieHeader)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ derivationScheme })
+      .expect(422);
+
+    expect(scope.isDone()).toBe(true);
+    expect(response.body).toMatchObject({ message: 'Payment method is not configured yet' });
   });
 });

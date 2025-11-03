@@ -29,7 +29,8 @@ export class WalletPreviewService {
       return this.paymentMethods.previewOnchainAddresses(
         store.id,
         {
-          derivationScheme: descriptor
+          derivationScheme: descriptor,
+          accountKeyPath: null
         },
         { store }
       );

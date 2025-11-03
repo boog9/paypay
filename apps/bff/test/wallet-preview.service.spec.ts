@@ -67,7 +67,7 @@ describe('WalletPreviewService', () => {
 
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
       'store-entity-id',
-      { derivationScheme: descriptor },
+      { derivationScheme: descriptor, accountKeyPath: null },
       { store }
     );
   });
@@ -88,7 +88,8 @@ describe('WalletPreviewService', () => {
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
       'store-entity-id',
       {
-        derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
+        derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)',
+        accountKeyPath: null
       },
       { store }
     );

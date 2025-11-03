@@ -135,12 +135,7 @@ describe('StoresService', () => {
     expect(btcpayService.issueStoreScopedApiKey).toHaveBeenCalledWith(
       'btcpay-user-1',
       'store-1',
-      'portal-internal-store-1',
-      expect.arrayContaining([
-        'btcpay.store.cancreateinvoice:store-1',
-        'btcpay.store.canmodifystoresettings:store-1',
-        'btcpay.store.canviewstoresettings:store-1',
-      ]),
+      { labelPrefix: 'portal-internal' },
     );
     expect(btcpayService.registerWebhook).toHaveBeenCalledWith(
       'https://btcpay.example',

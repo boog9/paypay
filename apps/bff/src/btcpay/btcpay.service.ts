@@ -453,11 +453,29 @@ export class BtcpayService {
   async issueStoreScopedApiKey(
     idOrEmail: string,
     storeId: string,
-    label: string,
-    permissions: string[]
-  ): Promise<{ apiKey: string }> {
-    const response = await this.issueUserApiKey(undefined, idOrEmail, permissions, { label });
-    return { apiKey: response.apiKey };
+    options?: { labelPrefix?: string; correlationId?: string }
+  ): Promise<ApiKeyResponse> {
+    const normalizedStoreId = typeof storeId === 'string' ? storeId.trim() : '';
+    if (!normalizedStoreId) {
+      throw new BadRequestException('Store identifier is required to issue an API key');
+    }
+
+    const labelPrefix =
+      typeof options?.labelPrefix === 'string' && options.labelPrefix.trim().length > 0
+        ? options.labelPrefix.trim()
+        : 'portal-internal';
+
+    const label = `${labelPrefix}-${normalizedStoreId}`;
+
+    return this.issueUserApiKey(
+      undefined,
+      idOrEmail,
+      this.buildStorePermissions(normalizedStoreId),
+      {
+        label,
+        correlationId: options?.correlationId,
+      }
+    );
   }
 
   async createStoreWithUserToken(

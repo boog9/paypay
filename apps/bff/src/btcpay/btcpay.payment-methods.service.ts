@@ -296,6 +296,7 @@ export class BtcpayPaymentMethodsService {
       offset: '0',
       count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
       derivationScheme: input.derivationScheme,
+      hasAccountKeyPath: accountKeyPath ? 'true' : 'false',
       ...(accountKeyPath ? { accountKeyPath } : {})
     };
     const derivationLog = this.describeDerivationForLog(input.derivationScheme);
@@ -717,11 +718,33 @@ export class BtcpayPaymentMethodsService {
       params.derivationScheme = config.derivationScheme;
     }
 
+    const hasAccountKeyPath = this.resolveHasAccountKeyPathFlag(body, config);
+    params.hasAccountKeyPath = hasAccountKeyPath ? 'true' : 'false';
+
     if (config?.accountKeyPath) {
       params.accountKeyPath = config.accountKeyPath;
     }
 
     return params;
+  }
+
+  private resolveHasAccountKeyPathFlag(
+    body: OnchainPreviewRequest | undefined,
+    config: { accountKeyPath?: string } | undefined
+  ): boolean {
+    if (body?.config && Object.prototype.hasOwnProperty.call(body.config, 'accountKeyPath')) {
+      const raw = (body.config as Record<string, unknown>).accountKeyPath;
+      if (typeof raw === 'string') {
+        return raw.trim().length > 0;
+      }
+      return false;
+    }
+
+    if (config?.accountKeyPath) {
+      return true;
+    }
+
+    return false;
   }
 
   private buildWalletGenerateRequestBody(
@@ -1177,9 +1200,10 @@ export class BtcpayPaymentMethodsService {
     }
 
     try {
+      const params = this.buildPreviewRequestParams(undefined, undefined);
       const response = await context.http.get(
         this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
-        { params: { count: DEFAULT_PREVIEW_ADDRESS_COUNT } }
+        { params }
       );
       const preview = this.normalizePreviewResponse(
         response.data,
@@ -1399,33 +1423,31 @@ export class BtcpayPaymentMethodsService {
     return 'BTCPay request failed';
   }
 
-  private mapPreviewError(error: unknown): Error {
-    if (axios.isAxiosError<unknown>(error)) {
-      const status = error.response?.status;
-      const payload = this.normalizeErrorPayload(this.getResponseData(error));
-      const message = this.extractErrorMessage(error);
-      if (status === 401) {
-        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
-      }
-      if (status === 403) {
-        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
-      }
-      if (status === 400 || status === 422) {
-        const responsePayload = payload ?? message ?? 'BTCPay validation failed';
-        return new UnprocessableEntityException(responsePayload, { cause: error as Error });
-      }
-      return new BadGatewayException('BTCPay preview failed', {
-        cause: error as Error
-      });
+  private mapPreviewError(error: unknown): HttpException {
+    if (!axios.isAxiosError<{ code?: string; message?: string }>(error)) {
+      return new BadGatewayException('BTCPay preview failed');
     }
 
-    if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
-      return error;
+    const status = error.response?.status ?? 500;
+    const payload = error.response?.data;
+    const code = payload?.code;
+
+    if (status === 404 && code === 'paymentmethod-not-configured') {
+      return new NotFoundException(payload ?? { code, message: 'Payment method not configured' });
+    }
+    if (status === 401) {
+      return new UnauthorizedException();
+    }
+    if (status === 403) {
+      return new ForbiddenException();
+    }
+    if (status === 400 || status === 422) {
+      const responsePayload = this.normalizeErrorPayload(this.getResponseData(error));
+      const fallback = this.extractErrorMessage(error) ?? 'BTCPay validation failed';
+      return new UnprocessableEntityException(responsePayload ?? fallback);
     }
 
-    return new BadGatewayException('BTCPay preview failed', {
-      cause: error instanceof Error ? error : undefined
-    });
+    return new BadGatewayException('BTCPay preview failed');
   }
 
   private mapPreviewAddressesError(error: unknown): Error {

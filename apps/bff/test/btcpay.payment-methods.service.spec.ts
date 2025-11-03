@@ -1,4 +1,4 @@
-import { ForbiddenException, HttpException, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
@@ -210,7 +210,10 @@ describe('BtcpayPaymentMethodsService', () => {
     } catch (error) {
       expect(postMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
-      const httpError = error as UnprocessableEntityException;
+      if (!(error instanceof UnprocessableEntityException)) {
+        throw error;
+      }
+      const httpError = error;
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
@@ -279,7 +282,7 @@ describe('BtcpayPaymentMethodsService', () => {
         accountKeyPath: "1234abcd/84'/1'/0'"
       }
     });
-    expect((options as any).params.masterFingerprint).toBeUndefined();
+    expect(options.params.masterFingerprint).toBeUndefined();
   });
 
   it('returns disabled presence when on-chain config is missing', async () => {
@@ -430,7 +433,10 @@ describe('BtcpayPaymentMethodsService', () => {
     } catch (error) {
       expect(getMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
-      const httpError = error as UnprocessableEntityException;
+      if (!(error instanceof UnprocessableEntityException)) {
+        throw error;
+      }
+      const httpError = error;
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {
@@ -475,7 +481,10 @@ describe('BtcpayPaymentMethodsService', () => {
     } catch (error) {
       expect(getMock).toHaveBeenCalledTimes(1);
       expect(error).toBeInstanceOf(UnprocessableEntityException);
-      const httpError = error as UnprocessableEntityException;
+      if (!(error instanceof UnprocessableEntityException)) {
+        throw error;
+      }
+      const httpError = error;
       expect(httpError.getStatus()).toBe(422);
       const responsePayload = httpError.getResponse();
       if (typeof responsePayload === 'string') {

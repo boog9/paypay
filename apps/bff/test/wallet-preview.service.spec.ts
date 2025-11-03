@@ -38,19 +38,17 @@ describe('WalletPreviewService', () => {
     service = new WalletPreviewService(storesRepository as any, paymentMethods as any);
   });
 
-  it('builds descriptors from extended public keys', async () => {
+  it('passes extended public keys with the default account path', async () => {
     const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
 
-    await service.previewOnchainProposedConfig('btcpay-store-id', { extendedPublicKey: extendedKey });
+    await service.previewOnchainProposedConfig('btcpay-store-id', { derivationScheme: extendedKey });
 
     expect(storesRepository.findOne).toHaveBeenCalledWith({
       where: [{ btcpayStoreId: 'btcpay-store-id' }]
     });
     expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(store, {
-      derivationScheme: `wpkh([00000000/84'/1'/0']${extendedKey}/0/*)`,
-      accountKeyPath: "m/84'/1'/0'",
-      masterFingerprint: null,
-      label: null
+      derivationScheme: extendedKey,
+      accountKeyPath: "m/84'/1'/0'"
     });
   });
 

@@ -54,6 +54,7 @@ describe('StoresService', () => {
             revokeUserApiKey: jest.fn(),
             buildStorePermissions: jest.fn((storeId: string) => [
               `btcpay.store.cancreateinvoice:${storeId}`,
+              `btcpay.store.canmodifystoresettings:${storeId}`,
               `btcpay.store.canviewstoresettings:${storeId}`,
             ]),
             buildBootstrapPermissions: jest.fn(() => ['btcpay.store.canmodifystoresettings']),
@@ -137,6 +138,7 @@ describe('StoresService', () => {
       'portal-internal-store-1',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:store-1',
+        'btcpay.store.canmodifystoresettings:store-1',
         'btcpay.store.canviewstoresettings:store-1',
       ]),
     );

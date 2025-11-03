@@ -50,6 +50,7 @@ describe('TenantsService onboarding flows', () => {
           `btcpay.store.cancreateinvoice:${storeId}`,
           `btcpay.store.canviewinvoices:${storeId}`,
           `btcpay.store.canmodifyinvoices:${storeId}`,
+          `btcpay.store.canmodifystoresettings:${storeId}`,
           `btcpay.store.canviewstoresettings:${storeId}`,
           `btcpay.store.webhooks.canmodifywebhooks:${storeId}`
         ]),
@@ -176,6 +177,7 @@ describe('TenantsService onboarding flows', () => {
       'merchant@example.com',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:btcpay-store-id',
+        'btcpay.store.canmodifystoresettings:btcpay-store-id',
         'btcpay.store.canviewstoresettings:btcpay-store-id'
       ]),
       { label: 'PayPay internal btcpay-store-id' }
@@ -266,6 +268,7 @@ describe('TenantsService onboarding flows', () => {
       'merchant@example.com',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:btcpay-store-id',
+        'btcpay.store.canmodifystoresettings:btcpay-store-id',
         'btcpay.store.canviewstoresettings:btcpay-store-id'
       ]),
       { label: 'PayPay internal btcpay-store-id' }
@@ -412,6 +415,7 @@ describe('TenantsService onboarding flows', () => {
       'merchant@example.com',
       expect.arrayContaining([
         'btcpay.store.cancreateinvoice:btcpay-store-id',
+        'btcpay.store.canmodifystoresettings:btcpay-store-id',
         'btcpay.store.canviewstoresettings:btcpay-store-id'
       ]),
       { label: 'PayPay internal btcpay-store-id' }

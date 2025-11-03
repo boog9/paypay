@@ -126,7 +126,7 @@ describe('Wallet preview controller (e2e)', () => {
     );
   });
 
-  it('builds descriptors from extended public keys', async () => {
+  it('sends extended public keys with default account key path', async () => {
     const csrfToken = await fetchCsrf();
     const storeId = 'store-extended';
     const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
@@ -134,16 +134,14 @@ describe('Wallet preview controller (e2e)', () => {
     await agent
       .post(`/api/stores/${storeId}/wallets/onchain/preview`)
       .set('x-csrf-token', csrfToken)
-      .send({ extendedPublicKey: extendedKey })
+      .send({ derivationScheme: extendedKey })
       .expect(200);
 
     expect(previewOnchainAddresses).toHaveBeenCalledWith(
       expect.objectContaining({ btcpayStoreId: storeId }),
       {
-        derivationScheme: `wpkh([00000000/84'/1'/0']${extendedKey}/0/*)`,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: null,
-        label: null
+        derivationScheme: extendedKey,
+        accountKeyPath: "m/84'/1'/0'"
       }
     );
   });

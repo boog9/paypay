@@ -10,13 +10,7 @@ import { ApiError, api, isApiError } from "../../../../../../../../lib/api";
 import { getCsrfToken } from "../../../../../../../../lib/auth";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { bffFetch } from "../../../../../../../../lib/bff-fetch";
-import {
-  detectNetworkFromInput,
-  isExtendedPublicKey,
-  isSupportedDescriptor,
-  resolveInstanceNetwork,
-  walletWizardFormSchema,
-} from "./validation";
+import { detectNetworkFromInput, resolveInstanceNetwork, walletWizardFormSchema } from "./validation";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -303,24 +297,20 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setAccountKeyPath(parsed.data.accountKeyPath);
 
     try {
-      const requestBody: Record<string, unknown> = { cryptoCode: "BTC" };
+      const requestBody: Record<string, unknown> = {};
       const derivationInput = parsed.data.derivationScheme;
 
-      if (isSupportedDescriptor(derivationInput)) {
-        requestBody.derivationScheme = derivationInput;
-      } else if (isExtendedPublicKey(derivationInput)) {
-        requestBody.extendedPublicKey = derivationInput;
-      } else {
-        requestBody.derivationScheme = derivationInput;
-      }
+      requestBody.derivationScheme = derivationInput;
 
       if (parsed.data.accountKeyPath) {
         requestBody.accountKeyPath = parsed.data.accountKeyPath;
       }
 
+      const csrfToken = await getCsrfToken();
+
       const requestInit = {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Csrf-Token": csrfToken },
         body: JSON.stringify(requestBody),
       } as const;
 

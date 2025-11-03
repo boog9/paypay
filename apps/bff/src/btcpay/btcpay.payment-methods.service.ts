@@ -46,7 +46,6 @@ export function mask(value: string | null | undefined): string {
 export interface OnchainPreviewConfig {
   derivationScheme?: string;
   accountKeyPath?: string | null;
-  label?: string | null;
 }
 
 export interface OnchainPreviewRequest {
@@ -108,7 +107,7 @@ export interface UpdateOnchainPaymentMethodPayload {
     derivationScheme: string;
     accountKeyPath?: string | null;
     label?: string | null;
-    rootFingerprint?: string | null;
+    masterFingerprint?: string | null;
   };
 }
 
@@ -203,13 +202,11 @@ interface PaymentMethodRecord {
   label?: unknown;
 }
 
-interface WalletPreviewRequestDto {
-  config: {
-    derivationScheme: string;
-    accountKeyPath?: string;
-    label?: string;
-    enabled: boolean;
-  };
+interface WalletGenerateRequestDto {
+  derivationScheme: string;
+  accountKeyPath?: string;
+  masterFingerprint?: string;
+  label?: string | null;
 }
 
 interface PaymentMethodCollectionQueryParams {
@@ -242,13 +239,16 @@ export class BtcpayPaymentMethodsService {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const params = this.buildPreviewRequestParams(body);
+    const previewConfig = this.normalizePreviewConfig(body?.config);
+    const params = this.buildPreviewRequestParams(body, previewConfig);
     const modernPath = this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId);
     try {
       this.logger.debug(
-        `Previewing on-chain wallet via modern endpoint for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
+        `Previewing on-chain wallet for store ${context.store.btcpayStoreId} (${paymentMethodId}).`
       );
-      const response = await context.http.get(modernPath, { params });
+      const response = await context.http.get(modernPath, {
+        params: Object.keys(params).length > 0 ? params : undefined
+      });
       return this.normalizePreviewResponse(
         response.data,
         context.store.btcpayStoreId,
@@ -256,34 +256,6 @@ export class BtcpayPaymentMethodsService {
         paymentMethodId
       );
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status ?? 0;
-        const responseData = error.response?.data as { code?: string } | string | undefined;
-        const errorCode = typeof responseData === 'object' && responseData ? responseData.code : undefined;
-        const emptyBody =
-          responseData === undefined ||
-          responseData === null ||
-          (typeof responseData === 'string' && responseData.trim().length === 0);
-
-        if (status === 404 && (errorCode === 'paymentmethod-not-configured' || emptyBody)) {
-          this.logger.debug(
-            `Modern preview endpoint returned 404 for store ${context.store.btcpayStoreId}. Falling back to legacy preview.`
-          );
-          const legacyPath = this.buildLegacyOnchainPreviewPath(context.store.btcpayStoreId);
-          try {
-            const legacyResponse = await context.http.get(legacyPath, { params });
-            return this.normalizePreviewResponse(
-              legacyResponse.data,
-              context.store.btcpayStoreId,
-              currency,
-              paymentMethodId
-            );
-          } catch (legacyError) {
-            throw this.mapPreviewError(legacyError);
-          }
-        }
-      }
-
       throw this.mapPreviewError(error);
     } finally {
       context.cleanup();
@@ -297,56 +269,25 @@ export class BtcpayPaymentMethodsService {
     payload: {
       derivationScheme: string;
       accountKeyPath?: string | null;
-      masterFingerprint?: string | null;
-      label?: string | null;
     }
   ): Promise<{ addresses: Array<{ address: string }> }> {
     const context = await this.prepareStoreContext(store.id, { store });
     const url = this.buildOnchainPreviewPath(context.store.btcpayStoreId, PM_ONCHAIN);
-    const params: Record<string, string> = {
-      derivationScheme: payload.derivationScheme.trim()
-    };
-
-    if (typeof payload.accountKeyPath === 'string' && payload.accountKeyPath.trim()) {
-      params.accountKeyPath = payload.accountKeyPath.trim();
-    }
-
-    if (typeof payload.masterFingerprint === 'string' && payload.masterFingerprint.trim()) {
-      params.masterFingerprint = payload.masterFingerprint.trim().toUpperCase();
-    }
-
-    if (typeof payload.label === 'string' && payload.label.trim()) {
-      params.label = payload.label.trim();
-    }
+    const params = this.buildPreviewRequestParams(
+      undefined,
+      this.normalizePreviewConfig({
+        derivationScheme: payload.derivationScheme,
+        accountKeyPath: payload.accountKeyPath ?? undefined
+      })
+    );
 
     try {
-      const response = await context.http.get<unknown>(url, { params });
+      const response = await context.http.get<unknown>(url, {
+        params: Object.keys(params).length > 0 ? params : undefined
+      });
       const addresses = this.extractPreviewAddresses(response.data).map((item) => ({ address: item.address }));
       return { addresses };
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status ?? 0;
-        const responseData = error.response?.data as { code?: string } | string | undefined;
-        const errorCode = typeof responseData === 'object' && responseData ? responseData.code : undefined;
-        const emptyBody =
-          responseData === undefined ||
-          responseData === null ||
-          (typeof responseData === 'string' && responseData.trim().length === 0);
-
-        if (status === 404 && (errorCode === 'paymentmethod-not-configured' || emptyBody)) {
-          try {
-            const legacyResponse = await context.http.get<unknown>(
-              this.buildLegacyOnchainPreviewPath(context.store.btcpayStoreId),
-              { params }
-            );
-            const addresses = this.extractPreviewAddresses(legacyResponse.data).map((item) => ({ address: item.address }));
-            return { addresses };
-          } catch (legacyError) {
-            throw this.mapPreviewAddressesError(legacyError);
-          }
-        }
-      }
-
       throw this.mapPreviewAddressesError(error);
     } finally {
       context.cleanup();
@@ -365,12 +306,12 @@ export class BtcpayPaymentMethodsService {
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(store.id, { ...options, store });
     const url = this.buildOnchainGeneratePath(context.store.btcpayStoreId, PM_ONCHAIN);
-    const body = {
+    const body = this.buildWalletGenerateRequestBody({
       derivationScheme: payload.derivationScheme,
-      accountKeyPath: payload.accountKeyPath ?? null,
-      rootFingerprint: payload.masterFingerprint ? payload.masterFingerprint.toUpperCase() : null,
-      label: payload.label ?? null
-    };
+      accountKeyPath: payload.accountKeyPath ?? undefined,
+      masterFingerprint: payload.masterFingerprint ?? undefined,
+      label: payload.label ?? undefined
+    });
 
     try {
       const response = await context.http.post<unknown>(url, body);
@@ -661,7 +602,7 @@ export class BtcpayPaymentMethodsService {
     const config: {
       derivationScheme: string;
       accountKeyPath?: string | null;
-      rootFingerprint?: string | null;
+      masterFingerprint?: string | null;
       label?: string | null;
     } = {
       derivationScheme: params.derivationScheme
@@ -674,9 +615,9 @@ export class BtcpayPaymentMethodsService {
 
       if (params.masterFingerprint !== undefined) {
         if (params.masterFingerprint === null) {
-          config.rootFingerprint = null;
+          config.masterFingerprint = null;
         } else if (typeof params.masterFingerprint === 'string' && params.masterFingerprint.trim()) {
-          config.rootFingerprint = params.masterFingerprint.trim().toUpperCase();
+          config.masterFingerprint = params.masterFingerprint.trim().toUpperCase();
         }
       }
     }
@@ -700,7 +641,10 @@ export class BtcpayPaymentMethodsService {
     }
   }
 
-  private buildPreviewRequestParams(body?: OnchainPreviewRequest): Record<string, string> {
+  private buildPreviewRequestParams(
+    body: OnchainPreviewRequest | undefined,
+    config: { derivationScheme?: string; accountKeyPath?: string } | undefined
+  ): Record<string, string> {
     const params: Record<string, string> = {};
 
     const offset = Number.isFinite(body?.offset) ? Math.max(0, Math.trunc(body?.offset ?? 0)) : 0;
@@ -711,36 +655,60 @@ export class BtcpayPaymentMethodsService {
     params.offset = String(offset);
     params.count = String(amount);
 
-    const config = this.normalizePreviewConfig(body?.config);
-
-    if (config.derivationScheme) {
+    if (config?.derivationScheme) {
       params.derivationScheme = config.derivationScheme;
     }
 
-    if (config.accountKeyPath) {
+    if (config?.accountKeyPath) {
       params.accountKeyPath = config.accountKeyPath;
     }
 
     return params;
   }
 
-  private buildWalletPreviewRequestBody(
-    dto: { derivationScheme: string; accountKeyPath?: string | null; label?: string | null }
-  ): WalletPreviewRequestDto {
-    const config: WalletPreviewRequestDto['config'] = {
-      derivationScheme: dto.derivationScheme,
-      enabled: true
-    };
+  private buildWalletGenerateRequestBody(
+    dto: {
+      derivationScheme?: string | null;
+      accountKeyPath?: string | null;
+      masterFingerprint?: string | null;
+      label?: string | null;
+    }
+  ): WalletGenerateRequestDto {
+    const payload: WalletGenerateRequestDto = { derivationScheme: '' };
 
-    if (dto.accountKeyPath) {
-      config.accountKeyPath = dto.accountKeyPath;
+    if (typeof dto.derivationScheme === 'string') {
+      const trimmed = dto.derivationScheme.trim();
+      if (trimmed) {
+        payload.derivationScheme = trimmed;
+      }
     }
 
-    if (dto.label) {
-      config.label = dto.label;
+    if (!payload.derivationScheme) {
+      throw new InternalServerErrorException('Derivation scheme is required to generate wallet.');
     }
 
-    return { config };
+    if (typeof dto.accountKeyPath === 'string') {
+      const trimmed = dto.accountKeyPath.trim();
+      if (trimmed) {
+        payload.accountKeyPath = trimmed;
+      }
+    }
+
+    if (typeof dto.masterFingerprint === 'string') {
+      const trimmed = dto.masterFingerprint.trim();
+      if (trimmed) {
+        payload.masterFingerprint = trimmed.toUpperCase();
+      }
+    }
+
+    if (typeof dto.label === 'string') {
+      const trimmed = dto.label.trim();
+      if (trimmed) {
+        payload.label = trimmed;
+      }
+    }
+
+    return payload;
   }
 
   private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
@@ -754,12 +722,18 @@ export class BtcpayPaymentMethodsService {
 
   private normalizePreviewConfig(
     config: OnchainPreviewConfig | null | undefined
-  ): { derivationScheme?: string; accountKeyPath?: string } {
+  ): {
+    derivationScheme?: string;
+    accountKeyPath?: string;
+  } {
     if (!config || typeof config !== 'object') {
       return {};
     }
 
-    const payload: { derivationScheme?: string; accountKeyPath?: string } = {};
+    const payload: {
+      derivationScheme?: string;
+      accountKeyPath?: string;
+    } = {};
 
     if (typeof config.derivationScheme === 'string' && config.derivationScheme.trim()) {
       payload.derivationScheme = config.derivationScheme.trim();
@@ -797,11 +771,11 @@ export class BtcpayPaymentMethodsService {
       }
     }
 
-    if (config.rootFingerprint !== undefined) {
-      if (config.rootFingerprint === null) {
-        payload.rootFingerprint = null;
-      } else if (typeof config.rootFingerprint === 'string' && config.rootFingerprint.trim()) {
-        payload.rootFingerprint = config.rootFingerprint.toUpperCase();
+    if (config.masterFingerprint !== undefined) {
+      if (config.masterFingerprint === null) {
+        payload.masterFingerprint = null;
+      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
+        payload.masterFingerprint = config.masterFingerprint.toUpperCase();
       }
     }
 
@@ -1013,18 +987,21 @@ export class BtcpayPaymentMethodsService {
             masterFingerprint = fp.trim();
           }
         }
+        if (!masterFingerprint && typeof first.masterFingerprint === 'string' && first.masterFingerprint.trim()) {
+          masterFingerprint = first.masterFingerprint.trim();
+        }
         if (!masterFingerprint && typeof first.rootFingerprint === 'string' && first.rootFingerprint.trim()) {
           masterFingerprint = first.rootFingerprint.trim();
         }
       }
     }
 
-    if (!masterFingerprint && typeof record.rootFingerprint === 'string' && record.rootFingerprint.trim()) {
-      masterFingerprint = record.rootFingerprint.trim();
-    }
-
     if (!masterFingerprint && typeof record.masterFingerprint === 'string' && record.masterFingerprint.trim()) {
       masterFingerprint = record.masterFingerprint.trim();
+    }
+
+    if (!masterFingerprint && typeof record.rootFingerprint === 'string' && record.rootFingerprint.trim()) {
+      masterFingerprint = record.rootFingerprint.trim();
     }
 
     return {
@@ -1214,10 +1191,6 @@ export class BtcpayPaymentMethodsService {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/preview`;
   }
 
-  private buildLegacyOnchainPreviewPath(storeId: string): string {
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/onchain/BTC/wallet/preview`;
-  }
-
   private buildOnchainGeneratePath(storeId: string, paymentMethodId: string): string {
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet/generate`;
   }
@@ -1344,7 +1317,7 @@ export class BtcpayPaymentMethodsService {
       if (status === 403) {
         return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
       }
-      if (status === 422) {
+      if (status === 400 || status === 422) {
         const responsePayload = payload ?? message ?? 'BTCPay validation failed';
         return new UnprocessableEntityException(responsePayload, { cause: error as Error });
       }
@@ -1376,6 +1349,11 @@ export class BtcpayPaymentMethodsService {
         return new ForbiddenException(message || 'BTCPay returned limited permissions', { cause: error as Error });
       }
 
+      if (status === 400 || status === 422) {
+        const responsePayload = payload ?? message ?? 'BTCPay request failed';
+        return new UnprocessableEntityException(responsePayload, { cause: error as Error });
+      }
+
       if (status >= 400 && status < 500) {
         const responsePayload = payload ?? message ?? 'BTCPay request failed';
         return new HttpException(responsePayload, status, { cause: error as Error });
@@ -1397,7 +1375,7 @@ export class BtcpayPaymentMethodsService {
       const payload = this.normalizeErrorPayload(this.getResponseData(error));
       const message = this.extractErrorMessage(error);
 
-      if (status === 422) {
+      if (status === 400 || status === 422) {
         const responsePayload = payload ?? message ?? 'BTCPay validation failed';
         return new UnprocessableEntityException(responsePayload, {
           cause: error as Error

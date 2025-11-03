@@ -34,41 +34,49 @@ export class OnchainWalletsService {
   ) {}
 
   async getPresence(store: ManagedStoreEntity): Promise<WalletPresenceState> {
+    const existing = await this.walletsRepository.findOne({
+      where: {
+        storeId: store.id,
+        paymentMethodId: this.paymentMethodId
+      },
+      withDeleted: true
+    });
+
     try {
       const remote = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
         store,
-        includeConfig: true
+        includeConfig: false
       });
 
       if (remote.enabled && remote.config?.derivationScheme) {
         await this.upsertFromBtcpay(store, remote.config);
-      } else if (!remote.enabled) {
-        await this.disable(store);
+        return {
+          enabled: true,
+          derivationScheme: remote.config.derivationScheme ?? null
+        } satisfies WalletPresenceState;
       }
 
+      if (!remote.enabled) {
+        await this.disable(store);
+        return { enabled: false, derivationScheme: null } satisfies WalletPresenceState;
+      }
+
+      const fallbackDerivation = existing?.derivationScheme ?? null;
       return {
-        enabled: remote.enabled === true,
-        derivationScheme: remote.config?.derivationScheme ?? null
+        enabled: true,
+        derivationScheme: fallbackDerivation
       } satisfies WalletPresenceState;
     } catch (error) {
       if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
         throw error;
       }
-      const fallback = await this.walletsRepository.findOne({
-        where: {
-          storeId: store.id,
-          paymentMethodId: this.paymentMethodId
-        },
-        withDeleted: true
-      });
-
-      if (!fallback || fallback.enabled !== true) {
+      if (!existing || existing.enabled !== true) {
         return { enabled: false, derivationScheme: null };
       }
 
       return {
         enabled: true,
-        derivationScheme: fallback.derivationScheme ?? null
+        derivationScheme: existing.derivationScheme ?? null
       } satisfies WalletPresenceState;
     }
   }

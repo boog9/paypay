@@ -20,47 +20,48 @@ export class WalletPreviewService {
     const normalizedStoreId = this.normalizeStoreId(storeId);
     const store = await this.lookupStore(normalizedStoreId);
 
-    const normalizedDescriptor = dto.derivationScheme ? this.sanitizeDescriptor(dto.derivationScheme) : null;
-    const sanitizedExtendedKey = dto.extendedPublicKey ? this.sanitizeExtendedKey(dto.extendedPublicKey) : null;
-    const masterFingerprint = this.normalizeOptionalFingerprint(dto.masterFingerprint);
+    this.normalizeOptionalFingerprint(dto.masterFingerprint);
 
-    if (normalizedDescriptor) {
+    const derivationInput = this.normalizeDerivationInput(dto.derivationScheme);
+
+    if (this.isDescriptor(derivationInput)) {
+      const descriptor = this.sanitizeDescriptor(derivationInput);
       return this.paymentMethods.previewOnchainAddresses(store, {
-        derivationScheme: normalizedDescriptor
+        derivationScheme: descriptor
       });
     }
 
-    if (sanitizedExtendedKey) {
+    if (this.isExtendedPublicKey(derivationInput)) {
+      const extendedKey = this.sanitizeExtendedKey(derivationInput);
       const accountKeyPath = this.normalizeAccountKeyPath(dto.accountKeyPath) ?? DEFAULT_ACCOUNT_KEY_PATH;
-      const descriptorFingerprint = this.resolveDescriptorFingerprint(masterFingerprint);
-      const derivationScheme = this.buildDescriptorFromExtendedKey(
-        sanitizedExtendedKey,
-        accountKeyPath,
-        descriptorFingerprint
-      );
-
+      this.assertValidAccountKeyPath(extendedKey, accountKeyPath);
       return this.paymentMethods.previewOnchainAddresses(store, {
-        derivationScheme,
-        accountKeyPath,
-        masterFingerprint,
-        label: null
+        derivationScheme: extendedKey,
+        accountKeyPath
       });
     }
 
     throw new UnprocessableEntityException({
       code: 'INVALID_INPUT',
-      message: 'Provide descriptor or extendedPublicKey'
+      message: 'Provide descriptor or extended public key.'
     });
   }
 
-  private buildDescriptorFromExtendedKey(
-    extendedKey: string,
-    accountKeyPath: string,
-    fingerprint: string
-  ): string {
-    const sanitizedKey = this.sanitizeExtendedKey(extendedKey);
-    const suffix = accountKeyPath.replace(/^m\//iu, '');
-    return `wpkh([${fingerprint}/${suffix}]${sanitizedKey}/0/*)`;
+  private normalizeDerivationInput(value?: string): string {
+    if (typeof value !== 'string') {
+      throw new UnprocessableEntityException({
+        code: 'INVALID_INPUT',
+        message: 'Provide descriptor or extended public key.'
+      });
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new UnprocessableEntityException({
+        code: 'INVALID_INPUT',
+        message: 'Provide descriptor or extended public key.'
+      });
+    }
+    return trimmed;
   }
 
   private sanitizeDescriptor(value: string): string {
@@ -71,7 +72,14 @@ export class WalletPreviewService {
         message: 'Descriptor must be a non-empty string.'
       });
     }
-    return trimmed.replace(/\s+/gu, '');
+    const normalized = trimmed.replace(/\s+/gu, '');
+    if (!this.isDescriptor(normalized)) {
+      throw new UnprocessableEntityException({
+        code: 'INVALID_INPUT',
+        message: 'Descriptor format is not supported.'
+      });
+    }
+    return normalized;
   }
 
   private sanitizeExtendedKey(value: string): string {
@@ -85,12 +93,27 @@ export class WalletPreviewService {
     return trimmed;
   }
 
+  private isExtendedPublicKey(value: string): boolean {
+    return /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/iu.test(value.trim());
+  }
+
+  private isDescriptor(value: string): boolean {
+    const normalized = value.replace(/\s+/gu, '');
+    return /^(?:wpkh|sh|pkh|wsh|tr|sortedmulti)\(.+\)(?:#[0-9a-z]+)?$/iu.test(normalized);
+  }
+
   private normalizeAccountKeyPath(value?: string | null): string | null {
     if (typeof value !== 'string') {
       return null;
     }
     const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    if (trimmed.length === 0) {
+      throw new UnprocessableEntityException({
+        code: 'INVALID_ACCOUNT_KEY_PATH',
+        message: 'Account key path cannot be empty.'
+      });
+    }
+    return trimmed;
   }
 
   private normalizeOptionalFingerprint(value?: string | null): string | null {
@@ -107,8 +130,39 @@ export class WalletPreviewService {
     return trimmed.toUpperCase();
   }
 
-  private resolveDescriptorFingerprint(fingerprint: string | null): string {
-    return fingerprint ?? '00000000';
+  private assertValidAccountKeyPath(extendedKey: string, accountKeyPath: string): void {
+    const trimmedPath = accountKeyPath.trim();
+    if (!trimmedPath) {
+      throw new UnprocessableEntityException({
+        code: 'INVALID_ACCOUNT_KEY_PATH',
+        message: 'Account key path cannot be empty.'
+      });
+    }
+
+    if (/^(tpub|upub|vpub)/iu.test(extendedKey)) {
+      const segments = trimmedPath.split('/');
+      if (segments.length < 4) {
+        throw new UnprocessableEntityException({
+          code: 'INVALID_ACCOUNT_KEY_PATH',
+          message: "Testnet account key path must follow m/84'/1'/account' format."
+        });
+      }
+
+      const [root, purpose, coinType] = segments;
+      if (root.toLowerCase() !== 'm' || !/^84['h]?$/u.test(purpose)) {
+        throw new UnprocessableEntityException({
+          code: 'INVALID_ACCOUNT_KEY_PATH',
+          message: "Account key path must start with m/84'/."
+        });
+      }
+
+      if (!/^1['h]?$/u.test(coinType)) {
+        throw new UnprocessableEntityException({
+          code: 'INVALID_ACCOUNT_KEY_PATH',
+          message: "Testnet extended keys must use coin type 1'."
+        });
+      }
+    }
   }
 
   private normalizeStoreId(value: string): string {

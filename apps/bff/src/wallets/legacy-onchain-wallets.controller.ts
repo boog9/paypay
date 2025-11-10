@@ -45,7 +45,7 @@ export class LegacyOnchainWalletsController {
     return this.btcpay.proxy({
       storeId: normalizedStoreId,
       method: 'GET',
-      path: `/api/v1/stores/${normalizedStoreId}/payment-methods/onchain/BTC/wallet/transactions`,
+      path: `/api/v1/stores/${normalizedStoreId}/payment-methods/BTC-CHAIN/wallet/transactions`,
       params: query,
       requestId: extractRequestId(req),
     });
@@ -60,7 +60,7 @@ export class LegacyOnchainWalletsController {
     return this.btcpay.proxy({
       storeId: normalizedStoreId,
       method: 'GET',
-      path: `/api/v1/stores/${normalizedStoreId}/payment-methods/onchain/BTC/wallet`,
+      path: `/api/v1/stores/${normalizedStoreId}/payment-methods/BTC-CHAIN/wallet`,
       requestId: extractRequestId(req),
     });
   }

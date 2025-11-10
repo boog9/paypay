@@ -1670,8 +1670,9 @@ export class BtcpayPaymentMethodsService {
           collect(error);
         }
       }
-      if (Array.isArray((data as Record<string, unknown>).validationErrors)) {
-        for (const error of (data as Record<string, unknown>).validationErrors as unknown[]) {
+      const validationErrors = data.validationErrors;
+      if (Array.isArray(validationErrors)) {
+        for (const error of validationErrors) {
           collect(error);
         }
       }

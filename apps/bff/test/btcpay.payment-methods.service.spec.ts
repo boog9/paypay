@@ -752,7 +752,7 @@ describe('BtcpayPaymentMethodsService', () => {
     );
 
     const [, body] = putMock.mock.calls[0];
-    expect((body as any).config.accountKeySettings[0]).not.toHaveProperty('accountKeyPath');
+    expect(body?.config?.accountKeySettings?.[0]).not.toHaveProperty('accountKeyPath');
   });
 
   it('adds account key path to settings when manual override is enabled', async () => {
@@ -820,12 +820,12 @@ describe('BtcpayPaymentMethodsService', () => {
 
     expect(putMock).toHaveBeenCalledTimes(2);
     const firstCallBody = putMock.mock.calls[0]?.[1];
-    expect((firstCallBody as any).config).toEqual({
+    expect(firstCallBody?.config).toEqual({
       accountDerivation: descriptor,
       isHotWallet: false
     });
     const secondCallBody = putMock.mock.calls[1]?.[1];
-    expect((secondCallBody as any).config).toEqual({
+    expect(secondCallBody?.config).toEqual({
       accountDerivation: descriptor,
       isHotWallet: false,
       accountKeySettings: [

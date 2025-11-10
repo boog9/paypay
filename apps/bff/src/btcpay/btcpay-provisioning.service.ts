@@ -168,12 +168,16 @@ export class BtcpayProvisioningService {
 
   private createHttp(): AxiosInstance {
     const baseURL = this.config.baseUrl.replace(/\/$/, '');
+    const adminApiKey = typeof this.config.adminApiKey === 'string' ? this.config.adminApiKey.trim() : '';
+    if (!adminApiKey) {
+      throw new ProvisioningError('BTCPay admin API key is not configured');
+    }
     return axios.create({
       baseURL,
       headers: {
         Accept: 'application/json',
         'User-Agent': 'PayPay-BFF/1.0',
-        Authorization: `token ${this.config.adminApiKey}`
+        Authorization: `token ${adminApiKey}`
       },
       timeout: 10_000,
       maxBodyLength: 2 * 1024 * 1024,
@@ -192,7 +196,12 @@ export class BtcpayProvisioningService {
     handler: (http: AxiosInstance) => Promise<T>;
     recover?: (error: unknown) => T | undefined;
   }): Promise<T> {
-    const http = this.createHttp();
+    let http: AxiosInstance;
+    try {
+      http = this.createHttp();
+    } catch (error: unknown) {
+      this.raiseProvisioningError(error, code, operation);
+    }
     const maxAttempts = 3;
     let attempt = 0;
     let lastError: unknown = new Error('Unknown BTCPay provisioning error');
@@ -204,6 +213,10 @@ export class BtcpayProvisioningService {
         lastError = error;
         if (axios.isAxiosError(error) && error.response?.status === 422) {
           this.handleUnprocessableError(error, code, operation);
+        }
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          const unauthorized = new ProvisioningError('BTCPay admin key invalid or missing', error);
+          this.raiseProvisioningError(unauthorized, code, operation);
         }
         const recovered = recover?.(error);
         if (recovered !== undefined) {
@@ -326,12 +339,29 @@ export class BtcpayProvisioningService {
     code: `INTEGRATION_BTCPAY_${string}`,
     operation: string
   ): never {
-    const err = ensureError(error);
-    this.logger.error({ err, operation }, 'BTCPay provisioning failed');
-    const message = axios.isAxiosError(error)
-      ? this.extractErrorMessage(error, operation)
-      : `BTCPay integration failed: ${operation}`;
-    const provisioningError = new ProvisioningError(message, err);
+    const provisioningError =
+      error instanceof ProvisioningError
+        ? error
+        : new ProvisioningError(
+            axios.isAxiosError(error)
+              ? this.extractErrorMessage(error, operation)
+              : `BTCPay integration failed: ${operation}`,
+            error
+          );
+
+    const cause = provisioningError.cause;
+    const axiosError = axios.isAxiosError(cause) ? cause : undefined;
+    const status = axiosError?.response?.status;
+
+    this.logger.error(
+      {
+        operation,
+        status,
+        message: provisioningError.message
+      },
+      'BTCPay provisioning failed'
+    );
+
     this.toHttpException(provisioningError, code, operation);
   }
 

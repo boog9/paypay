@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, TransformFnParams } from 'class-transformer';
 import {
   IsNotEmpty,
   IsOptional,
@@ -79,7 +79,9 @@ function coerceTrimmedString(value: unknown): string | undefined {
 export class PreviewBodyDto {
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: TransformFnParams) =>
+    typeof value === 'string' ? value.trim() : (value as unknown)
+  )
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   derivationScheme!: string;
 

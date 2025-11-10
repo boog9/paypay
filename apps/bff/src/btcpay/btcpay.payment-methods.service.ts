@@ -17,6 +17,7 @@ import { EnvelopeEncryptionService } from '../security/envelope-encryption.servi
 import { BtcpayService } from './btcpay.service';
 import { BTCPayAuthError, BTCPayUpstreamError } from './btcpay.errors';
 import { isUuid } from '../shared/is-uuid';
+import { BtcpayValidationException } from '../http/btcpay-validation.exception';
 
 type Maybe<T> = T | null | undefined;
 
@@ -1510,14 +1511,10 @@ export class BtcpayPaymentMethodsService {
   ): UnprocessableEntityException {
     if (typeof payload === 'string') {
       const sanitized = this.sanitizeMessage(payload);
-      const exception = new UnprocessableEntityException(sanitized, { cause });
-      (exception as any).response = sanitized;
-      return exception;
+      return new BtcpayValidationException(sanitized, { cause });
     }
 
-    const exception = new UnprocessableEntityException(payload, { cause });
-    (exception as any).response = payload;
-    return exception;
+    return new BtcpayValidationException(payload, { cause });
   }
 
   private mapGenerateWalletError(error: unknown): Error {

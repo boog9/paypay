@@ -127,8 +127,11 @@ describe('On-chain wallet controller (e2e)', () => {
     expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
       store.btcpayStoreId,
       'BTC',
-      expect.objectContaining({ store: expect.any(Object), includeConfig: true })
+      expect.objectContaining({ store: expect.any(Object) })
     );
+    const presenceCallOptions = paymentMethodsMock.getOnchain.mock.calls[0]?.[2];
+    expect(presenceCallOptions).toBeDefined();
+    expect(presenceCallOptions).not.toHaveProperty('includeConfig');
   });
 
   it('returns presence when resolved via BTCPay store identifier', async () => {
@@ -181,10 +184,10 @@ describe('On-chain wallet controller (e2e)', () => {
     expect(payload).toMatchObject({
       storeId: store.btcpayStoreId,
       derivationScheme,
-      accountKeyPath: "m/84'/1'/0'",
-      label: null,
+      allowAccountKeyPath: false,
       enabled: true
     });
+    expect(payload).not.toHaveProperty('accountKeyPath');
     expect('masterFingerprint' in payload).toBe(false);
     expect(options).toMatchObject({ store });
 
@@ -233,7 +236,14 @@ describe('On-chain wallet controller (e2e)', () => {
       .expect(204);
 
     const descriptorCall = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0];
-    expect(descriptorCall?.masterFingerprint).toBe('D34DB33F');
+    expect(descriptorCall).toMatchObject({
+      storeId: store.btcpayStoreId,
+      derivationScheme: descriptor,
+      allowAccountKeyPath: false,
+      enabled: true
+    });
+    expect(descriptorCall).not.toHaveProperty('accountKeyPath');
+    expect(descriptorCall).not.toHaveProperty('masterFingerprint');
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
@@ -274,12 +284,16 @@ describe('On-chain wallet controller (e2e)', () => {
     expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
       store.btcpayStoreId,
       'BTC',
-      expect.objectContaining({ store, includeConfig: true })
+      expect.objectContaining({ store })
     );
+    const disableCallOptions = paymentMethodsMock.getOnchain.mock.calls.find((call) => call[0] === store.btcpayStoreId)?.[2];
+    expect(disableCallOptions).toBeDefined();
+    expect(disableCallOptions).not.toHaveProperty('includeConfig');
     expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId: store.btcpayStoreId,
-        cryptoCode: 'BTC',
+        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
+        allowAccountKeyPath: false,
         enabled: false
       }),
       expect.objectContaining({ store })

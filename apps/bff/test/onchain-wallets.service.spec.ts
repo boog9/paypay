@@ -68,6 +68,7 @@ describe('OnchainWalletsService', () => {
       enabled: false,
       config: {
         derivationScheme: null,
+        accountKey: null,
         accountKeyPath: null,
         masterFingerprint: null,
         label: null
@@ -90,6 +91,7 @@ describe('OnchainWalletsService', () => {
       enabled: true,
       config: {
         derivationScheme: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
+        accountKey: 'wpkh([ABCD1234/84\'/1\'/0\']tpub123/0/*)',
         accountKeyPath: "84'/1'/0'",
         masterFingerprint: 'ABCD1234',
         label: 'Primary'

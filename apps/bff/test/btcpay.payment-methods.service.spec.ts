@@ -345,6 +345,7 @@ describe('BtcpayPaymentMethodsService', () => {
       enabled: true,
       config: {
         derivationScheme: SAMPLE_TPUB,
+        accountKey: SAMPLE_TPUB,
         accountKeyPath: "84'/1'/0'",
         masterFingerprint: '10B3BFC0',
         label: 'Primary'
@@ -507,7 +508,8 @@ describe('BtcpayPaymentMethodsService', () => {
       enabled: true,
       config: {
         derivationScheme: 'tpubExample',
-        accountKeyPath: "m/84'/1'/0'",
+        accountKey: 'tpubExample',
+        accountKeyPath: "84'/1'/0'",
         masterFingerprint: '10B3BFC0',
         label: 'Primary'
       }
@@ -700,7 +702,7 @@ describe('BtcpayPaymentMethodsService', () => {
     throw new Error('Expected UnprocessableEntityException to be thrown');
   });
 
-  it('sends masterFingerprint when updating payment method metadata', async () => {
+  it('sends minimal payload when importing an extended public key', async () => {
     const putMock = jest.fn().mockResolvedValue({ data: {} });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
@@ -710,28 +712,97 @@ describe('BtcpayPaymentMethodsService', () => {
     await service.updateOnchainPaymentMethod(
       {
         storeId: store.btcpayStoreId,
-        derivationScheme: SAMPLE_XPUB,
-        accountKeyPath: "abcd1234/84'/0'/0'",
-        masterFingerprint: 'abcd1234'
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
       },
-      { store, apiKey: 'scoped-key' }
+      { store }
     );
 
     expect(putMock).toHaveBeenCalledTimes(1);
-    const [, body] = putMock.mock.calls[0];
+    const [path, body] = putMock.mock.calls[0];
+    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
     expect(body).toEqual({
       enabled: true,
       config: {
-        derivationScheme: SAMPLE_XPUB,
-        accountKeyPath: "abcd1234/84'/0'/0'",
-        masterFingerprint: 'ABCD1234',
-        label: null
+        accountDerivation: SAMPLE_TPUB,
+        isHotWallet: false,
+        accountKeySettings: [
+          {
+            accountKey: SAMPLE_TPUB
+          }
+        ]
       }
     });
   });
 
-  it('omits account key path and master fingerprint when descriptor already includes fingerprint', async () => {
+  it('omits account key path unless explicitly allowed', async () => {
     const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'"
+      },
+      { store }
+    );
+
+    const [, body] = putMock.mock.calls[0];
+    expect((body as any).config.accountKeySettings[0]).not.toHaveProperty('accountKeyPath');
+  });
+
+  it('adds account key path to settings when manual override is enabled', async () => {
+    const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        derivationScheme: SAMPLE_TPUB,
+        accountKeyPath: "m/84'/1'/0'",
+        allowAccountKeyPath: true
+      },
+      { store }
+    );
+
+    const [, body] = putMock.mock.calls[0];
+    expect(body).toEqual({
+      enabled: true,
+      config: {
+        accountDerivation: SAMPLE_TPUB,
+        isHotWallet: false,
+        accountKeySettings: [
+          {
+            accountKey: SAMPLE_TPUB,
+            accountKeyPath: "m/84'/1'/0'"
+          }
+        ]
+      }
+    });
+  });
+
+  it('retries once with account key settings when BTCPay flags the property for descriptors', async () => {
+    const errorResponse = {
+      status: 422,
+      data: {
+        errors: [{ path: 'Config.AccountKeySettings', message: 'Missing account key settings' }]
+      }
+    } as any;
+    const axiosError = new AxiosError('Validation failed', 'ERR_BAD_REQUEST', undefined, undefined, errorResponse);
+    axiosError.response = errorResponse;
+    axiosError.isAxiosError = true;
+
+    const putMock = jest
+      .fn()
+      .mockRejectedValueOnce(axiosError)
+      .mockResolvedValueOnce({ data: {} });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
@@ -742,24 +813,27 @@ describe('BtcpayPaymentMethodsService', () => {
     await service.updateOnchainPaymentMethod(
       {
         storeId: store.btcpayStoreId,
-        derivationScheme: descriptor,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: 'd34db33f',
-        label: 'Primary descriptor'
+        derivationScheme: descriptor
       },
       { store }
     );
 
-    expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
-      {
-        enabled: true,
-        config: {
-          derivationScheme: descriptor,
-          label: 'Primary descriptor'
+    expect(putMock).toHaveBeenCalledTimes(2);
+    const firstCallBody = putMock.mock.calls[0]?.[1];
+    expect((firstCallBody as any).config).toEqual({
+      accountDerivation: descriptor,
+      isHotWallet: false
+    });
+    const secondCallBody = putMock.mock.calls[1]?.[1];
+    expect((secondCallBody as any).config).toEqual({
+      accountDerivation: descriptor,
+      isHotWallet: false,
+      accountKeySettings: [
+        {
+          accountKey: descriptor
         }
-      }
-    );
+      ]
+    });
   });
 
   // Legacy fallback behaviour is covered by the dedicated preview test above.
@@ -773,7 +847,7 @@ describe('BtcpayPaymentMethodsService', () => {
         config: {
           derivationScheme: SAMPLE_XPUB,
           accountKeySettings: [
-            { accountKeyPath: "84'/0'/0'", masterFingerprint: 'abcdef12' }
+            { accountKey: SAMPLE_XPUB, accountKeyPath: "84'/0'/0'", masterFingerprint: 'abcdef12' }
           ]
         }
       }
@@ -801,15 +875,21 @@ describe('BtcpayPaymentMethodsService', () => {
     expect(result.config.accountKeyPath).toBe("84'/0'/0'");
     expect(result.config.masterFingerprint).toBe('ABCDEF12');
     expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
+    expect(result.config.accountKey).toBe(SAMPLE_XPUB);
     expect(putMock).toHaveBeenCalledWith(
       '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
-      expect.objectContaining({
+      {
         enabled: true,
-        config: expect.objectContaining({
-          derivationScheme: SAMPLE_XPUB,
-          accountKeyPath: "abcdef12/84'/0'/0'"
-        })
-      })
+        config: {
+          accountDerivation: SAMPLE_XPUB,
+          isHotWallet: false,
+          accountKeySettings: [
+            {
+              accountKey: SAMPLE_XPUB
+            }
+          ]
+        }
+      }
     );
   });
 
@@ -878,8 +958,6 @@ describe('BtcpayPaymentMethodsService', () => {
         storeId: store.btcpayStoreId,
         derivationScheme: 'xpubTemp',
         accountKeyPath: "m/84'/0'/0'",
-        masterFingerprint: 'abcd1234',
-        label: 'Temporary import',
         enabled: true
       },
       { store, apiKey: 'temporary-key' }
@@ -896,11 +974,42 @@ describe('BtcpayPaymentMethodsService', () => {
       {
         enabled: true,
         config: {
-          derivationScheme: 'xpubTemp',
-          accountKeyPath: "m/84'/0'/0'",
-          masterFingerprint: 'ABCD1234',
-          label: 'Temporary import'
+          accountDerivation: 'xpubTemp',
+          isHotWallet: false,
+          accountKeySettings: [
+            { accountKey: 'xpubTemp' }
+          ]
         }
+      }
+    );
+  });
+
+  it('trims derivation schemes before detecting extended keys', async () => {
+    const putMock = jest.fn().mockResolvedValue({ data: {} });
+
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+
+    const service = buildService();
+
+    await service.updateOnchainPaymentMethod(
+      {
+        storeId: store.btcpayStoreId,
+        derivationScheme: `  ${SAMPLE_TPUB}  `
+      },
+      { store }
+    );
+
+    expect(putMock).toHaveBeenCalledWith(
+      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
+      {
+        config: {
+          accountDerivation: SAMPLE_TPUB,
+          isHotWallet: false,
+          accountKeySettings: [
+            { accountKey: SAMPLE_TPUB }
+          ]
+        },
+        enabled: true
       }
     );
   });
@@ -949,7 +1058,7 @@ describe('BtcpayPaymentMethodsService', () => {
     ).rejects.toBeInstanceOf(BTCPayUpstreamError);
   });
 
-  it('loads configuration when includeConfig is requested', async () => {
+  it('loads configuration from the payment-method endpoint', async () => {
     const getMock = jest.fn().mockResolvedValue({
       data: {
         enabled: true,
@@ -963,11 +1072,12 @@ describe('BtcpayPaymentMethodsService', () => {
 
     const service = buildService();
 
-    const result = await service.getOnchain(store.btcpayStoreId, 'BTC', { store, includeConfig: true });
+    const result = await service.getOnchain(store.btcpayStoreId, 'BTC', { store });
 
     expect(getMock).toHaveBeenCalled();
     expect(result.enabled).toBe(true);
     expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
+    expect(result.config.accountKey).toBe(SAMPLE_XPUB);
   });
 
   it('retrieves an on-chain wallet summary with preview fallback', async () => {
@@ -1044,6 +1154,7 @@ describe('BtcpayPaymentMethodsService', () => {
         enabled: true,
         config: expect.objectContaining({
           derivationScheme: 'xpub123',
+          accountKey: 'xpub123',
           accountKeyPath: "84'/0'/0'",
           masterFingerprint: 'ABCDEF12',
           label: null

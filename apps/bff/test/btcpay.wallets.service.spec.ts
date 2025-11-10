@@ -136,4 +136,18 @@ describe('BtcpayWalletService', () => {
     expect(result.total).toBe(5);
     expect(result.items).toEqual(data.items);
   });
+
+  it('retrieves the current receive address from the BTC-CHAIN endpoint', async () => {
+    const addressPayload = { address: 'tb1qexampleaddress' };
+    const getMock = jest.fn().mockResolvedValue({ data: addressPayload });
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getReceiveAddress(store.btcpayStoreId, 'btc', { store });
+
+    expect(getMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/address'
+    );
+    expect(result).toEqual(addressPayload);
+  });
 });

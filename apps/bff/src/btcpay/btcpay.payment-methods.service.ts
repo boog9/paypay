@@ -73,6 +73,7 @@ export interface OnchainPaymentMethodConfig {
   enabled: boolean;
   config: {
     derivationScheme: string | null;
+    accountKey: string | null;
     accountKeyPath: string | null;
     masterFingerprint: string | null;
     label: string | null;
@@ -83,6 +84,7 @@ export interface OnchainConfigResponse {
   enabled: boolean;
   config?: {
     derivationScheme: string | null;
+    accountKey?: string | null;
     accountKeyPath?: string | null;
     masterFingerprint?: string | null;
     label?: string | null;
@@ -104,12 +106,10 @@ export interface OnchainWalletSummary {
 }
 
 export interface UpdateOnchainPaymentMethodPayload {
-  enabled: boolean;
+  enabled?: boolean;
   config: {
     derivationScheme: string;
     accountKeyPath?: string | null;
-    label?: string | null;
-    masterFingerprint?: string | null;
   };
 }
 
@@ -181,6 +181,7 @@ export interface UpdateOnchainPaymentMethodRequest {
   masterFingerprint?: string | null;
   label?: string | null;
   enabled?: boolean;
+  allowAccountKeyPath?: boolean;
 }
 
 export interface UpdateOnchainPaymentMethodOptions extends PaymentMethodRequestOptions {
@@ -359,20 +360,15 @@ export class BtcpayPaymentMethodsService {
   async getOnchain(
     storeId: string,
     currencyCode = 'BTC',
-    options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
+    options?: PaymentMethodRequestOptions
   ): Promise<OnchainPaymentMethodConfig> {
     const context = await this.prepareStoreContext(storeId, options);
     const currency = currencyCode.toUpperCase();
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
-    const params: PaymentMethodCollectionQueryParams = {};
-    if (options?.includeConfig === true) {
-      params.includeConfig = true;
-    }
 
     try {
       const response = await context.http.get(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
-        Object.keys(params).length > 0 ? { params } : undefined
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
       );
       return this.normalizePaymentMethodResponse(
         response.data,
@@ -399,8 +395,7 @@ export class BtcpayPaymentMethodsService {
 
     try {
       const response = await context.http.get(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
-        includeConfig ? { params: { includeConfig: true } } : undefined
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
       );
 
       const payload = response.data as Record<string, unknown>;
@@ -412,13 +407,16 @@ export class BtcpayPaymentMethodsService {
 
       const configPayload = (payload?.config ?? {}) as Record<string, unknown>;
 
+      const metadata = this.extractConfigMetadata(configPayload);
+
       return {
         enabled: true,
         config: {
-          derivationScheme: this.firstString([configPayload.derivationScheme]),
-          accountKeyPath: this.firstString([configPayload.accountKeyPath]),
-          masterFingerprint: this.firstString([configPayload.masterFingerprint])?.toUpperCase() ?? null,
-          label: this.firstString([configPayload.label])
+          derivationScheme: metadata.derivationScheme,
+          accountKey: metadata.accountKey,
+          accountKeyPath: metadata.accountKeyPath,
+          masterFingerprint: metadata.masterFingerprint,
+          label: metadata.label
         }
       } satisfies OnchainConfigResponse;
     } catch (error) {
@@ -552,7 +550,7 @@ export class BtcpayPaymentMethodsService {
   async getOnchainWalletConfigInternal(
     storeId: string,
     host?: string,
-    options?: PaymentMethodRequestOptions & { includeConfig?: boolean }
+    options?: PaymentMethodRequestOptions
   ): Promise<OnchainPaymentMethodConfig> {
     const apiKey = this.normalizeApiKey(options?.apiKeyOverride);
     if (!apiKey) {
@@ -569,8 +567,7 @@ export class BtcpayPaymentMethodsService {
 
     try {
       const response = await context.http.get(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
-        { params: { includeConfig: true } }
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
       );
       return this.normalizePaymentMethodResponse(
         response.data,
@@ -624,43 +621,42 @@ export class BtcpayPaymentMethodsService {
       apiKeyOverride: options?.apiKey ?? null
     });
     const paymentMethodId = BTC_CHAIN;
-    const descriptorIncludesFingerprint = this.descriptorContainsFingerprint(params.derivationScheme);
-    const config: {
-      derivationScheme: string;
-      accountKeyPath?: string | null;
-      masterFingerprint?: string | null;
-      label?: string | null;
-    } = {
-      derivationScheme: params.derivationScheme
-    };
-
-    if (!descriptorIncludesFingerprint) {
-      if (params.accountKeyPath !== undefined) {
-        config.accountKeyPath = params.accountKeyPath ?? null;
-      }
-
-      if (params.masterFingerprint !== undefined) {
-        if (params.masterFingerprint === null) {
-          config.masterFingerprint = null;
-        } else if (typeof params.masterFingerprint === 'string' && params.masterFingerprint.trim()) {
-          config.masterFingerprint = params.masterFingerprint.trim().toUpperCase();
-        }
-      }
+    const derivation = typeof params.derivationScheme === 'string' ? params.derivationScheme.trim() : '';
+    if (!derivation) {
+      context.cleanup();
+      throw new InternalServerErrorException('Derivation scheme is required to update wallet configuration.');
     }
 
-    config.label = params.label ?? null;
+    let includeAccountKeySettings = this.isExtendedPublicKey(derivation);
+    const buildBody = (includeSettings: boolean) =>
+      this.buildUpdateRequestBody(
+        {
+          enabled: params.enabled ?? true,
+          config: { derivationScheme: derivation, accountKeyPath: params.accountKeyPath }
+        },
+        {
+          includeAccountKeySettings: includeSettings,
+          accountKeyPath: params.accountKeyPath ?? null,
+          allowAccountKeyPath: params.allowAccountKeyPath === true
+        }
+      );
 
-    const body = {
-      enabled: params.enabled ?? true,
-      config
-    };
+    const primaryBody = buildBody(includeAccountKeySettings);
+    const targetPath = this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId);
 
     try {
-      await context.http.put(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
-        body
-      );
+      await context.http.put(targetPath, primaryBody);
     } catch (error) {
+      if (this.shouldRetryWithAccountKeySettings(error) && includeAccountKeySettings === false) {
+        const retryBody = buildBody(true);
+        includeAccountKeySettings = true;
+        try {
+          await context.http.put(targetPath, retryBody);
+          return;
+        } catch (retryError) {
+          this.handleUpdatePaymentMethodError(retryError);
+        }
+      }
       this.handleUpdatePaymentMethodError(error);
     } finally {
       context.cleanup();
@@ -743,8 +739,15 @@ export class BtcpayPaymentMethodsService {
     return payload;
   }
 
-  private buildUpdateRequestBody(payload: UpdateOnchainPaymentMethodPayload): Record<string, unknown> {
-    const config = this.buildUpdateConfigPayload(payload.config);
+  private buildUpdateRequestBody(
+    payload: UpdateOnchainPaymentMethodPayload,
+    options?: {
+      includeAccountKeySettings?: boolean;
+      accountKeyPath?: string | null;
+      allowAccountKeyPath?: boolean;
+    }
+  ): Record<string, unknown> {
+    const config = this.buildUpdateConfigPayload(payload.config, options);
     const body: Record<string, unknown> = { config };
     if (payload.enabled !== undefined) {
       body.enabled = payload.enabled;
@@ -783,34 +786,36 @@ export class BtcpayPaymentMethodsService {
   }
 
   private buildUpdateConfigPayload(
-    config: UpdateOnchainPaymentMethodPayload['config']
+    config: UpdateOnchainPaymentMethodPayload['config'],
+    options?: {
+      includeAccountKeySettings?: boolean;
+      accountKeyPath?: string | null;
+      allowAccountKeyPath?: boolean;
+    }
   ): Record<string, unknown> {
-    const payload: Record<string, unknown> = {};
-
-    payload.derivationScheme = config.derivationScheme;
-
-    if (config.accountKeyPath !== undefined) {
-      if (config.accountKeyPath === null) {
-        payload.accountKeyPath = null;
-      } else if (typeof config.accountKeyPath === 'string' && config.accountKeyPath.trim()) {
-        payload.accountKeyPath = config.accountKeyPath;
-      }
+    const derivation = typeof config.derivationScheme === 'string' ? config.derivationScheme.trim() : '';
+    if (!derivation) {
+      throw new InternalServerErrorException('Derivation scheme is required to update wallet configuration.');
     }
 
-    if (config.label !== undefined) {
-      if (config.label === null) {
-        payload.label = null;
-      } else if (typeof config.label === 'string' && config.label.trim()) {
-        payload.label = config.label;
-      }
-    }
+    const payload: Record<string, unknown> = {
+      accountDerivation: derivation,
+      isHotWallet: false
+    };
 
-    if (config.masterFingerprint !== undefined) {
-      if (config.masterFingerprint === null) {
-        payload.masterFingerprint = null;
-      } else if (typeof config.masterFingerprint === 'string' && config.masterFingerprint.trim()) {
-        payload.masterFingerprint = config.masterFingerprint.toUpperCase();
+    if (options?.includeAccountKeySettings !== false) {
+      const accountKeySettingsEntry: Record<string, unknown> = {
+        accountKey: derivation
+      };
+
+      if (options?.allowAccountKeyPath && typeof options.accountKeyPath === 'string') {
+        const trimmed = options.accountKeyPath.trim();
+        if (trimmed) {
+          accountKeySettingsEntry.accountKeyPath = trimmed;
+        }
       }
+
+      payload.accountKeySettings = [accountKeySettingsEntry];
     }
 
     return payload;
@@ -881,7 +886,7 @@ export class BtcpayPaymentMethodsService {
       configPayload = { derivationScheme: payload };
     }
 
-    const { derivationScheme, accountKeyPath, masterFingerprint, label: derivedLabel } =
+    const { derivationScheme, accountKey, accountKeyPath, masterFingerprint, label: derivedLabel } =
       this.extractConfigMetadata(configPayload);
 
     const resolvedPaymentMethodId = (canonicalPaymentMethodId(paymentMethodId, 'chain') || paymentMethodId) as 'BTC-CHAIN';
@@ -892,6 +897,7 @@ export class BtcpayPaymentMethodsService {
       enabled,
       config: {
         derivationScheme,
+        accountKey,
         accountKeyPath,
         masterFingerprint,
         label: label ?? derivedLabel
@@ -993,15 +999,28 @@ export class BtcpayPaymentMethodsService {
 
   private extractConfigMetadata(
     config: unknown
-  ): { derivationScheme: string | null; accountKeyPath: string | null; masterFingerprint: string | null; label: string | null } {
+  ): {
+    derivationScheme: string | null;
+    accountKey: string | null;
+    accountKeyPath: string | null;
+    masterFingerprint: string | null;
+    label: string | null;
+  } {
     if (!config) {
-      return { derivationScheme: null, accountKeyPath: null, masterFingerprint: null, label: null };
+      return {
+        derivationScheme: null,
+        accountKey: null,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      };
     }
 
     if (typeof config === 'string') {
       const { masterFingerprint, keyPath } = this.parseAccountKeyPath(null);
       return {
         derivationScheme: config,
+        accountKey: config,
         accountKeyPath: keyPath,
         masterFingerprint,
         label: null
@@ -1009,7 +1028,13 @@ export class BtcpayPaymentMethodsService {
     }
 
     if (typeof config !== 'object') {
-      return { derivationScheme: null, accountKeyPath: null, masterFingerprint: null, label: null };
+      return {
+        derivationScheme: null,
+        accountKey: null,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      };
     }
 
     const record = config as Record<string, unknown>;
@@ -1020,6 +1045,7 @@ export class BtcpayPaymentMethodsService {
     ]);
     const label = this.firstString([record.label]);
 
+    let accountKey: string | null = null;
     let accountKeyPath: string | null = null;
     let masterFingerprint: string | null = null;
 
@@ -1034,6 +1060,9 @@ export class BtcpayPaymentMethodsService {
         | Record<string, unknown>
         | undefined;
       if (first) {
+        if (typeof first.accountKey === 'string' && first.accountKey.trim()) {
+          accountKey = first.accountKey.trim();
+        }
         if (typeof first.accountKeyPath === 'string' && first.accountKeyPath.trim()) {
           accountKeyPath = first.accountKeyPath.trim();
         } else if (first.accountKeyPath && typeof first.accountKeyPath === 'object') {
@@ -1065,6 +1094,7 @@ export class BtcpayPaymentMethodsService {
 
     return {
       derivationScheme: derivationScheme ?? null,
+      accountKey: accountKey ?? derivationScheme ?? null,
       accountKeyPath,
       masterFingerprint: masterFingerprint ? masterFingerprint.toUpperCase() : null,
       label: label ?? null
@@ -1361,6 +1391,21 @@ export class BtcpayPaymentMethodsService {
     throw new BTCPayUpstreamError('Upstream error', error);
   }
 
+  private shouldRetryWithAccountKeySettings(error: unknown): boolean {
+    if (!axios.isAxiosError<unknown>(error)) {
+      return false;
+    }
+
+    const status = error.response?.status ?? 0;
+    if (status !== 422) {
+      return false;
+    }
+
+    const data = this.getResponseData(error);
+    const paths = this.extractValidationPaths(data);
+    return paths.some((path) => path.toLowerCase().includes('accountkeysettings'));
+  }
+
   private extractErrorMessage(error: AxiosError<unknown>): string {
     const data = this.getResponseData(error);
     const payloadMessage = this.resolveErrorMessage(data);
@@ -1600,6 +1645,52 @@ export class BtcpayPaymentMethodsService {
       return sanitized;
     }
     return null;
+  }
+
+  private extractValidationPaths(data: unknown): string[] {
+    const paths: string[] = [];
+
+    const collect = (entry: unknown): void => {
+      if (!this.isRecord(entry)) {
+        return;
+      }
+      if (typeof entry.path === 'string' && entry.path.trim()) {
+        paths.push(entry.path.trim());
+      }
+      if (Array.isArray(entry.children)) {
+        for (const child of entry.children) {
+          collect(child);
+        }
+      }
+    };
+
+    if (this.isRecord(data)) {
+      if (Array.isArray(data.errors)) {
+        for (const error of data.errors) {
+          collect(error);
+        }
+      }
+      if (Array.isArray((data as Record<string, unknown>).validationErrors)) {
+        for (const error of (data as Record<string, unknown>).validationErrors as unknown[]) {
+          collect(error);
+        }
+      }
+    }
+
+    return paths;
+  }
+
+  private isExtendedPublicKey(candidate: string): boolean {
+    if (typeof candidate !== 'string') {
+      return false;
+    }
+
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    return /^(?:xpub|ypub|zpub|tpub|upub|vpub)[1-9A-HJ-NP-Za-km-z]+$/iu.test(trimmed);
   }
 
   private resolveErrorMessage(data: unknown): string | null {

@@ -44,8 +44,7 @@ export class OnchainWalletsService {
 
     try {
       const remote = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
-        store,
-        includeConfig: false
+        store
       });
 
       if (remote.enabled && remote.config?.derivationScheme) {
@@ -111,8 +110,7 @@ export class OnchainWalletsService {
 
   async refreshFromBtcpay(store: ManagedStoreEntity, includeConfig = true) {
     const response = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
-      store,
-      includeConfig
+      store
     });
 
     if (!response?.enabled) {

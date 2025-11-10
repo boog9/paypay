@@ -6,124 +6,132 @@ This document must be maintained in accordance with .agent/PLANS.md located at t
 
 ## Purpose / Big Picture
 
-We need to let a PayPay portal operator onboard a merchant, mirror BTCPay Server functionality through our Next.js frontend and NestJS BFF, and orchestrate all workflows purely over the Greenfield API v1 against BTCPay Server v2.2.1 on Testnet. After this work, a merchant who signs up at paypay.iddqd.in can create their BTCPay store, issue scoped API keys, manage invoices, wallets, apps, pull payments, and configuration, and verify all state transitions from our UI without touching the native BTCPay dashboard. Success is demonstrated when a new merchant can complete the entire flow (signup → store → invoice → webhook-settled payment → refund payout) using only our portal with automated tests covering the pipeline.
+Merchants who land on paypay.iddqd.in can run every BTCPay Server workflow through our portal without touching the native BTCPay UI. The NestJS BFF provisions users, issues bootstrap and store-scoped API keys, creates and manages stores, invoices, wallets, pull payments, apps, and webhooks strictly over the Greenfield v1 API. The Next.js frontend mirrors the familiar BTCPay layout while proxying every action through the BFF. Success is measured by an end-to-end run of `signup → store → invoice → webhook → payout` using only our stack with automated coverage in place.
 
 ## Progress
 
-- [ ] (2025-02-14 00:00Z) Draft ExecPlan committed.
-- [ ] (2025-02-14 00:00Z) Core domain models and database migrations implemented.
-- [ ] (2025-02-14 00:00Z) User signup and bootstrap key issuance implemented and tested.
-- [ ] (2025-02-14 00:00Z) Store creation and per-store key vault implemented and tested.
-- [ ] (2025-02-14 00:00Z) Invoice lifecycle (create/list/detail/webhooks) implemented and tested.
-- [ ] (2025-02-14 00:00Z) Wallet, pull payments, and payouts implemented and tested.
-- [ ] (2025-02-14 00:00Z) Apps, checkout, rates, webhooks, and plugins management implemented and tested.
-- [ ] (2025-02-14 00:00Z) Frontend parity screens completed with access control and error states.
-- [ ] (2025-02-14 00:00Z) End-to-end test suite and observability hooks delivered.
-- [ ] (2025-02-14 00:00Z) Security hardening, key rotation, and documentation completed.
+- [x] (2025-11-10 14:32Z) ExecPlan updated to match the shipped portal architecture and artefacts, including the new route map reference.
+- [x] (2025-11-10 14:32Z) Core domain models and migrations cover tenants, stores, vault records, invoices, payouts, and audit trails (`apps/bff/src/tenants/entities`, `apps/bff/src/stores/managed-store.entity.ts`, `apps/bff/src/wallets/onchain-wallet.entity.ts`, `apps/bff/src/migrations`).
+- [x] (2025-11-10 14:32Z) Signup and bootstrap key issuance implemented with CSRF, 2FA hooks, and admin-key scoped Greenfield calls (`apps/bff/src/auth`, `apps/bff/src/btcpay/btcpay.service.ts`, `apps/bff/test/auth.signup-provisioning.e2e-spec.ts`).
+- [x] (2025-11-10 14:32Z) Store creation pipeline provisions CoinGecko rate sources, per-store keys, and webhook vault secrets with idempotency handling (`apps/bff/src/stores`, `apps/bff/src/btcpay/btcpay.service.ts`, `apps/bff/test/stores.service.spec.ts`).
+- [x] (2025-11-10 14:32Z) Invoice lifecycle, webhook processing, and reconciliation flows implemented and covered (`apps/bff/src/hooks`, `apps/bff/src/tenants/tenants.service.ts`, `apps/bff/test/hooks.signature.spec.ts`, `apps/bff/test/tenants.onboarding.e2e-spec.ts`).
+- [x] (2025-11-10 14:32Z) Wallet, pull payment, and payout management live with hot-wallet safeguards and PSBT fallbacks (`apps/bff/src/wallets`, `apps/bff/test/onchain-wallets.*`, `apps/bff/test/wallet-preview.*`).
+- [x] (2025-11-10 14:32Z) Apps, checkout, rates, webhook administration, and plugin visibility exposed with minimal-permission store keys (`apps/bff/src/btcpay/btcpay.payment-methods.service.ts`, `apps/bff/src/hooks`, UI flows under `apps/frontend/app/(dashboard)` and `apps/frontend/src/components`).
+- [x] (2025-11-10 14:32Z) Frontend mirrors BTCPay navigation with server/client components tied to BFF data sources (`apps/frontend/app`, `apps/frontend/src/lib/bff-fetch.ts`, `apps/frontend/src/components`).
+- [x] (2025-11-10 14:32Z) Automated tests cover end-to-end onboarding, wallet previews, webhook signature rejection, and auth cookie/CSRF behaviour (`apps/bff/test`, `apps/frontend/e2e`, `deploy/docker/examples/auth-smoke.sh`).
+- [x] (2025-11-10 14:32Z) Security hardening, key rotation, observability, and documentation shipped (`apps/bff/src/security`, `apps/bff/src/bootstrap`, `docs/ARCHITECTURE.md`, `docs/ROUTE_MAPS.md`, `README.md`).
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: N/A.
+- Observation: BTCPay returns HTTP 422 with field-level errors when a user email already exists; `BtcpayService` inspects the payload to surface a conflict instead of a generic 422, keeping signup UX predictable. Evidence: `apps/bff/src/btcpay/btcpay.service.ts` (`isUsernameTakenError`).
+- Observation: Store bootstrap keys can be absent in subsequent sessions; `StoresService.listStores` falls back to the stored per-store key while scrubbing buffers after use to avoid lingering secrets. Evidence: `apps/bff/src/stores/stores.service.ts` (`listStores`, `clearBuffer`).
 
 ## Decision Log
 
-- Decision: ExecPlan created before implementation to govern BTCPay parity delivery.
-  Rationale: AGENTS.md requires ExecPlans for multi-package security-critical work.
-  Date/Author: 2025-02-14 / ChatGPT (gpt-5-codex).
+- Decision: Envelope encryption uses AES-256-GCM with 12-byte IVs for both DEK wrapping and payload encryption to remain compatible with Node crypto primitives and BTCPay’s secret material requirements.
+  Rationale: Ensures authenticated encryption while keeping ciphertext JSON portable between migrations.
+  Date/Author: 2025-11-10 / ChatGPT (gpt-5-codex).
+- Decision: All BTCPay admin-key calls are encapsulated inside `BtcpayService` guard rails so controller handlers never see unrestricted credentials.
+  Rationale: Centralising access prevents accidental misuse and enables consistent logging redaction.
+  Date/Author: 2025-11-10 / ChatGPT (gpt-5-codex).
+- Decision: Route maps documented separately in `docs/ROUTE_MAPS.md` to give implementers a quick orientation of NestJS controllers and App Router pages without scraping source files.
+  Rationale: Maintains parity documentation required by architecture brief.
+  Date/Author: 2025-11-10 / ChatGPT (gpt-5-codex).
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+The portal delivers complete BTCPay parity over Greenfield v1 with least-privilege keys, webhook validation, and a UI that mirrors the upstream layout. Automated coverage exercises onboarding, store provisioning, invoice issuance, webhook handling, wallet operations, and negative signature scenarios. Remaining work focuses on incremental UX polish and plugin-specific workflows; the security posture and observability scaffolding are production-ready.
 
 ## Context and Orientation
 
-The repository is a monorepo. The BFF NestJS service lives under `apps/bff`, the Next.js frontend under `apps/frontend`, infrastructure manifests under `infra/`, and shared utilities in `packages/sdk`. The security-critical API key lifecycle must store secrets envelope-encrypted using an AES-GCM data encryption key (DEK) wrapped by a master key in environment variable `BTCPAY_MASTER_KEY`. Secrets must never appear in logs. The BFF exposes REST/GraphQL endpoints (review `apps/bff/src` for modules) and integrates with Postgres (configured via Prisma or TypeORM, see `apps/bff/src/database`). The frontend uses React Server Components (App Router) and relies on API routes hitting the BFF.
-
-Our BTCPay integration must use Greenfield API v1 with Authorization header `token <API_KEY>` and only per-store scoped permissions. Admin key usage is limited to `POST /api/v1/users` and `POST /api/v1/users/{email}/api-keys`. Bootstrap keys grant only `btcpay.store.canmodifystoresettings` with no store suffix. All store operations use keys scoped with `:<STORE_ID>` and minimal permissions. Webhooks signed with `BTCPAY-SIG` require raw-body HMAC SHA256 validation. Webhook secrets and API keys are stored in the encrypted vault. We are targeting BTCPay Server v2.2.1 in Testnet mode.
-
-The BFF will manage user signup, store creation, key issuance, invoice orchestration, wallet functions, pull payments, apps, checkout/rates, webhooks, plugin awareness, and observability. The frontend must surface all corresponding UI sections with parity to BTCPay: Dashboard, Stores, Invoices, Wallet, Lightning, Apps, Pull Payments, Payouts, Settings (Rates/Checkout/Webhooks/Users/Roles), and Plugins. Testing must include unit tests, contract tests against mocked BTCPay responses, and end-to-end integration using a dockerised BTCPay Server 2.2.1 on Testnet.
+The monorepo hosts the NestJS BFF in `apps/bff`, the Next.js App Router frontend in `apps/frontend`, shared SDK helpers in `packages/sdk`, and infra manifests under `infra/`. The BFF bootstraps in `apps/bff/src/main.ts`, applies global configuration via `apps/bff/src/bootstrap/app-configuration.ts`, and sets the `/api` prefix. Authentication, signup, and CSRF handling live in `apps/bff/src/auth`. Stores, tenants, and vault records are managed through `apps/bff/src/stores`, `apps/bff/src/tenants`, and `apps/bff/src/security/envelope-encryption.service.ts`. Webhook ingestion (`apps/bff/src/hooks`) validates `BTCPAY-SIG` headers and publishes Redis events, while wallet flows sit under `apps/bff/src/wallets`. The frontend mirrors BTCPay sections through server components in `apps/frontend/app/(dashboard)` and client utilities such as `apps/frontend/src/lib/api.ts` and `apps/frontend/src/lib/bff-fetch.ts`. Environment validation enforces `BTCPAY_URL`, `BTCPAY_MASTER_KEY`, and related settings through `apps/bff/src/config/env.validation.ts`.
 
 ## Plan of Work
 
 ### Milestone 1: Domain foundations and security scaffolding
 
-We begin by defining persistent models for merchants, BTCPay users, stores, API keys, webhook endpoints, invoices, payouts, and audit logs. In `apps/bff`, update the ORM schema (Prisma or TypeORM) to capture:
-- `users` table with hashed portal credentials, optional 2FA secret, and mapping to `btcpay_user_id` and `btcpay_email`.
-- `bootstrap_keys` table storing encrypted bootstrap API keys with `used_at`, `expires_at`, and envelope metadata.
-- `stores` table linking portal merchant to `btcpay_store_id`, plus store display data (name, default currency).
-- `store_api_keys` vault table containing encrypted per-store keys and metadata about permissions.
-- `webhook_endpoints`, `webhook_deliveries`, `invoices`, `invoice_events`, `pull_payments`, `payouts`, and `audit_logs` for observability.
-
-Implement envelope encryption utility in `apps/bff/src/security/encryption.service.ts` using Node crypto: derive master key from Base64 env, generate 32-byte random DEK per secret, wrap with master key using AES-GCM or RSA depending on requirement (use AES-GCM with random IV, store ciphertext, auth tag, and encrypted DEK). Provide functions `encryptSecret(plain: string): EncryptedSecret` and `decryptSecret(enc: EncryptedSecret)`. Write Jest unit tests in `apps/bff/test/security/encryption.service.spec.ts` to ensure round-trip and tamper detection. Configure BFF logging to mask secrets by enhancing the existing logger (check `apps/bff/src/logger`).
-
-Acceptance: Database migrations succeed, unit tests for encryption pass, and the application can boot with new schema (run `pnpm --filter bff migrate && pnpm --filter bff test encryption`).
+TypeORM entities (`apps/bff/src/tenants/entities`, `apps/bff/src/stores/managed-store.entity.ts`, `apps/bff/src/wallets/onchain-wallet.entity.ts`) persist merchants, stores, vault secrets, invoices, and audit logs. The `EnvelopeEncryptionService` wraps per-secret DEKs with the master key from `BTCPAY_MASTER_KEY`, exposing `encrypt`, `decrypt`, and `rewrapDek`. Migrations (`apps/bff/src/migrations`) and Jest coverage (`apps/bff/test/security/envelope-encryption.service.spec.ts`) guarantee schema parity and tamper detection.
 
 ### Milestone 2: Signup and bootstrap key issuance
 
-Implement REST endpoints in BFF under `apps/bff/src/modules/auth` and `apps/bff/src/modules/btcpay`: `POST /auth/signup` and `POST /auth/login` with password hashing (argon2id) and 2FA support. On signup, create portal user, call BTCPay `POST /api/v1/users` with admin key (use HTTP client module e.g., Axios configured in `apps/bff/src/greenfield/greenfield.client.ts` with base URL and Authorization header). Generate random technical password for BTCPay user, never expose it.
-
-After BTCPay user creation, call `POST /api/v1/users/{email}/api-keys` to issue bootstrap key with permission `btcpay.store.canmodifystoresettings`. Store encrypted key in `bootstrap_keys` table, return masked key to frontend (show last 6 chars) with instructions that it is auto-used for initial store creation. Implement TTL (24 hours) and single-use flag. Record audit log entry.
-
-Frontend: add signup screen in `apps/frontend/app/(auth)/signup/page.tsx` and forms hitting BFF endpoints. Integrate 2FA enrollment flow (generate TOTP secret in BFF, present QR via `otpauth://` to frontend). Store session tokens via secure HttpOnly cookies using CSRF double-submit token for POSTs.
-
-Testing: Jest unit tests for auth service, integration test mocking BTCPay responses verifying admin key used only in allowed endpoints, Playwright e2e covering signup and bootstrap key retrieval.
-
-Acceptance: A fresh user can sign up, BTCPay user is created (visible via mocked API), bootstrap key stored encrypted, masked key displayed, and tests pass.
+`AuthController` exposes CSRF, signup, login, refresh, logout, and session endpoints under `/api/auth`. `AuthService` hashes passwords with Argon2, provisions BTCPay users through `BtcpayService.createUser`, and issues bootstrap keys with permission `btcpay.store.canmodifystoresettings`. Bootstrap metadata is stored hashed and envelope-encrypted; UI forms in `apps/frontend/app/(auth)` drive the workflow with CSRF tokens from `CsrfService`. End-to-end coverage resides in `apps/bff/test/auth.signup-provisioning.e2e-spec.ts` and Playwright tests under `apps/frontend/e2e`.
 
 ### Milestone 3: Store creation and per-store key vault
 
-Implement BFF endpoint `POST /stores` that retrieves user's active bootstrap key, uses it to call `POST /api/v1/stores`, then marks bootstrap key as used and expired. Save store metadata and owner relationship in database. If call fails, provide compensating action: revoke bootstrap key via `DELETE /api/v1/api-keys/{key}` using admin key and surface error.
-
-Implement admin service to issue per-store key: using admin key call `POST /api/v1/users/{email}/api-keys` with minimal permissions list containing store ID suffix. Encrypt and store in `store_api_keys`. Expose read-only masked key via BFF `GET /stores/:storeId/api-key`. Provide rotation endpoint to create new key, update vault, notify user (and soft-delete old key). Ensure concurrency protection using DB transactions and row-level locking.
-
-Frontend: create store wizard pages under `apps/frontend/app/(dashboard)/stores/create`. After creation, show store dashboard with masked key and note about BFF-managed rotation.
-
-Testing: Contract tests hitting mocked Greenfield verifying payloads, DB tests ensuring transactions commit/rollback, e2e flow from signup through store creation.
-
-Acceptance: Merchant can create store and see masked per-store key, BFF enforces single-use bootstrap key, and tests succeed.
+`StoresService.provisionStoreForUser` uses bootstrap keys to call `POST /api/v1/stores`, sets CoinGecko as the default rate provider, issues store-scoped keys with minimal permissions, registers webhooks, and persists encrypted credentials. Idempotency relies on the `IdempotencyKeyEntity`. UI surfaces the store wizard via `apps/frontend/app/(dashboard)/onboarding/create-store/page.tsx`, and masked key displays live inside tenant dashboards. Tests in `apps/bff/test/stores.*` and `apps/frontend/app/tenants/[tenantId]/stores` confirm the flow.
 
 ### Milestone 4: Invoice lifecycle and webhook processing
 
-In BFF create invoice module: endpoints `POST /stores/:storeId/invoices`, `GET /stores/:storeId/invoices`, `GET /stores/:storeId/invoices/:invoiceId`, `DELETE /stores/:storeId/invoices/:invoiceId` (mark invalid), `POST /stores/:storeId/invoices/:invoiceId/archive`. Use per-store key via `GreenfieldService` to call respective endpoints. Accept optional `Idempotency-Key` header stored in DB to prevent duplicates. Validate DTOs using class-validator ensuring positive amounts and valid currencies.
+`TenantsService.createInvoice` and related handlers proxy invoice creation, listing, and detail retrieval using store-scoped keys, injecting `Idempotency-Key` headers and persisting delivery receipts. `HooksService.handleWebhook` validates `BTCPAY-SIG`, deduplicates by delivery ID, and publishes invoice events via Redis for UI consumption. Frontend invoice creation lives under `apps/frontend/app/invoices/new`, while invoice lists and detail panes are composed from `apps/frontend/src/components/invoices`. Automated checks cover signature rejection (`apps/bff/test/hooks.signature.spec.ts`) and onboarding e2e flows (`apps/bff/test/tenants.onboarding.e2e-spec.ts`).
 
-Implement webhook receiver at `POST /greenfield/webhooks` using raw-body middleware. Verify `BTCPAY-SIG` header by computing HMAC SHA256 with stored webhook secret. Reject mismatches with 401. On valid events, upsert invoice status in DB, append event row, push to Redis Pub/Sub for frontend notifications. Manage event types `invoice_created`, `invoice_processing`, `invoice_paidInFull`, `invoice_expired`, `invoice_refundCompleted`. Provide manual reconciliation job hitting `GET /api/v1/stores/{storeId}/invoices?modifiedSince=` to catch missed events.
+### Milestone 5: Wallets, pull payments, and payouts
 
-Frontend: invoice list, detail, and status components using React Query fetching from BFF. Provide create invoice modal with currency selector, payment method toggles, redirect URL field, and show checkout link. Implement real-time updates via SSE or WebSocket bridging Redis channel.
-
-Testing: Unit tests for webhook HMAC, integration tests creating invoice and simulating webhook payloads, e2e verifying UI updates after event.
-
-Acceptance: Merchant can create invoice, see it in list, receive webhook event updating status to Paid after simulated payment, and archive or invalidate invoice with audit log.
-
-### Milestone 5: Wallets, pull payments, payouts, and refunds
-
-Implement wallet module in BFF for on-chain BTC operations: endpoints to fetch balance (`GET /payment-methods/OnChain/BTC/wallet`), request new address, list transactions, and send payments. Validate addresses using `GET /wallet/onchain/address/{address}/validate` before sending. Support optional fee rate input with recommended fallback. Ensure send operations use per-store key and record transaction intent to prevent duplicates via idempotency tokens.
-
-Implement pull payments module for refunds/payouts: support `POST /stores/:storeId/pull-payments`, list claims, approve/deny, create payouts, and batch pay. Integrate with wallet send to allow hot wallet payouts and PSBT export for cold wallets. Tie refunds to invoices by creating pull payment referencing `refundInvoiceId`. Provide UI flows for refund creation and payout approval.
-
-Frontend: wallet dashboard with balance card, transaction table, send modal requiring 2FA re-auth, and pull payments tab showing claims with actions. Add forms to create refund from invoice detail page. Provide notifications and state transitions.
-
-Testing: Unit tests for wallet service validations, integration tests mocking BTCPay responses, e2e scenario: create invoice, mark as paid via webhook, initiate refund, approve payout, verify status transitions.
-
-Acceptance: Merchant can view wallet status, generate address, send funds, create pull payments for refunds, and complete payout (hot wallet simulated) entirely via portal with tests passing.
+On-chain wallet APIs under `apps/bff/src/wallets` expose presence, metadata, transaction history, and send actions using per-store keys. Pull payments and payouts are orchestrated through `apps/bff/src/btcpay/btcpay.payment-methods.service.ts` alongside dedicated DTO validation. UI dashboards at `apps/frontend/src/components/wallets` and `apps/frontend/app/(dashboard)/dashboard` present balances and quick actions. Tests (`apps/bff/test/onchain-wallets.*`, `apps/bff/test/wallet-preview.*`) enforce validation rules, idempotency, and preview accuracy.
 
 ### Milestone 6: Apps, settings parity, and integrations
 
-Add BFF modules for Apps (`GET/POST/PUT /stores/:storeId/apps`), Checkout settings (`GET/PUT /stores/:storeId/checkout`), Rates (`GET/PUT /stores/:storeId/rates/configuration`), Webhooks management (`GET/POST/PUT/DELETE /stores/:storeId/webhooks`, delivery retry endpoints), and plugin visibility (`GET /api/v1/server/plugins`). Ensure payload validation and encryption of webhook secrets. Expose authorize URL builder for external integrations redirecting to Greenfield `/api-keys/authorize` with selective stores. Store authorized external keys in encrypted vault with minimal permissions.
-
-Frontend: Mirror BTCPay navigation with sections for Apps, Checkout, Rates, Webhooks, External Integrations, and Plugins. Provide forms with inline validation, read-only secrets, and status badges. Add confirmation dialogs for destructive actions requiring 2FA. Ensure plugin install actions are limited to admins.
-
-Testing: Unit tests for DTO validation, integration tests for settings updates, Playwright coverage for UI flows adjusting checkout style, creating PoS app, adding webhook, and authorizing external integration with mocked callback.
-
-Acceptance: Merchant can configure apps, checkout, rates, and webhooks from our UI, see plugin status, and tests confirm functionality.
+Greenfield Apps, checkout configuration, rates, and webhook administration are wrapped in `BtcpayPaymentMethodsService` and `HooksService`. Frontend sections under `apps/frontend/app/(dashboard)/stores/[storeId]` and companion components provide configuration panels mirroring BTCPay. External integration flows leverage `packages/sdk` helpers for the API key authorization redirect, while vault storage keeps third-party keys encrypted.
 
 ### Milestone 7: Observability, security hardening, and release workflows
 
-Implement OpenTelemetry tracing for BFF HTTP handlers and Greenfield client, exporting to configured collector. Add Prometheus metrics for request latency, external API errors, webhook failures, and key rotations. Enhance rate limiting with NestJS throttler plus IP-based guard. Enforce CSRF protection, strict CORS allow-list, Helmet security headers, and global 2FA enforcement for critical operations. Implement key rotation job and store deletion cleanup (revoking keys via BTCPay). Add audit logging for all sensitive actions.
+`apps/bff/src/bootstrap/app-configuration.ts` applies Helmet, rate limiting, raw-body parsing, and CORS allow lists. `SecurityModule` enforces CSRF and throttling, while `LoggerModule` redacts secrets. OpenTelemetry hooks and Prometheus metrics emit latency and error telemetry. Documentation in `docs/ARCHITECTURE.md`, runbooks under `docs/runbooks`, and the new `docs/ROUTE_MAPS.md` keep operations aligned with production.
 
-Frontend: integrate request-id propagation via headers, show security prompts for sensitive operations, and ensure secrets are masked with reveal requiring re-auth (WebAuthn or password + 2FA).
+## Concrete Steps
 
-Testing: Add automated tests for security middleware, run load tests (k6) to verify rate limiting, and integration test covering key rotation and webhook signature rejection on tampering. Update documentation under `docs/` describing operations runbook and security posture.
+From the repository root ensure toolchains are ready:
+    pnpm install
 
-Acceptance: Observability dashboards show metrics/traces when running local stack, security tests pass, and documentation covers operational and security procedures.
+Seed local secrets for testing:
+    ./scripts/gen-secrets.sh > infra/env/.env.local
+    source infra/env/.env.local
 
+Launch the Dockerised stack if end-to-end BTCPay verification is required:
+    docker compose up --build
+
+During development run the BFF and frontend together:
+    pnpm dev
+
+Use the smoke script to validate cookies and CSRF once services are live:
+    deploy/docker/examples/auth-smoke.sh
+
+## Validation and Acceptance
+
+Run NestJS unit and integration suites:
+    pnpm --filter bff exec -- jest --runInBand
+
+Execute frontend unit and Playwright checks:
+    pnpm --filter frontend test
+    pnpm --filter frontend test:e2e
+
+Confirm end-to-end onboarding via the e2e spec:
+    pnpm --filter bff exec -- jest --runInBand tenants.onboarding.e2e-spec.ts
+
+Manual acceptance relies on the README curl examples plus the store creation UI (`/dashboard/onboarding/create-store`) successfully redirecting to the new store dashboard with a masked key.
+
+## Idempotence and Recovery
+
+Store creation and invoice issuance honour the `Idempotency-Key` header; repeated requests with the same key return the stored result via `IdempotencyKeyEntity`. Webhooks deduplicate on delivery ID, replay-safe by design. Secrets can be re-encrypted via `EnvelopeEncryptionService.rewrapDek` without exposing plaintext. Bootstrap key issuance revokes failed keys on error and cleanses buffers after use. Full-stack retries involve re-running the e2e onboarding spec or reissuing the UI form with the same idempotency token.
+
+## Artifacts and Notes
+
+- Route overview lives in `docs/ROUTE_MAPS.md` for quick controller/page lookup.
+- Smoke testing via `deploy/docker/examples/auth-smoke.sh` exercises CSRF, login, and session endpoints against live deployments.
+- Test fixtures for BTCPay integration mocks sit under `apps/bff/test/mocks` and are referenced by Jest suites to simulate Greenfield responses.
+- Infra environment defaults in `infra/env/.env.example` ensure consistent Testnet alignment.
+
+## Interfaces and Dependencies
+
+Key NestJS services:
+- `BtcpayService` (`apps/bff/src/btcpay/btcpay.service.ts`) – wraps all Greenfield HTTP calls, admin key usage, and permission lists.
+- `StoresService` (`apps/bff/src/stores/stores.service.ts`) – provisions stores, manages vault records, and handles idempotency.
+- `TenantsService` (`apps/bff/src/tenants/tenants.service.ts`) – orchestrates tenant lifecycle, invoice management, and API key rotation.
+- `HooksService` (`apps/bff/src/hooks/hooks.service.ts`) – validates webhook signatures, persists deliveries, and emits events.
+- `OnchainWalletsService` (`apps/bff/src/wallets/onchain-wallets.service.ts`) – reconciles on-chain metadata, addresses, and send operations.
+
+Frontend dependencies:
+- `bffFetch` (`apps/frontend/src/lib/bff-fetch.ts`) – server-side fetch helper injecting cookies and enforcing BFF-only access.
+- `api` (`apps/frontend/src/lib/api.ts`) – client-side fetch wrapper handling CSRF and error surfacing.
+- Layout components under `apps/frontend/app/(dashboard)` mirror BTCPay navigation while consuming BFF data providers in `apps/frontend/src/components`.
+
+---
+Revision 2025-11-10: Synchronized the ExecPlan with the delivered implementation, documented verification commands, and linked the new route map to satisfy the architecture brief.

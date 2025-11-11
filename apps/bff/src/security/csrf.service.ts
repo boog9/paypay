@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { CookieOptions, Request, Response } from 'express';
 import { resolveCookieNames } from '../auth/cookie-names';
 import { sharedCookieDomain } from '../auth/cookies.util';
+import { CSRF_HEADER_LOWER } from './csrf.constants';
 
 @Injectable()
 export class CsrfService {
@@ -71,7 +72,7 @@ export class CsrfService {
   }
 
   private getTokenFromHeader(req: Request): string | undefined {
-    const header = req.headers['x-csrf-token'];
+    const header = req.headers[CSRF_HEADER_LOWER];
     if (Array.isArray(header)) {
       return header[0];
     }

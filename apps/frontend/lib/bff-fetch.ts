@@ -1,5 +1,6 @@
+import { CSRF_HEADER } from './http-headers';
+
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-const CSRF_HEADER = "X-CSRF-Token";
 const CSRF_PATH = "/api/auth/csrf";
 
 type ExtendedRequestInit = RequestInit & {

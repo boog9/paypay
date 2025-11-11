@@ -10,6 +10,7 @@ import {
   AUTH_ME,
   AUTH_REFRESH,
 } from './api';
+import { CSRF_HEADER } from './http-headers';
 
 export const ACCESS_TOKEN_COOKIE_NAME = 'pp.access-token';
 
@@ -36,7 +37,7 @@ export async function login(email: string, password: string): Promise<MeResponse
   const loginResponse = await apiFetch(AUTH_LOGIN, {
     method: 'POST',
     headers: {
-      'X-CSRF-Token': csrf,
+      [CSRF_HEADER]: csrf,
     },
     body: { email, password },
     cache: 'no-store',
@@ -86,7 +87,7 @@ export async function logout(): Promise<void> {
   const response = await apiFetch(AUTH_LOGOUT, {
     method: 'POST',
     headers: {
-      'X-CSRF-Token': csrf,
+      [CSRF_HEADER]: csrf,
     },
     cache: 'no-store',
   });

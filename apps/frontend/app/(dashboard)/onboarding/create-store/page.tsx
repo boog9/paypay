@@ -11,6 +11,7 @@ import { Input } from "../../../../components/ui/input";
 import { Select } from "../../../../components/ui/select";
 import { api, isApiError } from "../../../../lib/api";
 import { getCsrfToken } from "../../../../lib/auth";
+import { CSRF_HEADER } from "../../../../lib/http-headers";
 import { useToast } from "../../../../components/ui/toast";
 
 function generateIdempotencyKey(): string {
@@ -122,7 +123,7 @@ export default function CreateStorePage() {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json",
-              "X-CSRF-Token": csrfToken,
+              [CSRF_HEADER]: csrfToken,
               "Idempotency-Key": generateIdempotencyKey(),
             },
             body: JSON.stringify(payload),

@@ -29,7 +29,7 @@ describe('On-chain wallet controller (e2e)', () => {
 
   const paymentMethodsMock = {
     getOnchain: jest.fn(),
-    updateOnchainPaymentMethod: jest.fn()
+    saveOnchain: jest.fn()
   } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
 
   beforeAll(async () => {
@@ -129,83 +129,62 @@ describe('On-chain wallet controller (e2e)', () => {
       'BTC',
       expect.objectContaining({ store: expect.any(Object) })
     );
-    const presenceCallOptions = paymentMethodsMock.getOnchain.mock.calls[0]?.[2];
-    expect(presenceCallOptions).toBeDefined();
-    expect(presenceCallOptions).not.toHaveProperty('includeConfig');
   });
 
-  it('returns presence when resolved via BTCPay store identifier', async () => {
-    const response = await agent
-      .get(`/api/stores/${store.btcpayStoreId}/wallets/btc/presence`)
-      .expect(200);
-
-    expect(response.body).toEqual({ enabled: false, config: { derivationScheme: null } });
-  });
-
-  it('validates testnet derivation schemes', async () => {
+  it('validates testnet extended keys', async () => {
     const csrfToken = await fetchCsrf();
 
     await agent
       .put(`/api/stores/${store.id}/wallets/bitcoin`)
       .set('x-csrf-token', csrfToken)
       .send({
-        derivationScheme: 'xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx'
+        tpub: 'xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx',
+        rootFingerprint: 'A1B2C3D4',
+        accountKeyPath: "84'/1'/0'"
       })
       .expect(422);
   });
 
-  it('requires derivationScheme when configuring the wallet', async () => {
+  it('requires tpub when configuring the wallet', async () => {
     const csrfToken = await fetchCsrf();
 
     await agent
       .put(`/api/stores/${store.id}/wallets/bitcoin`)
       .set('x-csrf-token', csrfToken)
-      .send({ accountKeyPath: "m/84'/1'/0'" })
+      .send({ accountKeyPath: "84'/1'/0'", rootFingerprint: 'A1B2C3D4' })
       .expect(400);
   });
 
-  it('enables wallet with extended key and null fingerprint', async () => {
+  it('enables wallet with tpub configuration', async () => {
     const csrfToken = await fetchCsrf();
 
-    paymentMethodsMock.updateOnchainPaymentMethod.mockResolvedValueOnce();
-    const derivationScheme = 'tpubD6NzVbkrYhZ4YexampleExtendedKey';
+    paymentMethodsMock.saveOnchain.mockResolvedValueOnce({});
 
     await agent
       .put(`/api/stores/${store.id}/wallets/bitcoin`)
       .set('x-csrf-token', csrfToken)
       .send({
-        derivationScheme,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: null
+        tpub: 'tpubExample',
+        rootFingerprint: 'A1B2C3D4',
+        accountKeyPath: "84'/1'/0'"
       })
       .expect(204);
 
-    const [payload, options] = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0];
-    expect(payload).toMatchObject({
-      storeId: store.btcpayStoreId,
-      derivationScheme,
-      allowAccountKeyPath: false,
-      enabled: true
-    });
-    expect(payload).not.toHaveProperty('accountKeyPath');
-    expect('masterFingerprint' in payload).toBe(false);
-    expect(options).toMatchObject({ store });
+    expect(paymentMethodsMock.saveOnchain).toHaveBeenCalledWith(
+      store.btcpayStoreId,
+      { tpub: 'tpubExample', rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+      { store, enabled: true }
+    );
 
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
       config: {
-        derivationScheme,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: null,
-        label: null
+        derivationScheme: 'tpubExample',
+        accountKeyPath: "84'/1'/0'",
+        masterFingerprint: 'A1B2C3D4',
+        accountKey: 'tpubExample'
       }
     });
-
-    const presence = await agent
-      .get(`/api/stores/${store.id}/wallets/btc/presence`)
-      .expect(200);
-
-    expect(presence.body).toEqual({ enabled: true, config: { derivationScheme } });
 
     const metadata = await agent
       .get(`/api/stores/${store.id}/wallets/bitcoin`)
@@ -213,53 +192,10 @@ describe('On-chain wallet controller (e2e)', () => {
 
     expect(metadata.body).toMatchObject({
       enabled: true,
-      derivationScheme,
-      accountKeyPath: "m/84'/1'/0'",
-      masterFingerprint: null
+      derivationScheme: 'tpubExample',
+      accountKeyPath: "84'/1'/0'",
+      masterFingerprint: 'A1B2C3D4'
     });
-  });
-
-  it('extracts fingerprint from descriptor when absent in payload', async () => {
-    const csrfToken = await fetchCsrf();
-
-    paymentMethodsMock.updateOnchainPaymentMethod.mockResolvedValueOnce();
-
-    const descriptor = "wpkh([d34db33f/84'/1'/0']tpubD6NzVbkrYhZ4Yexample/0/*)";
-
-    await agent
-      .put(`/api/stores/${store.id}/wallets/bitcoin`)
-      .set('x-csrf-token', csrfToken)
-      .send({
-        derivationScheme: descriptor,
-        accountKeyPath: "m/84'/1'/0'"
-      })
-      .expect(204);
-
-    const descriptorCall = paymentMethodsMock.updateOnchainPaymentMethod.mock.calls[0]?.[0];
-    expect(descriptorCall).toMatchObject({
-      storeId: store.btcpayStoreId,
-      derivationScheme: descriptor,
-      allowAccountKeyPath: false,
-      enabled: true
-    });
-    expect(descriptorCall).not.toHaveProperty('accountKeyPath');
-    expect(descriptorCall).not.toHaveProperty('masterFingerprint');
-
-    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
-      enabled: true,
-      config: {
-        derivationScheme: descriptor,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: 'D34DB33F',
-        label: null
-      }
-    });
-
-    const metadata = await agent
-      .get(`/api/stores/${store.id}/wallets/bitcoin`)
-      .expect(200);
-
-    expect(metadata.body.masterFingerprint).toBe('D34DB33F');
   });
 
   it('disables wallet via delete endpoint', async () => {
@@ -268,35 +204,23 @@ describe('On-chain wallet controller (e2e)', () => {
     paymentMethodsMock.getOnchain.mockResolvedValueOnce({
       enabled: true,
       config: {
-        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: 'F00DBABE',
-        label: 'Primary'
+        derivationScheme: 'tpubExample',
+        accountKey: 'tpubExample',
+        accountKeyPath: "84'/1'/0'",
+        masterFingerprint: 'A1B2C3D4'
       }
     });
-    paymentMethodsMock.updateOnchainPaymentMethod.mockResolvedValueOnce();
+    paymentMethodsMock.saveOnchain.mockResolvedValueOnce({});
 
     await agent
       .delete(`/api/stores/${store.id}/wallets/bitcoin`)
       .set('x-csrf-token', csrfToken)
       .expect(204);
 
-    expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
+    expect(paymentMethodsMock.saveOnchain).toHaveBeenCalledWith(
       store.btcpayStoreId,
-      'BTC',
-      expect.objectContaining({ store })
-    );
-    const disableCallOptions = paymentMethodsMock.getOnchain.mock.calls.find((call) => call[0] === store.btcpayStoreId)?.[2];
-    expect(disableCallOptions).toBeDefined();
-    expect(disableCallOptions).not.toHaveProperty('includeConfig');
-    expect(paymentMethodsMock.updateOnchainPaymentMethod).toHaveBeenCalledWith(
-      expect.objectContaining({
-        storeId: store.btcpayStoreId,
-        derivationScheme: "wpkh([f00dbabe/84'/1'/0']tpubExample/0/*)",
-        allowAccountKeyPath: false,
-        enabled: false
-      }),
-      expect.objectContaining({ store })
+      { tpub: 'tpubExample', rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+      { store, enabled: false }
     );
 
     const presence = await agent

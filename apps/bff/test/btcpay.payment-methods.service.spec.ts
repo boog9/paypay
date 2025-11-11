@@ -1,11 +1,15 @@
-import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
 import { Repository } from 'typeorm';
-import { BtcpayPaymentMethodsService, DEFAULT_PREVIEW_ADDRESS_COUNT } from '../src/btcpay/btcpay.payment-methods.service';
+import {
+  BtcpayPaymentMethodsService,
+  DEFAULT_PREVIEW_ADDRESS_COUNT,
+  OnchainConfigDto,
+  OnchainPreviewDescriptorDto
+} from '../src/btcpay/btcpay.payment-methods.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
 import { BtcpayService } from '../src/btcpay/btcpay.service';
-import { BTCPayAuthError, BTCPayUpstreamError } from '../src/btcpay/btcpay.errors';
 
 jest.mock('axios');
 
@@ -44,8 +48,6 @@ describe('BtcpayPaymentMethodsService', () => {
 
   const SAMPLE_TPUB =
     "tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq";
-  const SAMPLE_XPUB =
-    "xpub6DQr6ATUNo26pU5ViMmd5eLYCoqUhZMN52JhppqmjdBng2mMPmGhBX4F1p7nyTLMEScjUC2hRuME3Pw9WvctsVkb3tUSVs9HmLxxdKqKwHx";
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -76,618 +78,95 @@ describe('BtcpayPaymentMethodsService', () => {
     } as unknown as AxiosInstance;
   }
 
-  it('previews proposed on-chain addresses via wallet preview endpoint', async () => {
-    const postMock = jest.fn().mockResolvedValue({
-      status: 200,
-      data: {
-        addresses: [
-          { address: 'tb1qexample0', keyPath: '0/0', index: 0 },
-          { address: 'tb1qexample1', keyPath: '0/1', index: 1 }
-        ]
-      }
-    });
+  describe('previewWithDescriptor', () => {
+    it('calls BTCPay via GET with descriptor params', async () => {
+      const getMock = jest.fn().mockResolvedValue({
+        status: 200,
+        data: { addresses: [{ address: 'tb1qexample0' }] }
+      });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
 
-    const service = buildService();
-
-    const result = await service.previewOnchainAddresses(
-      store.id,
-      {
-        derivationScheme: SAMPLE_TPUB,
+      const service = buildService();
+      const dto: OnchainPreviewDescriptorDto = {
+        derivationScheme: "wpkh([FPR/84'/1'/0']tpub.../0/*)",
         accountKeyPath: "m/84'/1'/0'"
-      },
-      { store }
-    );
+      };
 
-    expect(result.addresses).toHaveLength(2);
-    expect(mockedAxios.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'https://btcpay.example',
-        headers: expect.objectContaining({ Authorization: 'token store-api-key' })
-      })
-    );
-    expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'"
-      },
-      {
-        params: {
-          offset: '0',
-          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT)
+      const result = await service.previewWithDescriptor(store.id, dto, { store });
+
+      expect(result.addresses).toEqual([{ address: 'tb1qexample0' }]);
+      expect(getMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
+        {
+          params: {
+            offset: '0',
+            count: String(DEFAULT_PREVIEW_ADDRESS_COUNT),
+            derivationScheme: dto.derivationScheme,
+            accountKeyPath: dto.accountKeyPath
+          }
         }
-      }
-    );
-  });
-
-  it('omits optional fields when previewing without additional metadata', async () => {
-    const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    await service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store });
-
-    expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: null
-      },
-      {
-        params: {
-          offset: '0',
-          count: String(DEFAULT_PREVIEW_ADDRESS_COUNT)
-        }
-      }
-    );
-  });
-
-  it('prefers the provided store context for API key and host resolution', async () => {
-    const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-    const customStore: ManagedStoreEntity = {
-      ...store,
-      btcpayHost: 'https://tenant-btcpay.example'
-    } as ManagedStoreEntity;
-
-    await service.previewOnchainAddresses(
-      'fallback-store-id',
-      { derivationScheme: SAMPLE_TPUB },
-      { store: customStore }
-    );
-
-    expect(repository.findOne).not.toHaveBeenCalled();
-    expect(encryptionService.decrypt).toHaveBeenCalledWith(
-      customStore.apiKeyCiphertext,
-      customStore.apiKeyDekWrapped
-    );
-    expect(btcpayService.resolveBaseUrl).toHaveBeenCalledWith('https://tenant-btcpay.example');
-  });
-
-  it('maps missing wallet preview endpoint to ForbiddenException when store scope mismatches', async () => {
-    const response404 = {
-      status: 404,
-      statusText: 'Not Found',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: 'Not Found'
-    } as any;
-    const axiosError = new AxiosError(
-      'Not Found',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response404
-    );
-    axiosError.response = response404;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    const previewPromise = service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store });
-
-    await expect(previewPromise).rejects.toBeInstanceOf(ForbiddenException);
-    await previewPromise.catch((error) => {
-      expect(error.message).toContain('API key is not scoped to this store or storeId is wrong');
-    });
-  });
-
-  it('propagates payment method configuration requirement as unprocessable entity', async () => {
-    const response404 = {
-      status: 404,
-      statusText: 'Not Found',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: { code: 'paymentmethod-not-configured', message: 'Payment method not configured' }
-    } as any;
-    const axiosError = new AxiosError(
-      'Not Found',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response404
-    );
-    axiosError.response = response404;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    await expect(
-      service.previewOnchainAddresses(store.id, { derivationScheme: SAMPLE_TPUB }, { store })
-    ).rejects.toMatchObject({
-      status: 422,
-      message: 'Payment method is not configured yet.'
-    });
-  });
-
-  it('surfaces BTCPay validation payloads as unprocessable entity errors', async () => {
-    const response422 = {
-      status: 422,
-      statusText: 'Unprocessable',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: { message: 'Descriptor is invalid' }
-    } as any;
-    const axiosError = new AxiosError(
-      'Unprocessable',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response422
-    );
-    axiosError.response = response422;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    const previewPromise = service.previewOnchainAddresses(
-      store.id,
-      { derivationScheme: SAMPLE_XPUB },
-      { store }
-    );
-
-    await expect(previewPromise).rejects.toBeInstanceOf(UnprocessableEntityException);
-    await previewPromise.catch((error) => {
-      expect(error.message).toContain('Descriptor is invalid');
-      const payload = error.getResponse();
-      expect(payload).toEqual({ message: 'Descriptor is invalid' });
-    });
-  });
-
-  it('returns raw string payloads from BTCPay validation errors', async () => {
-    const response422 = {
-      status: 422,
-      statusText: 'Unprocessable',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: 'Invalid derivation scheme'
-    } as any;
-    const axiosError = new AxiosError(
-      'Unprocessable',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response422
-    );
-    axiosError.response = response422;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    const previewPromise = service.previewOnchainAddresses(
-      store.id,
-      { derivationScheme: SAMPLE_XPUB },
-      { store }
-    );
-
-    await expect(previewPromise).rejects.toBeInstanceOf(UnprocessableEntityException);
-    await previewPromise.catch((error) => {
-      if (error instanceof UnprocessableEntityException) {
-        expect(error.getResponse()).toBe('Invalid derivation scheme');
-      }
-    });
-  });
-
-  it('generates on-chain wallet metadata via wallet generate endpoint', async () => {
-    const postMock = jest.fn().mockResolvedValue({
-      data: {
-        enabled: true,
-        paymentMethodId: 'BTC-CHAIN',
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "m/84'/1'/0'",
-          masterFingerprint: '10B3BFC0',
-          label: 'Primary'
-        }
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    const result = await service.generateOnchainWallet(
-      store,
-      {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: '10b3bfc0',
-        label: 'Primary'
-      }
-    );
-
-    expect(result).toEqual({
-      storeId: store.btcpayStoreId,
-      paymentMethodId: 'BTC-CHAIN',
-      enabled: true,
-      config: {
-        derivationScheme: SAMPLE_TPUB,
-        accountKey: SAMPLE_TPUB,
-        accountKeyPath: "84'/1'/0'",
-        masterFingerprint: '10B3BFC0',
-        label: 'Primary'
-      }
-    });
-    expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/generate',
-      {
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'",
-        masterFingerprint: '10B3BFC0',
-        label: 'Primary'
-      }
-    );
-  });
-
-  it('maps generate validation errors to UnprocessableEntityException', async () => {
-    const response = {
-      status: 422,
-      statusText: 'Unprocessable Entity',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: 'Invalid derivation'
-    } as any;
-    const axiosError = new AxiosError(
-      'Invalid derivation',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response
-    );
-    axiosError.response = response;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    expect.assertions(4);
-
-    try {
-      await service.generateOnchainWallet(store, { derivationScheme: SAMPLE_TPUB });
-    } catch (error) {
-      expect(postMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(UnprocessableEntityException);
-      if (!(error instanceof UnprocessableEntityException)) {
-        throw error;
-      }
-      const httpError = error;
-      expect(httpError.getStatus()).toBe(422);
-      const responsePayload = httpError.getResponse();
-      if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe('Invalid derivation');
-      } else {
-        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
-      }
-      return;
-    }
-
-    throw new Error('Expected HttpException to be thrown');
-  });
-
-  it('previews 10 addresses for a proposed on-chain configuration', async () => {
-    const addresses = Array.from({ length: 10 }, (_, index) => ({
-      address: `bcrt1qaddress${index}`,
-      keyPath: `0/${index}`,
-      index
-    }));
-
-    const postMock = jest.fn().mockResolvedValue({
-      data: {
-        currency: 'btc',
-        addresses,
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "1234abcd/84'/1'/0'"
-        }
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    const result = await service.previewOnchain(
-      store.btcpayStoreId,
-      'btc',
-      {
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "1234abcd/84'/1'/0'"
-        }
-      },
-      { store }
-    );
-
-    expect(result.addresses).toHaveLength(10);
-    expect(result.paymentMethodId).toBe('BTC-CHAIN');
-    expect(result.currency).toBe('BTC');
-    expect(Object.prototype.hasOwnProperty.call(result, 'derivationScheme')).toBe(false);
-    expect(mockedAxios.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'https://btcpay.example',
-        headers: expect.objectContaining({ Authorization: 'token store-api-key' })
-      })
-    );
-    expect(postMock).toHaveBeenCalledTimes(1);
-    const [path, body, options] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
-    expect(body).toEqual({
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "1234abcd/84'/1'/0'"
-    });
-    expect(options).toEqual({
-      params: {
-        offset: '0',
-        count: '10'
-      }
-    });
-  });
-
-  it('returns disabled presence when on-chain config is missing', async () => {
-    const error = Object.assign(new Error('Not found'), {
-      isAxiosError: true,
-      response: { status: 404 }
-    });
-
-    mockedAxios.create.mockReturnValue(
-      mockAxiosInstance({
-        get: jest.fn().mockRejectedValue(error)
-      })
-    );
-
-    const service = buildService();
-    const result = await service.getOnchainConfig(store.btcpayStoreId, true, { store });
-
-    expect(result).toEqual({ enabled: false });
-  });
-
-  it('normalizes on-chain metadata returned from BTCPay', async () => {
-    const getMock = jest.fn().mockResolvedValue({
-      data: {
-        enabled: true,
-        config: {
-          derivationScheme: 'tpubExample',
-          accountKeyPath: "m/84'/1'/0'",
-          masterFingerprint: '10b3bfc0',
-          label: 'Primary'
-        }
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
-
-    const service = buildService();
-    const result = await service.getOnchainConfig(store.btcpayStoreId, true, { store });
-
-    expect(result).toEqual({
-      enabled: true,
-      config: {
-        derivationScheme: 'tpubExample',
-        accountKey: 'tpubExample',
-        accountKeyPath: "84'/1'/0'",
-        masterFingerprint: '10B3BFC0',
-        label: 'Primary'
-      }
-    });
-  });
-
-  it('omits empty config objects when previewing', async () => {
-    const getMock = jest.fn().mockResolvedValue({
-      data: {
-        currency: 'btc',
-        addresses: [
-          { address: 'bc1qexample0', keyPath: '0/0', index: 0 },
-          { address: 'bc1qexample1', keyPath: '0/1', index: 1 }
-        ]
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
-
-    const service = buildService();
-
-    await service.previewOnchain(store.btcpayStoreId, 'btc', undefined, { store });
-
-    expect(getMock).toHaveBeenCalledTimes(1);
-    const [path, options] = getMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
-    expect(options).toEqual({
-      params: {
-        offset: '0',
-        count: '10'
-      }
-    });
-  });
-
-  it('does not include master fingerprint in preview parameters', async () => {
-    const postMock = jest.fn().mockResolvedValue({
-      data: {
-        currency: 'btc',
-        addresses: []
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    await service.previewOnchain(
-      store.btcpayStoreId,
-      'btc',
-      {
-        config: {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: "1234abcd/84'/1'/0'"
-        }
-      },
-      { store }
-    );
-
-    expect(postMock).toHaveBeenCalledTimes(1);
-    const [path, body, options] = postMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview');
-    expect(body).toEqual({
-      derivationScheme: SAMPLE_TPUB,
-      accountKeyPath: "1234abcd/84'/1'/0'"
-    });
-    expect(options).toEqual({
-      params: {
-        offset: '0',
-        count: '10'
-      }
-    });
-  });
-
-  it('propagates BTCPay 422 payload without rewriting the message', async () => {
-    const payload = 'Descriptor checksum mismatch';
-    const response = {
-      status: 422,
-      statusText: 'Unprocessable Entity',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: payload
-    } as any;
-    const axiosError = new AxiosError(
-      'Invalid derivation',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response
-    );
-    axiosError.response = response;
-    axiosError.isAxiosError = true;
-
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    expect.assertions(5);
-
-    try {
-      await service.previewOnchain(
-        store.btcpayStoreId,
-        'btc',
-        { config: { derivationScheme: SAMPLE_TPUB } },
-        { store }
       );
-    } catch (error) {
-      expect(postMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(UnprocessableEntityException);
-      if (!(error instanceof UnprocessableEntityException)) {
-        throw error;
-      }
-      const httpError = error;
-      expect(httpError.getStatus()).toBe(422);
-      const responsePayload = httpError.getResponse();
-      if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe(payload);
-      } else {
-        expect((responsePayload as { message?: string }).message).toBe(payload);
-      }
-      expect(httpError.cause).toBeUndefined();
-      return;
-    }
+    });
 
-    throw new Error('Expected HttpException to be thrown');
+    it('maps BTCPay validation errors to BadRequestException with descriptor context', async () => {
+      const axiosError = new AxiosError(
+        'Invalid',
+        'ERR_BAD_REQUEST',
+        { headers: new AxiosHeaders() },
+        undefined,
+        {
+          status: 422,
+          statusText: 'Unprocessable',
+          data: { message: 'Invalid derivation strategy' },
+          headers: new AxiosHeaders(),
+          config: { headers: new AxiosHeaders() }
+        }
+      );
+      (axiosError as AxiosError).isAxiosError = true;
+
+      const getMock = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+      const service = buildService();
+
+      await expect(
+        service.previewWithDescriptor(store.id, {
+          derivationScheme: 'invalid',
+          accountKeyPath: "m/84'/1'/0'"
+        }, { store })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 
-  it('proxies preview validation errors from BTCPay', async () => {
-    const response = {
-      status: 422,
-      statusText: 'Unprocessable Entity',
-      headers: new AxiosHeaders(),
-      config: { headers: new AxiosHeaders() },
-      data: 'Invalid derivation'
-    } as any;
-    const axiosError = new AxiosError(
-      'Invalid derivation',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      response
-    );
-    axiosError.response = response;
-    axiosError.isAxiosError = true;
+  describe('previewWithTpub', () => {
+    it('posts config payload for tpub preview', async () => {
+      const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
-    const postMock = jest.fn().mockRejectedValue(axiosError);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+      const service = buildService();
+      const dto: OnchainConfigDto = {
+        tpub: SAMPLE_TPUB,
+        rootFingerprint: 'A1B2C3D4',
+        accountKeyPath: "84'/1'/0'"
+      };
 
-    const service = buildService();
+      await service.previewWithTpub(store.id, dto, { store });
 
-    expect.assertions(6);
-
-    try {
-      await service.previewOnchainAddresses(
-        store.btcpayStoreId,
-        { derivationScheme: SAMPLE_TPUB },
-        { store }
-      );
-    } catch (error) {
-      expect(postMock).toHaveBeenCalledTimes(1);
-      expect(error).toBeInstanceOf(UnprocessableEntityException);
-      if (!(error instanceof UnprocessableEntityException)) {
-        throw error;
-      }
-      const httpError = error;
-      expect(httpError.getStatus()).toBe(422);
-      const responsePayload = httpError.getResponse();
-      if (typeof responsePayload === 'string') {
-        expect(responsePayload).toBe('Invalid derivation');
-      } else {
-        expect((responsePayload as { message?: string }).message).toBe('Invalid derivation');
-      }
-      expect(httpError.cause).toBe(axiosError);
       expect(postMock).toHaveBeenCalledWith(
         '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
         {
-          derivationScheme: SAMPLE_TPUB,
-          accountKeyPath: null
+          config: {
+            accountDerivation: SAMPLE_TPUB,
+            accountOriginal: SAMPLE_TPUB,
+            accountKeySettings: [
+              {
+                rootFingerprint: 'A1B2C3D4',
+                accountKeyPath: "84'/1'/0'",
+                accountKey: SAMPLE_TPUB
+              }
+            ]
+          }
         },
         {
           params: {
@@ -696,479 +175,221 @@ describe('BtcpayPaymentMethodsService', () => {
           }
         }
       );
-      return;
-    }
-
-    throw new Error('Expected UnprocessableEntityException to be thrown');
-  });
-
-  it('sends minimal payload when importing an extended public key', async () => {
-    const putMock = jest.fn().mockResolvedValue({ data: {} });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'"
-      },
-      { store }
-    );
-
-    expect(putMock).toHaveBeenCalledTimes(1);
-    const [path, body] = putMock.mock.calls[0];
-    expect(path).toBe('/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
-    expect(body).toEqual({
-      enabled: true,
-      config: {
-        accountDerivation: SAMPLE_TPUB,
-        isHotWallet: false,
-        accountKeySettings: [
-          {
-            accountKey: SAMPLE_TPUB
-          }
-        ]
-      }
     });
-  });
 
-  it('omits account key path unless explicitly allowed', async () => {
-    const putMock = jest.fn().mockResolvedValue({ data: {} });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'"
-      },
-      { store }
-    );
-
-    const [, body] = putMock.mock.calls[0];
-    expect(body?.config?.accountKeySettings?.[0]).not.toHaveProperty('accountKeyPath');
-  });
-
-  it('adds account key path to settings when manual override is enabled', async () => {
-    const putMock = jest.fn().mockResolvedValue({ data: {} });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: SAMPLE_TPUB,
-        accountKeyPath: "m/84'/1'/0'",
-        allowAccountKeyPath: true
-      },
-      { store }
-    );
-
-    const [, body] = putMock.mock.calls[0];
-    expect(body).toEqual({
-      enabled: true,
-      config: {
-        accountDerivation: SAMPLE_TPUB,
-        isHotWallet: false,
-        accountKeySettings: [
-          {
-            accountKey: SAMPLE_TPUB,
-            accountKeyPath: "m/84'/1'/0'"
-          }
-        ]
-      }
-    });
-  });
-
-  it('retries once with account key settings when BTCPay flags the property for descriptors', async () => {
-    const errorResponse = {
-      status: 422,
-      data: {
-        errors: [{ path: 'Config.AccountKeySettings', message: 'Missing account key settings' }]
-      }
-    } as any;
-    const axiosError = new AxiosError('Validation failed', 'ERR_BAD_REQUEST', undefined, undefined, errorResponse);
-    axiosError.response = errorResponse;
-    axiosError.isAxiosError = true;
-
-    const putMock = jest
-      .fn()
-      .mockRejectedValueOnce(axiosError)
-      .mockResolvedValueOnce({ data: {} });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    const descriptor = "wpkh([d34db33f/84'/1'/0']tpubExample/0/*)";
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: descriptor
-      },
-      { store }
-    );
-
-    expect(putMock).toHaveBeenCalledTimes(2);
-    const firstCallBody = putMock.mock.calls[0]?.[1];
-    expect(firstCallBody?.config).toEqual({
-      accountDerivation: descriptor,
-      isHotWallet: false
-    });
-    const secondCallBody = putMock.mock.calls[1]?.[1];
-    expect(secondCallBody?.config).toEqual({
-      accountDerivation: descriptor,
-      isHotWallet: false,
-      accountKeySettings: [
+    it('translates Missing config error into descriptive BadRequest', async () => {
+      const axiosError = new AxiosError(
+        'Missing config',
+        'ERR_BAD_REQUEST',
+        { headers: new AxiosHeaders() },
+        undefined,
         {
-          accountKey: descriptor
+          status: 422,
+          statusText: 'Unprocessable',
+          data: { message: 'Missing config' },
+          headers: new AxiosHeaders(),
+          config: { headers: new AxiosHeaders() }
         }
-      ]
+      );
+      (axiosError as AxiosError).isAxiosError = true;
+
+      const postMock = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+      const service = buildService();
+
+      await expect(
+        service.previewWithTpub(
+          store.id,
+          { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+          { store }
+        )
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('prefers provided store context for API key and base URL', async () => {
+      const postMock = jest.fn().mockResolvedValue({ status: 200, data: { addresses: [] } });
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+      const service = buildService();
+      const customStore: ManagedStoreEntity = {
+        ...store,
+        btcpayHost: 'https://tenant-btcpay.example'
+      } as ManagedStoreEntity;
+
+      await service.previewWithTpub(
+        'fallback-id',
+        { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+        { store: customStore }
+      );
+
+      expect(repository.findOne).not.toHaveBeenCalled();
+      expect(encryptionService.decrypt).toHaveBeenCalledWith(
+        customStore.apiKeyCiphertext,
+        customStore.apiKeyDekWrapped
+      );
+      expect(btcpayService.resolveBaseUrl).toHaveBeenCalledWith('https://tenant-btcpay.example');
     });
   });
 
-  // Legacy fallback behaviour is covered by the dedicated preview test above.
+  describe('saveOnchain', () => {
+    it('persists config with enabled flag defaulting to true', async () => {
+      const putMock = jest.fn().mockResolvedValue({ status: 200, data: { ok: true } });
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
-  it('returns enabled flag and normalized key path after updating the on-chain method', async () => {
-    const putMock = jest.fn().mockResolvedValue({
-      data: {
-        enabled: true,
-        paymentMethodId: 'BTC-OnChain',
-        currency: 'btc',
-        config: {
-          derivationScheme: SAMPLE_XPUB,
-          accountKeySettings: [
-            { accountKey: SAMPLE_XPUB, accountKeyPath: "84'/0'/0'", masterFingerprint: 'abcdef12' }
-          ]
-        }
-      }
-    });
+      const service = buildService();
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+      await service.saveOnchain(
+        store.id,
+        { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+        { store }
+      );
 
-    const service = buildService();
-
-    const result = await service.updateOnchain(
-      store.btcpayStoreId,
-      'BTC',
-      {
-        enabled: true,
-        config: {
-          derivationScheme: SAMPLE_XPUB,
-          accountKeyPath: "abcdef12/84'/0'/0'"
-        }
-      },
-      { store }
-    );
-
-    expect(result.enabled).toBe(true);
-    expect(result.paymentMethodId).toBe('BTC-CHAIN');
-    expect(result.config.accountKeyPath).toBe("84'/0'/0'");
-    expect(result.config.masterFingerprint).toBe('ABCDEF12');
-    expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
-    expect(result.config.accountKey).toBe(SAMPLE_XPUB);
-    expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
-      {
-        enabled: true,
-        config: {
-          accountDerivation: SAMPLE_XPUB,
-          isHotWallet: false,
-          accountKeySettings: [
-            {
-              accountKey: SAMPLE_XPUB
-            }
-          ]
-        }
-      }
-    );
-  });
-
-  it('retrieves on-chain status without requesting configuration payloads', async () => {
-    const getMock = jest.fn().mockResolvedValue({
-      data: [
+      expect(putMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
         {
-          paymentMethodId: 'BTC-OnChain',
+          config: {
+            accountDerivation: SAMPLE_TPUB,
+            accountOriginal: SAMPLE_TPUB,
+            accountKeySettings: [
+              {
+                rootFingerprint: 'A1B2C3D4',
+                accountKeyPath: "84'/1'/0'",
+                accountKey: SAMPLE_TPUB
+              }
+            ]
+          },
           enabled: true
         }
-      ]
+      );
     });
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+    it('allows overriding enabled flag (used for disable)', async () => {
+      const putMock = jest.fn().mockResolvedValue({ status: 200, data: {} });
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
-    const service = buildService();
-    const result = await service.getOnchainMethodStatus(store.btcpayStoreId, 'BTC-OnChain', { store });
+      const service = buildService();
 
-    expect(getMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods',
-      {
-        params: {
-          paymentMethodId: 'BTC-CHAIN',
-          onlyEnabled: false,
-          includeConfig: false
-        }
-      }
-    );
-    expect(result).toEqual({
-      storeId: store.btcpayStoreId,
-      paymentMethodId: 'BTC-CHAIN',
-      enabled: true
+      await service.saveOnchain(
+        store.id,
+        { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+        { store, enabled: false }
+      );
+
+      expect(putMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
+        expect.objectContaining({ enabled: false })
+      );
     });
-  });
 
-  it('treats missing on-chain methods as disabled when querying status', async () => {
-    const error = {
-      isAxiosError: true,
-      response: { status: 404 }
-    } as AxiosError;
-    const getMock = jest.fn().mockRejectedValue(error);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
-
-    const service = buildService();
-    const result = await service.getOnchainMethodStatus(store.btcpayStoreId, 'BTC-OnChain', { store });
-
-    expect(result).toEqual({
-      storeId: store.btcpayStoreId,
-      paymentMethodId: 'BTC-CHAIN',
-      enabled: false
-    });
-  });
-
-  it('updates an on-chain payment method with a temporary key', async () => {
-    const putMock = jest.fn().mockResolvedValue({ data: {} });
-
-    mockedAxios.create.mockReturnValue(
-      mockAxiosInstance({ put: putMock })
-    );
-
-    const service = buildService();
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: 'xpubTemp',
-        accountKeyPath: "m/84'/0'/0'",
-        enabled: true
-      },
-      { store, apiKey: 'temporary-key' }
-    );
-
-    expect(mockedAxios.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'token temporary-key' })
-      })
-    );
-
-    expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
-      {
-        enabled: true,
-        config: {
-          accountDerivation: 'xpubTemp',
-          isHotWallet: false,
-          accountKeySettings: [
-            { accountKey: 'xpubTemp' }
-          ]
-        }
-      }
-    );
-  });
-
-  it('trims derivation schemes before detecting extended keys', async () => {
-    const putMock = jest.fn().mockResolvedValue({ data: {} });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    await service.updateOnchainPaymentMethod(
-      {
-        storeId: store.btcpayStoreId,
-        derivationScheme: `  ${SAMPLE_TPUB}  `
-      },
-      { store }
-    );
-
-    expect(putMock).toHaveBeenCalledWith(
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN',
-      {
-        config: {
-          accountDerivation: SAMPLE_TPUB,
-          isHotWallet: false,
-          accountKeySettings: [
-            { accountKey: SAMPLE_TPUB }
-          ]
-        },
-        enabled: true
-      }
-    );
-  });
-
-  it('throws BTCPayAuthError on 401 when updating with temporary key', async () => {
-    const error = {
-      isAxiosError: true,
-      response: { status: 401 }
-    } as AxiosError;
-    const putMock = jest.fn().mockRejectedValue(error);
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
-
-    const service = buildService();
-
-    await expect(
-      service.updateOnchainPaymentMethod(
+    it('maps BTCPay auth failure to UnauthorizedException', async () => {
+      const axiosError = new AxiosError(
+        'Unauthorized',
+        'ERR_BAD_REQUEST',
+        { headers: new AxiosHeaders() },
+        undefined,
         {
-          storeId: store.btcpayStoreId,
-          derivationScheme: 'xpubAuth'
-        },
-        { store, apiKey: 'temp-key' }
-      )
-    ).rejects.toBeInstanceOf(BTCPayAuthError);
-  });
+          status: 401,
+          statusText: 'Unauthorized',
+          data: 'Unauthorized',
+          headers: new AxiosHeaders(),
+          config: { headers: new AxiosHeaders() }
+        }
+      );
+      (axiosError as AxiosError).isAxiosError = true;
+      const putMock = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
-  it('throws BTCPayUpstreamError on unexpected status when updating with temporary key', async () => {
-    const error = {
-      isAxiosError: true,
-      response: { status: 500 }
-    } as AxiosError;
-    const putMock = jest.fn().mockRejectedValue(error);
+      const service = buildService();
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
+      await expect(
+        service.saveOnchain(
+          store.id,
+          { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+          { store }
+        )
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
 
-    const service = buildService();
-
-    await expect(
-      service.updateOnchainPaymentMethod(
+    it('translates BTCPay upstream errors to BadRequestException when validation fails', async () => {
+      const axiosError = new AxiosError(
+        'Invalid AccountKeySettings',
+        'ERR_BAD_REQUEST',
+        { headers: new AxiosHeaders() },
+        undefined,
         {
-          storeId: store.btcpayStoreId,
-          derivationScheme: 'xpubError'
-        },
-        { store, apiKey: 'temp-key' }
-      )
-    ).rejects.toBeInstanceOf(BTCPayUpstreamError);
-  });
-
-  it('loads configuration from the payment-method endpoint', async () => {
-    const getMock = jest.fn().mockResolvedValue({
-      data: {
-        enabled: true,
-        paymentMethodId: 'BTC-CHAIN',
-        currency: 'btc',
-        config: { derivationScheme: SAMPLE_XPUB }
-      }
-    });
-
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
-
-    const service = buildService();
-
-    const result = await service.getOnchain(store.btcpayStoreId, 'BTC', { store });
-
-    expect(getMock).toHaveBeenCalled();
-    expect(result.enabled).toBe(true);
-    expect(result.config.derivationScheme).toBe(SAMPLE_XPUB);
-    expect(result.config.accountKey).toBe(SAMPLE_XPUB);
-  });
-
-  it('retrieves an on-chain wallet summary with preview fallback', async () => {
-    const getMock = jest
-      .fn()
-      .mockResolvedValueOnce({
-        data: {
-          paymentMethodId: 'btc-chain',
-          enabled: true,
-          currency: 'btc'
+          status: 422,
+          statusText: 'Unprocessable',
+          data: { message: 'Invalid AccountKeySettings' },
+          headers: new AxiosHeaders(),
+          config: { headers: new AxiosHeaders() }
         }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          addresses: [
-            { address: 'bcrt1qa' },
-            { address: 'bcrt1qb' },
-            { address: '  ' }
-          ]
-        }
-      });
+      );
+      (axiosError as AxiosError).isAxiosError = true;
+      const putMock = jest.fn().mockRejectedValue(axiosError);
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
-    mockedAxios.create.mockReturnValue(
-      mockAxiosInstance({ get: getMock })
-    );
+      const service = buildService();
 
-    const service = buildService();
-    const result = await service.getOnchainWalletSummary(store.btcpayStoreId, store.btcpayHost, { store });
-
-    expect(getMock).toHaveBeenNthCalledWith(1, '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN');
-    expect(getMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/stores/JDm5GuV/payment-methods/BTC-CHAIN/wallet/preview',
-      {
-        params: { count: '10', offset: '0' }
-      }
-    );
-    expect(result).toEqual({
-      storeId: store.btcpayStoreId,
-      paymentMethodId: 'BTC-CHAIN',
-      enabled: true,
-      currency: 'BTC',
-      previewAddresses: ['bcrt1qa', 'bcrt1qb']
+      await expect(
+        service.saveOnchain(
+          store.id,
+          { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+          { store }
+        )
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
-  it('requires an elevated API key to fetch internal configuration', async () => {
-    mockedAxios.create.mockReturnValue(
-      mockAxiosInstance({
-        get: jest.fn().mockResolvedValue({
-          data: {
-            paymentMethodId: 'BTC-CHAIN',
-            enabled: true,
-            config: {
-              derivationScheme: 'xpub123',
-              accountKeyPath: "m/84'/0'/0'",
-              masterFingerprint: 'abcdef12'
-            }
-          }
-        })
-      })
+  it('propagates BTCPay auth failures during preview as UnauthorizedException', async () => {
+    const axiosError = new AxiosError(
+      'Unauthorized',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      { status: 401, statusText: 'Unauthorized', data: 'Unauthorized', headers: new AxiosHeaders(), config: { headers: new AxiosHeaders() } }
     );
+    (axiosError as AxiosError).isAxiosError = true;
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 
-    const service = buildService();
-    const result = await service.getOnchainWalletConfigInternal(store.btcpayStoreId, store.btcpayHost, {
-      store,
-      apiKeyOverride: 'override-key'
-    });
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        storeId: store.btcpayStoreId,
-        paymentMethodId: 'BTC-CHAIN',
-        enabled: true,
-        config: expect.objectContaining({
-          derivationScheme: 'xpub123',
-          accountKey: 'xpub123',
-          accountKeyPath: "84'/0'/0'",
-          masterFingerprint: 'ABCDEF12',
-          label: null
-        })
-      })
-    );
-  });
-
-  it('throws when internal configuration is requested without an override key', async () => {
     const service = buildService();
 
     await expect(
-      service.getOnchainWalletConfigInternal(store.btcpayStoreId, store.btcpayHost, { store })
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      service.previewWithTpub(
+        store.id,
+        { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+        { store }
+      )
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('handles upstream BTCPay failures as BadGateway when previewing', async () => {
+    const axiosError = new AxiosError(
+      'Upstream error',
+      'ERR_BAD_REQUEST',
+      { headers: new AxiosHeaders() },
+      undefined,
+      {
+        status: 502,
+        statusText: 'Bad Gateway',
+        data: 'Bad Gateway',
+        headers: new AxiosHeaders(),
+        config: { headers: new AxiosHeaders() }
+      }
+    );
+    (axiosError as AxiosError).isAxiosError = true;
+
+    const postMock = jest.fn().mockRejectedValue(axiosError);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.previewWithTpub(
+        store.id,
+        { tpub: SAMPLE_TPUB, rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+        { store }
+      )
+    ).rejects.toBeInstanceOf(BadGatewayException);
+  });
 });

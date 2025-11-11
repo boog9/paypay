@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '../../../components/ui/button';
 import { AUTH_LOGIN, AUTH_ME, apiFetch, isApiError, isApiNoContent } from '../../../lib/api';
 import { getCsrfToken } from '../../../lib/auth';
+import { CSRF_HEADER } from '../../../lib/http-headers';
 import { resolveNextDestination } from '../../../lib/navigation';
 import { credentialsSchema, type AuthFormState } from '../client-actions';
 
@@ -56,7 +57,7 @@ export function LoginForm() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken
+            [CSRF_HEADER]: csrfToken
           },
           body: validation.data,
           cache: 'no-store'

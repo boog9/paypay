@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { api, isApiError } from '../../lib/api';
 import { getCsrfToken } from '../../lib/auth';
+import { CSRF_HEADER } from '../../lib/http-headers';
 
 export type AuthFormStateBase = {
   fieldErrors?: Record<string, string[]>;
@@ -52,7 +53,7 @@ export async function signupAction(formData: FormData): Promise<AuthActionResult
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
+        [CSRF_HEADER]: csrfToken,
         Accept: 'application/json'
       },
       body: JSON.stringify(parsed.data),

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FORMAT_ERROR_MESSAGE,
+  DESCRIPTOR_FORMAT_ERROR,
+  SENSITIVE_ERROR_MESSAGE,
+  descriptorPreviewSchema,
   detectNetworkFromInput,
+  importWalletSchema,
   isExtendedPublicKey,
   isSupportedDescriptor,
   resolveInstanceNetwork,
-  walletWizardFormSchema
 } from "./validation";
 
 const SAMPLE_TPUB =
@@ -25,69 +27,89 @@ const SAMPLE_TR_DESCRIPTOR =
 const INVALID_DESCRIPTOR =
   "wpkh([5d8a5157/84'/1'/0']tpubDD5xrqbhiqeA6fm64AKHGp7q8C5fuRJK7hDmUf3JiWG9jKvRWMHSeGD9uZBizHqa56yVzRFvQ61R8o7LozB6QCxxeg9Tv3AgsUJGkZeYkbq/0)";
 
-describe("walletWizardFormSchema", () => {
-  it("accepts supported extended public keys", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_TPUB });
-    expect(result.success).toBe(true);
-  });
-
+describe("descriptorPreviewSchema", () => {
   it("accepts supported descriptor expressions", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_DESCRIPTOR });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts descriptors with checksums", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_DESCRIPTOR_WITH_CHECKSUM });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts multisig descriptors with checksums", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_SORTEDMULTI_DESCRIPTOR });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts taproot descriptors", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_TR_DESCRIPTOR });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects unsupported derivation formats", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: "invalid-key" });
-    expect(result.success).toBe(false);
-    if (result.success) {
-      return;
-    }
-    expect(result.error.flatten().fieldErrors.derivationScheme?.[0]).toBe(FORMAT_ERROR_MESSAGE);
-  });
-
-  it("requires wildcards in descriptor paths", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: INVALID_DESCRIPTOR });
-    expect(result.success).toBe(false);
-  });
-
-  it("marks account key path as optional", () => {
-    const result = walletWizardFormSchema.safeParse({ derivationScheme: SAMPLE_XPUB, accountKeyPath: "" });
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      return;
-    }
-    expect(result.data.accountKeyPath).toBeUndefined();
-  });
-
-  it("validates provided account key paths", () => {
-    const result = walletWizardFormSchema.safeParse({
-      derivationScheme: SAMPLE_XPUB,
+    const result = descriptorPreviewSchema.safeParse({
+      derivationScheme: SAMPLE_DESCRIPTOR,
       accountKeyPath: "m/84'/1'/0'",
     });
     expect(result.success).toBe(true);
   });
 
-  it("accepts mainnet account key paths", () => {
-    const result = walletWizardFormSchema.safeParse({
-      derivationScheme: SAMPLE_XPUB,
-      accountKeyPath: "m/84'/0'/0'",
+  it("requires account paths with an m/ prefix", () => {
+    const result = descriptorPreviewSchema.safeParse({
+      derivationScheme: SAMPLE_DESCRIPTOR,
+      accountKeyPath: "84'/1'/0'",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.accountKeyPath?.[0]).toBe(
+        "Descriptor preview requires a path starting with m/."
+      );
+    }
+  });
+
+  it("rejects descriptors without wildcards", () => {
+    const result = descriptorPreviewSchema.safeParse({
+      derivationScheme: INVALID_DESCRIPTOR,
+      accountKeyPath: "m/84'/1'/0'",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.derivationScheme?.[0]).toBe(DESCRIPTOR_FORMAT_ERROR);
+    }
+  });
+});
+
+describe("importWalletSchema", () => {
+  it("accepts a tpub, fingerprint, and account path", () => {
+    const result = importWalletSchema.safeParse({
+      tpub: SAMPLE_TPUB,
+      rootFingerprint: "5D8A5157",
+      accountKeyPath: "84'/1'/0'",
     });
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.rootFingerprint).toBe("5D8A5157");
+    }
+  });
+
+  it("rejects inputs containing the m/ prefix", () => {
+    const result = importWalletSchema.safeParse({
+      tpub: SAMPLE_TPUB,
+      rootFingerprint: "5D8A5157",
+      accountKeyPath: "m/84'/1'/0'",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.accountKeyPath?.[0]).toBe("Use a path without the m/ prefix.");
+    }
+  });
+
+  it("sanitizes sensitive phrases", () => {
+    const result = importWalletSchema.safeParse({
+      tpub: "seed phrase", // invalid and contains a sensitive keyword
+      rootFingerprint: "5D8A5157",
+      accountKeyPath: "84'/1'/0'",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.tpub?.[0]).toBe(SENSITIVE_ERROR_MESSAGE);
+    }
+  });
+
+  it("validates fingerprint format", () => {
+    const result = importWalletSchema.safeParse({
+      tpub: SAMPLE_TPUB,
+      rootFingerprint: "123",
+      accountKeyPath: "84'/1'/0'",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.rootFingerprint?.[0]).toBe(
+        "Root fingerprint must be 8 hexadecimal characters."
+      );
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ForbiddenException,
   HttpException,
   Injectable,
@@ -43,6 +44,17 @@ export function mask(value: string | null | undefined): string {
     return trimmed;
   }
   return `${trimmed.slice(0, 8)}…${trimmed.slice(-8)}`;
+}
+
+export interface OnchainPreviewDescriptorDto {
+  derivationScheme: string;
+  accountKeyPath: string;
+}
+
+export interface OnchainConfigDto {
+  tpub: string;
+  rootFingerprint: string;
+  accountKeyPath: string;
 }
 
 export interface OnchainPreviewConfig {
@@ -281,6 +293,101 @@ export class BtcpayPaymentMethodsService {
     throw new InternalServerErrorException('Failed to preview on-chain payment method.');
   }
 
+  async previewWithDescriptor(
+    storeId: string,
+    dto: OnchainPreviewDescriptorDto,
+    options?: PaymentMethodRequestOptions
+  ): Promise<{ addresses: Array<{ address: string }> }> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const paymentMethodId = BTC_CHAIN_PMID;
+    const accountKeyPath = this.normalizeDescriptorAccountPath(dto.accountKeyPath);
+    const params = {
+      ...this.buildPreviewQueryParams(),
+      derivationScheme: dto.derivationScheme,
+      accountKeyPath
+    };
+
+    try {
+      const response = await context.http.get(
+        this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
+        { params }
+      );
+      const addresses = this.extractPreviewAddresses(response.data).map((item) => ({
+        address: item.address
+      }));
+      return { addresses };
+    } catch (error) {
+      throw this.mapPreviewAddressesError(error, {
+        storeId: context.store.id,
+        paymentMethodId,
+        mode: 'descriptor'
+      });
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  async previewWithTpub(
+    storeId: string,
+    dto: OnchainConfigDto,
+    options?: PaymentMethodRequestOptions
+  ): Promise<{ addresses: Array<{ address: string }> }> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const paymentMethodId = BTC_CHAIN_PMID;
+    const body = {
+      config: this.buildOnchainConfigBody(dto)
+    };
+    const params = this.buildPreviewQueryParams();
+
+    try {
+      const response = await context.http.post(
+        this.buildOnchainPreviewPath(context.store.btcpayStoreId, paymentMethodId),
+        body,
+        { params }
+      );
+      const addresses = this.extractPreviewAddresses(response.data).map((item) => ({
+        address: item.address
+      }));
+      return { addresses };
+    } catch (error) {
+      throw this.mapPreviewAddressesError(error, {
+        storeId: context.store.id,
+        paymentMethodId,
+        mode: 'tpub'
+      });
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  async saveOnchain(
+    storeId: string,
+    dto: OnchainConfigDto | null,
+    options?: PaymentMethodRequestOptions & { enabled?: boolean }
+  ): Promise<unknown> {
+    const { enabled, ...requestOptions } = options ?? {};
+    const context = await this.prepareStoreContext(storeId, requestOptions);
+    const paymentMethodId = BTC_CHAIN_PMID;
+    const body = enabled === false
+      ? { enabled: false }
+      : { enabled: true, config: this.buildOnchainConfigBody(dto!) };
+
+    try {
+      const response = await context.http.put(
+        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId),
+        body
+      );
+      return response.data;
+    } catch (error) {
+      throw this.mapSaveOnchainError(error, {
+        storeId: context.store.id,
+        paymentMethodId
+      });
+    } finally {
+      context.cleanup();
+    }
+  }
+
   async previewOnchainAddresses(
     storeId: string,
     input: {
@@ -368,10 +475,31 @@ export class BtcpayPaymentMethodsService {
 
     try {
       const response = await context.http.get(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
+        this.buildModernPaymentMethodsCollectionPath(context.store.btcpayStoreId),
+        {
+          params: {
+            paymentMethodId,
+            includeConfig: true,
+            onlyEnabled: false
+          }
+        }
       );
+      const raw = response.data;
+      const match = this.extractPaymentMethodStatus(raw, paymentMethodId);
+      if (!match) {
+        return this.normalizePaymentMethodResponse(
+          {
+            enabled: false,
+            paymentMethodId,
+            config: {}
+          },
+          context.store.btcpayStoreId,
+          currency,
+          paymentMethodId
+        );
+      }
       return this.normalizePaymentMethodResponse(
-        response.data,
+        match,
         context.store.btcpayStoreId,
         currency,
         paymentMethodId
@@ -381,8 +509,6 @@ export class BtcpayPaymentMethodsService {
     } finally {
       context.cleanup();
     }
-
-    throw new InternalServerErrorException('Failed to retrieve on-chain payment method.');
   }
 
   async getOnchainConfig(
@@ -395,10 +521,18 @@ export class BtcpayPaymentMethodsService {
 
     try {
       const response = await context.http.get(
-        this.buildModernPaymentMethodPath(context.store.btcpayStoreId, paymentMethodId)
+        this.buildModernPaymentMethodsCollectionPath(context.store.btcpayStoreId),
+        {
+          params: {
+            paymentMethodId,
+            includeConfig: includeConfig ? true : false,
+            onlyEnabled: false
+          }
+        }
       );
 
-      const payload = response.data as Record<string, unknown>;
+      const payload = this.extractPaymentMethodStatus(response.data, paymentMethodId) ??
+        (response.data as Record<string, unknown>);
       const enabled = payload?.enabled === true;
 
       if (!enabled || !includeConfig) {
@@ -674,6 +808,78 @@ export class BtcpayPaymentMethodsService {
       offset: String(offset),
       count: String(amount)
     };
+  }
+
+  private normalizeDescriptorAccountPath(path: string): string {
+    const trimmed = typeof path === 'string' ? path.trim() : '';
+    if (!trimmed) {
+      throw new BadRequestException('Account key path is required for descriptor preview.');
+    }
+
+    if (trimmed.startsWith('m/')) {
+      return trimmed;
+    }
+
+    return `m/${trimmed}`;
+  }
+
+  private buildOnchainConfigBody(dto: OnchainConfigDto) {
+    const accountDerivation = this.normalizeExtendedKey(dto.tpub);
+    const rootFingerprint = this.normalizeRootFingerprint(dto.rootFingerprint);
+    const accountKeyPath = this.normalizeConfigAccountPath(dto.accountKeyPath);
+
+    return {
+      accountDerivation,
+      accountOriginal: accountDerivation,
+      isHotWallet: false,
+      accountKeySettings: [
+        {
+          rootFingerprint,
+          accountKeyPath,
+          accountKey: accountDerivation
+        }
+      ]
+    };
+  }
+
+  private normalizeExtendedKey(value: string): string {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('Extended public key is required.');
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Extended public key must not be empty.');
+    }
+    return trimmed;
+  }
+
+  private normalizeRootFingerprint(value: string): string {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('Root fingerprint is required.');
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Root fingerprint must not be empty.');
+    }
+    if (!/^[0-9a-fA-F]{8}$/.test(trimmed)) {
+      throw new BadRequestException('Root fingerprint must be 8 hexadecimal characters.');
+    }
+    return trimmed.toUpperCase();
+  }
+
+  private normalizeConfigAccountPath(value: string): string {
+    if (typeof value !== 'string') {
+      throw new BadRequestException('Account key path is required.');
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Account key path must not be empty.');
+    }
+    const withoutPrefix = trimmed.startsWith('m/') ? trimmed.slice(2) : trimmed;
+    if (!withoutPrefix) {
+      throw new BadRequestException('Account key path must not be empty.');
+    }
+    return withoutPrefix;
   }
 
   private buildPreviewRequestBody(
@@ -1443,7 +1649,10 @@ export class BtcpayPaymentMethodsService {
     );
 
     if (status === 404 && code === 'paymentmethod-not-configured') {
-      return this.buildValidationException('Payment method is not configured yet.');
+      return this.buildValidationException(
+        { message: 'Payment method is not configured yet.', code },
+        error as Error
+      );
     }
     if (status === 401) {
       return new UnauthorizedException();
@@ -1486,6 +1695,10 @@ export class BtcpayPaymentMethodsService {
       const resolvedMessage = this.resolveErrorMessage(rawPayload);
       const message = resolvedMessage ?? this.extractErrorMessage(error);
       const code = this.extractErrorCode(rawPayload);
+      const mode =
+        typeof context.mode === 'string' && context.mode === 'descriptor'
+          ? 'descriptor'
+          : 'tpub';
 
       this.logger.warn(
         { ...context, status, code: code ?? undefined, errorMessage: message ?? 'BTCPay request failed' },
@@ -1503,25 +1716,14 @@ export class BtcpayPaymentMethodsService {
       }
 
       if (status === 400 || status === 422) {
-        if (typeof rawPayload === 'string') {
-          const sanitized = this.sanitizeMessage(rawPayload) || message || 'BTCPay request failed';
-          return this.buildValidationException(sanitized, error as Error);
-        }
-        if (this.isRecord(rawPayload) && typeof rawPayload.message === 'string') {
-          const sanitizedMessage = this.sanitizeMessage(rawPayload.message) || message || 'BTCPay request failed';
-          const responsePayload: Record<string, unknown> = { message: sanitizedMessage };
-          const payloadCode = this.extractErrorCode(rawPayload);
-          if (payloadCode) {
-            responsePayload.code = payloadCode;
-          }
-          return this.buildValidationException(responsePayload, error as Error);
-        }
-        const responsePayload = payload ?? message ?? 'BTCPay request failed';
-        return this.buildValidationException(responsePayload, error as Error);
+        return this.buildBadRequestException(rawPayload ?? payload ?? message, mode, error as Error);
       }
 
       if (status === 404 && code === 'paymentmethod-not-configured') {
-        return this.buildValidationException('Payment method is not configured yet.', error as Error);
+        return this.buildValidationException(
+          { message: 'Payment method is not configured yet.', code: code ?? 'paymentmethod-not-configured' },
+          error as Error
+        );
       }
 
       if (status === 404) {
@@ -1560,6 +1762,128 @@ export class BtcpayPaymentMethodsService {
     }
 
     return new BtcpayValidationException(payload, { cause });
+  }
+
+  private buildBadRequestException(
+    payload: unknown,
+    mode: 'descriptor' | 'tpub' | 'save',
+    cause?: Error
+  ): BadRequestException {
+    const { message, code } = this.translateValidationMessage(payload, mode);
+    const response: Record<string, unknown> = { message };
+    if (code) {
+      response.code = code;
+    }
+    return new BadRequestException(response, { cause });
+  }
+
+  private translateValidationMessage(
+    payload: unknown,
+    mode: 'descriptor' | 'tpub' | 'save'
+  ): { message: string; code?: string } {
+    const code = this.extractErrorCode(payload);
+    const resolved = this.resolveErrorMessage(payload);
+    const sanitizedResolved = resolved ? this.sanitizeMessage(resolved) : '';
+    const normalized = sanitizedResolved ? sanitizedResolved.toLowerCase() : '';
+    const paths = this.extractValidationPaths(payload).map((path) => path.toLowerCase());
+
+    if (normalized.includes('missing config')) {
+      return {
+        message:
+          'Config payload is required for preview requests using extended public keys. Use the descriptor preview endpoint instead if you have a descriptor.',
+        code: code ?? 'missing-config'
+      };
+    }
+
+    if (normalized.includes('invalid derivation strategy') || normalized.includes('invalid account derivation')) {
+      return {
+        message:
+          'Account derivation expects an extended public key. Use the descriptor preview endpoint when working with descriptors.',
+        code: code ?? 'invalid-account-derivation'
+      };
+    }
+
+    if (normalized.includes('accountkeysettings') || paths.some((path) => path.includes('accountkeysettings'))) {
+      return {
+        message:
+          "AccountKeySettings require an 8-character master fingerprint and a BIP84/BIP86 account key path (for example 84'/1'/0').",
+        code: code ?? 'invalid-account-key-settings'
+      };
+    }
+
+    if (sanitizedResolved) {
+      return { message: sanitizedResolved, code: code ?? this.resolveDefaultValidationCode(mode) };
+    }
+
+    const fallbackCode = code ?? this.resolveDefaultValidationCode(mode);
+    const fallbackMessage = mode === 'descriptor'
+      ? 'BTCPay rejected the descriptor. Confirm the syntax and the m/ account path.'
+      : 'BTCPay rejected the wallet configuration. Verify the extended public key, root fingerprint, and account path.';
+
+    return { message: fallbackMessage, code: fallbackCode };
+  }
+
+  private resolveDefaultValidationCode(mode: 'descriptor' | 'tpub' | 'save'): string {
+    switch (mode) {
+      case 'descriptor':
+        return 'descriptor-validation-error';
+      case 'tpub':
+      case 'save':
+        return 'wallet-validation-error';
+      default:
+        return 'validation-error';
+    }
+  }
+
+  private mapSaveOnchainError(
+    error: unknown,
+    context: Record<string, unknown> = {}
+  ): Error {
+    if (axios.isAxiosError<unknown>(error)) {
+      const status = error.response?.status ?? 0;
+      const rawPayload = this.getResponseData(error);
+      const payload = this.normalizeErrorPayload(rawPayload);
+      const resolvedMessage = this.resolveErrorMessage(rawPayload);
+      const message = resolvedMessage ?? this.extractErrorMessage(error);
+      const code = this.extractErrorCode(rawPayload);
+
+      this.logger.warn(
+        { ...context, status, code: code ?? undefined, errorMessage: message ?? 'BTCPay request failed' },
+        'btcpaySave'
+      );
+
+      if (status === 400 || status === 422) {
+        return this.buildBadRequestException(rawPayload ?? payload ?? message, 'save', error as Error);
+      }
+
+      if (status === 401) {
+        return new UnauthorizedException('BTCPay authentication failed', { cause: error as Error });
+      }
+
+      if (status === 403) {
+        return new ForbiddenException('BTCPay returned limited permissions', { cause: error as Error });
+      }
+
+      if (status === 404) {
+        return new NotFoundException('BTCPay store or payment method not found', { cause: error as Error });
+      }
+
+      if (status >= 500) {
+        return new BadGatewayException('BTCPay request failed', { cause: error as Error });
+      }
+
+      if (status >= 400 && status < 500) {
+        return new HttpException(payload ?? message ?? 'BTCPay request failed', status, {
+          cause: error as Error
+        });
+      }
+
+      return new BadGatewayException(message ?? 'BTCPay request failed', { cause: error as Error });
+    }
+
+    return new BadGatewayException('BTCPay request failed', {
+      cause: error instanceof Error ? error : undefined
+    });
   }
 
   private mapGenerateWalletError(error: unknown): Error {

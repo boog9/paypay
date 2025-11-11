@@ -474,7 +474,7 @@ export class BtcpayPaymentMethodsService {
     const paymentMethodId = normalizePaymentMethodId(currency, 'chain');
 
     try {
-      const response = await context.http.get(
+      const response = await context.http.get<unknown>(
         this.buildModernPaymentMethodsCollectionPath(context.store.btcpayStoreId),
         {
           params: {

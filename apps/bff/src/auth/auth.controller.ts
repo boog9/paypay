@@ -25,6 +25,7 @@ import {
   SignupServiceResultDto
 } from './dto/auth-response.dto';
 import { CsrfService } from '../security/csrf.service';
+import { CSRF_HEADER } from '../security/csrf.constants';
 import { RegisterDto } from './dto/register.dto';
 import { resolveCookieNames } from './cookie-names';
 import { setAuthCookies, clearAuthCookies } from './cookies.util';
@@ -212,7 +213,7 @@ export class AuthController {
       secret = this.csrfService.issueSecret(res);
     }
     const token = this.csrfService.createToken(secret);
-    res.setHeader('X-Csrf-Token', token);
+    res.setHeader(CSRF_HEADER, token);
   }
 
   private extractClientIp(req: Request): string {

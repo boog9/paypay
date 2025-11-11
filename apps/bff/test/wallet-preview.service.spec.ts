@@ -1,4 +1,4 @@
-import { UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, UnprocessableEntityException } from '@nestjs/common';
 import { WalletPreviewService } from '../src/wallets/wallet-preview.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 
@@ -26,91 +26,93 @@ describe('WalletPreviewService', () => {
   } as unknown as { findOne: jest.Mock };
 
   const paymentMethods = {
-    previewOnchainAddresses: jest.fn()
-  } as unknown as { previewOnchainAddresses: jest.Mock };
+    previewWithDescriptor: jest.fn(),
+    previewWithTpub: jest.fn()
+  } as unknown as {
+    previewWithDescriptor: jest.Mock;
+    previewWithTpub: jest.Mock;
+  };
 
   let service: WalletPreviewService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     storesRepository.findOne.mockResolvedValue(store);
-    paymentMethods.previewOnchainAddresses.mockResolvedValue({ addresses: [] });
+    paymentMethods.previewWithDescriptor.mockResolvedValue({ addresses: [] });
+    paymentMethods.previewWithTpub.mockResolvedValue({ addresses: [] });
     service = new WalletPreviewService(storesRepository as any, paymentMethods as any);
   });
 
-  it('transforms extended public keys into BIP84 descriptors', async () => {
-    const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
-
-    await service.previewOnchainProposedConfig('btcpay-store-id', { derivationScheme: extendedKey });
-
-    expect(storesRepository.findOne).toHaveBeenCalledWith({
-      where: [{ btcpayStoreId: 'btcpay-store-id' }]
-    });
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
-      'store-entity-id',
-      {
-        derivationScheme: `wpkh(${extendedKey}/0/*)`,
-        accountKeyPath: null
-      },
-      { store }
-    );
-  });
-
-  it('uses provided descriptor without forwarding account key path', async () => {
-    const descriptor = "wpkh([deadbeef/84'/1'/0']tpubKey/0/*)";
-
-    await service.previewOnchainProposedConfig('store-entity-id', {
-      derivationScheme: descriptor,
-      accountKeyPath: "m/84'/1'/5'",
-      masterFingerprint: 'deadbeef'
-    });
-
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
-      'store-entity-id',
-      { derivationScheme: descriptor, accountKeyPath: null },
-      { store }
-    );
-  });
-
-  it('derives account index and fingerprint when provided alongside extended key', async () => {
-    const extendedKey = 'tpubD6NzVbkrYhZ4YExampleExtendedKey123456789ABCDEFGHJKLMN';
-
+  it('delegates descriptor preview when derivationScheme provided', async () => {
     await service.previewOnchainProposedConfig('btcpay-store-id', {
-      derivationScheme: extendedKey,
-      accountKeyPath: "m/84'/1'/5'",
-      masterFingerprint: '1a2b3c4d'
+      derivationScheme: "wpkh([FPR/84'/1'/0']tpub.../0/*)",
+      accountKeyPath: "m/84'/1'/0'"
     });
 
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
+    expect(paymentMethods.previewWithDescriptor).toHaveBeenCalledWith(
       'store-entity-id',
-      {
-        derivationScheme: `wpkh([1A2B3C4D/84'/1'/5']${extendedKey}/0/*)`,
-        accountKeyPath: null
-      },
+      { derivationScheme: "wpkh([FPR/84'/1'/0']tpub.../0/*)", accountKeyPath: "m/84'/1'/0'" },
       { store }
     );
+  });
+
+  it('rejects descriptor preview without account key path', async () => {
+    await expect(
+      service.previewOnchainProposedConfig('btcpay-store-id', {
+        derivationScheme: 'wpkh(tpub.../0/*)'
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('delegates tpub preview when extended key data supplied', async () => {
+    await service.previewOnchainProposedConfig('btcpay-store-id', {
+      tpub: 'tpubExample',
+      rootFingerprint: 'A1B2C3D4',
+      accountKeyPath: "84'/1'/0'"
+    });
+
+    expect(paymentMethods.previewWithTpub).toHaveBeenCalledWith(
+      'store-entity-id',
+      { tpub: 'tpubExample', rootFingerprint: 'A1B2C3D4', accountKeyPath: "84'/1'/0'" },
+      { store }
+    );
+  });
+
+  it('enforces root fingerprint when tpub provided', async () => {
+    await expect(
+      service.previewOnchainProposedConfig('btcpay-store-id', {
+        tpub: 'tpubExample',
+        accountKeyPath: "84'/1'/0'"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('enforces account key path format for tpub preview', async () => {
+    await expect(
+      service.previewOnchainProposedConfig('btcpay-store-id', {
+        tpub: 'tpubExample',
+        rootFingerprint: 'A1B2C3D4',
+        accountKeyPath: "m/84'/1'/0'"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects payloads without descriptor or tpub', async () => {
+    await expect(
+      service.previewOnchainProposedConfig('btcpay-store-id', {
+        accountKeyPath: "m/84'/1'/0'"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects unmanaged stores', async () => {
     storesRepository.findOne.mockResolvedValueOnce(null);
 
     await expect(
-      service.previewOnchainProposedConfig('unknown-store', { derivationScheme: 'wpkh([abcd/84\'/1\'/0\']xpub/0/*)' })
+      service.previewOnchainProposedConfig('unknown-store', {
+        derivationScheme: "wpkh([FPR/84'/1'/0']tpub.../0/*)",
+        accountKeyPath: "m/84'/1'/0'"
+      })
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
-  });
-
-  it('omits account key path when descriptor is provided without explicit path', async () => {
-    await service.previewOnchainProposedConfig('store-entity-id', {
-      derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)'
-    });
-
-    expect(paymentMethods.previewOnchainAddresses).toHaveBeenCalledWith(
-      'store-entity-id',
-      {
-        derivationScheme: 'wpkh([f00dbabe]tpubExample/0/*)',
-        accountKeyPath: null
-      },
-      { store }
-    );
   });
 });

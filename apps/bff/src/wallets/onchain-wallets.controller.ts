@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
   HttpCode,
@@ -22,8 +23,11 @@ import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { OnchainWalletsService } from './onchain-wallets.service';
 import { toWalletPresenceDto, WalletPresenceDto } from './dto/wallet-presence.dto';
-import { UpdateBitcoinWalletDto } from './dto/update-bitcoin-wallet.dto';
-import { BtcpayPaymentMethodsService } from '../btcpay/btcpay.payment-methods.service';
+import { OnchainConfigBodyDto } from './dto/onchain-config.dto';
+import {
+  BtcpayPaymentMethodsService,
+  type OnchainConfigResponse
+} from '../btcpay/btcpay.payment-methods.service';
 import { isUuid } from '../shared/is-uuid';
 
 interface BitcoinWalletMetadataDto {
@@ -85,36 +89,53 @@ export class OnchainWalletsController {
   async configure(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
-    @Body() dto: UpdateBitcoinWalletDto
+    @Body() dto: OnchainConfigBodyDto
   ): Promise<void> {
     const store = await this.requireStore(user, storeId);
     this.validateNetwork(dto);
 
-    const { forStorage: masterFingerprintForStorage } = this.resolveFingerprints(
-      dto.derivationScheme,
-      dto.masterFingerprint
-    );
+    const fingerprint = dto.rootFingerprint.trim().toUpperCase();
 
     try {
-      await this.paymentMethods.updateOnchainPaymentMethod(
+      await this.paymentMethods.saveOnchain(
+        store.btcpayStoreId,
         {
-          storeId: store.btcpayStoreId,
-          derivationScheme: dto.derivationScheme,
-          allowAccountKeyPath: false,
-          enabled: true
+          tpub: dto.tpub,
+          rootFingerprint: fingerprint,
+          accountKeyPath: dto.accountKeyPath
         },
-        { store }
+        { store, enabled: true }
       );
     } catch (error) {
       this.rethrowBtcpayError(error);
     }
 
-    await this.walletsService.upsertFromBtcpay(store, {
-      derivationScheme: dto.derivationScheme,
-      accountKeyPath: dto.accountKeyPath ?? null,
-      masterFingerprint: masterFingerprintForStorage,
-      label: dto.label ?? null
-    });
+    let remoteConfig: OnchainConfigResponse | null = null;
+    try {
+      remoteConfig = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', { store });
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      remoteConfig = null;
+    }
+
+    const metadata = remoteConfig?.config
+      ? {
+          derivationScheme:
+            remoteConfig.config.derivationScheme ?? remoteConfig.config.accountKey ?? dto.tpub,
+          accountKeyPath: remoteConfig.config.accountKeyPath ?? dto.accountKeyPath ?? null,
+          masterFingerprint: remoteConfig.config.masterFingerprint ?? fingerprint,
+          label: remoteConfig.config.label ?? null
+        }
+      : {
+          derivationScheme: dto.tpub,
+          accountKeyPath: dto.accountKeyPath ?? null,
+          masterFingerprint: fingerprint,
+          label: null
+        };
+
+    await this.walletsService.upsertFromBtcpay(store, metadata);
   }
 
   @Delete('stores/:storeId/wallets/bitcoin')
@@ -130,16 +151,21 @@ export class OnchainWalletsController {
       const remote = await this.paymentMethods.getOnchain(store.btcpayStoreId, 'BTC', {
         store
       });
-      if (remote.enabled && remote.config?.derivationScheme) {
-        await this.paymentMethods.updateOnchainPaymentMethod(
-          {
-            storeId: store.btcpayStoreId,
-            derivationScheme: remote.config.derivationScheme,
-            allowAccountKeyPath: false,
-            enabled: false
-          },
-          { store }
-        );
+
+      if (remote.enabled) {
+        const tpub = remote.config?.accountKey ?? remote.config?.derivationScheme ?? '';
+        const accountKeyPath = remote.config?.accountKeyPath ?? '';
+        const rootFingerprint = remote.config?.masterFingerprint ?? '';
+
+        if (tpub && accountKeyPath && rootFingerprint) {
+          await this.paymentMethods.saveOnchain(
+            store.btcpayStoreId,
+            { tpub, rootFingerprint, accountKeyPath },
+            { store, enabled: false }
+          );
+        } else {
+          await this.paymentMethods.saveOnchain(store.btcpayStoreId, null, { store, enabled: false });
+        }
       }
     } catch (error) {
       this.rethrowBtcpayError(error);
@@ -175,13 +201,13 @@ export class OnchainWalletsController {
     return store;
   }
 
-  private validateNetwork(dto: UpdateBitcoinWalletDto): void {
+  private validateNetwork(dto: OnchainConfigBodyDto): void {
     const network = String(process.env.NBITCOIN_NETWORK ?? '').trim().toLowerCase();
     if (network !== 'testnet') {
       return;
     }
 
-    const derivation = dto.derivationScheme.trim();
+    const derivation = dto.tpub.trim();
     const lowered = derivation.toLowerCase();
     const containsMainnetPrefixes = /(xpub|ypub|zpub)/u.test(lowered);
     if (containsMainnetPrefixes) {
@@ -194,48 +220,14 @@ export class OnchainWalletsController {
 
     const keyPath = dto.accountKeyPath?.trim();
     if (keyPath) {
-      const bip84 = /^m\/84'\/1'\/\d+'(?:\/.*)?$/u;
-      const bip86 = /^m\/86'\/1'\/\d+'(?:\/.*)?$/u;
+      const bip84 = /^84'\/1'\/\d+'(?:\/.*)?$/u;
+      const bip86 = /^86'\/1'\/\d+'(?:\/.*)?$/u;
       if (!bip84.test(keyPath) && !bip86.test(keyPath)) {
         throw new UnprocessableEntityException(
-          "Account key path must start with m/84'/1' or m/86'/1'."
+          "Account key path must start with 84'/1' or 86'/1'."
         );
       }
     }
-  }
-
-  private extractFingerprintFromDescriptor(derivationScheme: string): string | null {
-    if (typeof derivationScheme !== 'string') {
-      return null;
-    }
-
-    const match = derivationScheme.match(/\[\s*([0-9a-fA-F]{8})\//u);
-    if (!match || !match[1]) {
-      return null;
-    }
-
-    return match[1].toUpperCase();
-  }
-
-  private resolveFingerprints(
-    derivationScheme: string,
-    masterFingerprint: string | null | undefined
-  ): { forBtcpay: string | undefined; forStorage: string | null } {
-    if (masterFingerprint === null) {
-      return { forBtcpay: undefined, forStorage: null };
-    }
-
-    if (typeof masterFingerprint === 'string') {
-      const normalized = masterFingerprint.trim().toUpperCase();
-      return { forBtcpay: normalized, forStorage: normalized };
-    }
-
-    const extracted = this.extractFingerprintFromDescriptor(derivationScheme);
-    if (!extracted) {
-      return { forBtcpay: undefined, forStorage: null };
-    }
-
-    return { forBtcpay: extracted, forStorage: extracted };
   }
 
   private rethrowBtcpayError(error: unknown): never {

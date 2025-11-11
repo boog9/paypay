@@ -77,13 +77,14 @@ function coerceTrimmedString(value: unknown): string | undefined {
 }
 
 export class PreviewBodyDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }: TransformFnParams) =>
     typeof value === 'string' ? value.trim() : (value as unknown)
   )
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
-  derivationScheme!: string;
+  derivationScheme?: string;
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null && value !== undefined)
@@ -100,6 +101,22 @@ export class PreviewBodyDto {
   })
   @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
   accountKeyPath?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => coerceTrimmedString(value))
+  @NoSensitiveSecrets({ message: SENSITIVE_ERROR_MESSAGE })
+  tpub?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    const normalized = coerceTrimmedString(value);
+    return normalized ? normalized.toUpperCase() : undefined;
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @Matches(/^[0-9A-F]{8}$/u, { message: 'Root fingerprint must be 8 hexadecimal characters.' })
+  rootFingerprint?: string;
 
   @IsOptional()
   @IsString()

@@ -1,3 +1,5 @@
+import { CSRF_HEADER } from './http-headers';
+
 const rawBaseUrl = process.env.NEXT_PUBLIC_BFF_URL?.replace(/\/$/, '');
 
 export const API_PREFIX = '/api';
@@ -9,7 +11,7 @@ export const AUTH_REFRESH = `${API_PREFIX}/auth/refresh`;
 export const AUTH_CSRF = `${API_PREFIX}/auth/csrf`;
 export const AUTH_ME = `${API_PREFIX}/auth/me`;
 
-const CSRF_HEADER_NAME = 'x-csrf-token';
+const CSRF_HEADER_NAME = CSRF_HEADER.toLowerCase();
 const REQUEST_ID_HEADERS = ['x-request-id', 'x-requestid'] as const;
 
 let hasScheduledLoginRedirect = false;
@@ -128,10 +130,10 @@ async function executeApiFetch(
   const upperMethod = (method ?? 'GET').toUpperCase();
   const finalBody = prepareRequestBody(upperMethod, body, h);
 
-  if (!h.has('X-CSRF-Token') && shouldAttachCsrf(path)) {
+  if (!h.has(CSRF_HEADER) && shouldAttachCsrf(path)) {
     const token = cachedCsrfToken;
     if (token) {
-      h.set('X-CSRF-Token', token);
+      h.set(CSRF_HEADER, token);
     }
   }
 

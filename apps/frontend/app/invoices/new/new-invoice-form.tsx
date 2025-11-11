@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '../../../components/ui/button';
 import { api, isApiError } from '../../../lib/api';
 import { getCsrfToken } from '../../../lib/auth';
+import { CSRF_HEADER } from '../../../lib/http-headers';
 
 type RequestState =
   | { status: 'idle' }
@@ -52,7 +53,7 @@ export function NewInvoiceForm() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          [CSRF_HEADER]: csrfToken,
           Accept: 'application/json'
         },
         body: JSON.stringify(payload)

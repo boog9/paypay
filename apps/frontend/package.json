@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p . --noEmit",
-    "test": "node ./scripts/run-tests.js"
+    "test": "node ./scripts/run-tests.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.10",

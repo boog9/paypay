@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { getWalletPresence } from "../../_lib/get-wallet-presence";
+import { getWalletPresence } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
 
 export const dynamic = "force-dynamic";
 

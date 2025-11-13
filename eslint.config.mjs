@@ -175,5 +175,15 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ["apps/frontend/scripts/**/*.js", "apps/frontend/scripts/**/*.mjs"],
+    languageOptions: {
+      parserOptions: {
+        project: null,
+        projectService: false,
+        tsconfigRootDir: __dirname,
+      },
+    },
+  },
   prettier,
 );

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { bffFetch } from "@/lib/bff-fetch";
 import type { WalletOverview, WalletTransactionsResponse } from "../../../../../../../../src/types/wallets";
-import { getWalletPresence } from "../../_lib/get-wallet-presence";
+import { getWalletPresence } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
 import TransactionsClient from "./transactions-client";
 import type { TransactionsQuery } from "./types";
 

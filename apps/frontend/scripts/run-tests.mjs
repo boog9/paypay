@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-const { spawnSync } = require('child_process');
-const { existsSync, readdirSync } = require('fs');
-const path = require('path');
-const os = require('os');
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -21,7 +21,7 @@ function run(command, args) {
 function directoryHasEntries(dir) {
   try {
     return readdirSync(dir).length > 0;
-  } catch (err) {
+  } catch {
     return false;
   }
 }

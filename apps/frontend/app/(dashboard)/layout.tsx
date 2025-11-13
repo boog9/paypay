@@ -30,8 +30,8 @@ export default async function AppLayout({ children, params }: DashboardLayoutPro
   let connected: boolean | null = null;
 
   if (typeof resolvedParams?.storeId === "string" && resolvedParams.storeId.length > 0) {
-    const fetchWalletPresence = getWalletPresence as (storeId: string) => Promise<boolean>;
-    connected = Boolean(await fetchWalletPresence(resolvedParams.storeId));
+    const presence = await getWalletPresence(resolvedParams.storeId);
+    connected = presence.connected;
   }
 
   return (

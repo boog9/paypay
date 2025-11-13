@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Badge } from "../../../../../../../../components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { bffFetch } from "@/lib/bff-fetch";
+import { getWalletPresence } from "../../_lib/get-wallet-presence";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -135,7 +136,29 @@ async function loadWalletSummary(
 export default async function WalletSettingsPage({ params, searchParams: _searchParams }: SettingsPageProps) {
   const { storeId } = await params;
   const search = _searchParams ? await _searchParams : undefined;
-  const { data: summary, status, attemptedRefresh } = await loadWalletSummary(storeId);
+  const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
+
+  if (!normalizedStoreId) {
+    redirect("/stores");
+  }
+
+  const wizardPath = `/stores/${normalizedStoreId}/wallets/btc/wizard`;
+  const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
+  const presence = await getWalletPresence(normalizedStoreId);
+
+  if (presence.status === 401) {
+    redirect("/sign-in?reason=session-expired");
+  }
+
+  if (presence.status === 403) {
+    redirect(dashboardPath);
+  }
+
+  if (presence.status === 404 || (presence.status === 200 && !presence.connected)) {
+    redirect(wizardPath);
+  }
+
+  const { data: summary, status, attemptedRefresh } = await loadWalletSummary(normalizedStoreId);
 
   if (status === 401 && attemptedRefresh) {
     redirect("/sign-in?reason=session-expired");

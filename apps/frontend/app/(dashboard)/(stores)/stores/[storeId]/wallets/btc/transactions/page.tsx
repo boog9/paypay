@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { bffFetch } from "@/lib/bff-fetch";
 import type { WalletOverview, WalletTransactionsResponse } from "../../../../../../../../src/types/wallets";
+import { getWalletPresence } from "../../_lib/get-wallet-presence";
 import TransactionsClient from "./transactions-client";
 import type { TransactionsQuery } from "./types";
 
@@ -293,11 +294,37 @@ function extractErrorMessage(payload: unknown): string | null {
 export default async function TransactionsPage({ params, searchParams }: PageParams) {
   const { storeId } = await params;
   const search = searchParams ? await searchParams : undefined;
+  const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
+
+  if (!normalizedStoreId) {
+    redirect("/stores");
+  }
+
+  const wizardPath = `/stores/${normalizedStoreId}/wallets/btc/wizard`;
+  const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
+  const presence = await getWalletPresence(normalizedStoreId);
+
+  if (presence.status === 401) {
+    redirect("/sign-in?reason=session-expired");
+  }
+
+  if (presence.status === 403) {
+    redirect(dashboardPath);
+  }
+
+  if (presence.status === 404) {
+    redirect(wizardPath);
+  }
+
+  if (presence.status === 200 && !presence.connected) {
+    redirect(wizardPath);
+  }
+
   const query = parseSearchParams(search);
 
   const [transactions, overview] = await Promise.all([
-    loadTransactions(storeId, query),
-    loadOverview(storeId),
+    loadTransactions(normalizedStoreId, query),
+    loadOverview(normalizedStoreId),
   ]);
 
   if (transactions.status === 401 && transactions.attemptedRefresh) {
@@ -312,7 +339,7 @@ export default async function TransactionsPage({ params, searchParams }: PagePar
 
   return (
     <TransactionsClient
-      storeId={storeId}
+      storeId={normalizedStoreId}
       initialQuery={query}
       transactions={transactions.data}
       overview={overview.data}

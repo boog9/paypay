@@ -1,12 +1,41 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
+import { getWalletPresence } from "../../_lib/get-wallet-presence";
 
 export const metadata: Metadata = {
   title: "BTC wallet receive",
 };
 
-export default function WalletReceivePlaceholder() {
+type PageProps = {
+  params: Promise<{ storeId: string }>;
+};
+
+export default async function WalletReceivePlaceholder({ params }: PageProps) {
+  const { storeId } = await params;
+  const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
+
+  if (!normalizedStoreId) {
+    redirect("/stores");
+  }
+
+  const wizardPath = `/stores/${normalizedStoreId}/wallets/btc/wizard`;
+  const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
+  const presence = await getWalletPresence(normalizedStoreId);
+
+  if (presence.status === 401) {
+    redirect("/sign-in?reason=session-expired");
+  }
+
+  if (presence.status === 403) {
+    redirect(dashboardPath);
+  }
+
+  if (presence.status === 404 || (presence.status === 200 && !presence.connected)) {
+    redirect(wizardPath);
+  }
+
   return (
     <Card>
       <CardHeader>

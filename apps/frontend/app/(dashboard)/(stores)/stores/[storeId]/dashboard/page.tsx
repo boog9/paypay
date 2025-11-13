@@ -5,6 +5,6 @@ type PageProps = { params: Promise<{ storeId: string }> };
 
 export default async function StoreDashboardPage({ params }: PageProps) {
   const { storeId } = await params;
-  const connected = await getWalletPresence(storeId);
-  return <DashboardClient storeId={storeId} connected={connected} />;
+  const presence = await getWalletPresence(storeId);
+  return <DashboardClient storeId={storeId} connected={presence.connected} />;
 }

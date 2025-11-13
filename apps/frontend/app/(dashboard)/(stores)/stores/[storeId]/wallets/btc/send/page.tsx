@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
-import { getWalletPresence } from "../../_lib/get-wallet-presence";
+import { getWalletPresence } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
 
 export const metadata: Metadata = {
   title: "BTC wallet send",

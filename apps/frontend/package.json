@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p . --noEmit",
-    "test": "node ./scripts/run-tests.mjs"
+    "test": "node ./scripts/run-tests.mjs",
+    "postinstall": "playwright install --with-deps"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.10",

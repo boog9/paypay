@@ -14,7 +14,7 @@ import {
   UnprocessableEntityException,
   UseGuards
 } from '@nestjs/common';
-import { Throttle, seconds } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, seconds } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -51,7 +51,7 @@ export class OnchainWalletsController {
 
   @Get('stores/:storeId/wallets/btc/presence')
   @UseGuards(JwtAuthGuard)
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
   @Header('Vary', 'Cookie')

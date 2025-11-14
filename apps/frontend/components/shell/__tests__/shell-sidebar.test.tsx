@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellSidebar } from "../sidebar";
 import { StoreProvider } from "../../../src/contexts/store-context";
 
-const { usePathnameMock, useWalletPresenceMock } = vi.hoisted(() => ({
+const { usePathnameMock, useWalletPresenceMock, RateLimitErrorMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(() => "/"),
   useWalletPresenceMock: vi.fn(() => ({
     hasWallet: null,
@@ -13,6 +13,13 @@ const { usePathnameMock, useWalletPresenceMock } = vi.hoisted(() => ({
     error: null,
     refresh: vi.fn(),
   })),
+  RateLimitErrorMock: class extends Error {
+    constructor(status: number, message: string) {
+      super(message);
+      this.name = "RateLimitError";
+      (this as { status?: number }).status = status;
+    }
+  },
 }));
 
 vi.mock("next/link", () => ({
@@ -38,14 +45,23 @@ vi.mock("../../../src/components/stores/store-selector", () => ({
 
 vi.mock("../../../src/contexts/wallet-presence", () => ({
   useWalletPresence: () => useWalletPresenceMock(),
+  RateLimitError: RateLimitErrorMock,
 }));
 
-function renderSidebar({ walletConnected, pathname }: { walletConnected: boolean | null; pathname: string }) {
+function renderSidebar({
+  walletConnected,
+  pathname,
+  rateLimited = false,
+}: {
+  walletConnected: boolean | null;
+  pathname: string;
+  rateLimited?: boolean;
+}) {
   usePathnameMock.mockReturnValue(pathname);
   useWalletPresenceMock.mockReturnValue({
     hasWallet: walletConnected,
     loading: false,
-    error: null,
+    error: rateLimited ? new RateLimitErrorMock(429, "Too many requests") : null,
     refresh: vi.fn(),
   });
 
@@ -95,5 +111,15 @@ describe("ShellSidebar wallets navigation", () => {
 
     expect(sendLink).toHaveClass("bg-muted");
     expect(sendLink).toHaveClass("text-foreground");
+  });
+
+  it("shows a rate limit hint without hiding wallet navigation", () => {
+    renderSidebar({ walletConnected: true, pathname: "/stores/store-123/wallets/btc/dashboard", rateLimited: true });
+
+    const message = screen.getByText(/Too many requests/i);
+    expect(message).toBeInTheDocument();
+
+    const bitcoinLink = screen.getByRole("link", { name: "Bitcoin" });
+    expect(bitcoinLink).toBeInTheDocument();
   });
 });

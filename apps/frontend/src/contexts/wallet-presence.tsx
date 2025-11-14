@@ -13,6 +13,13 @@ import { bffFetch } from "../../lib/bff-fetch";
 import { walletPresencePath } from "../../lib/walletPaths";
 import { useStoreContext } from "./store-context";
 
+export class RateLimitError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
 type WalletPresenceValue = {
   hasWallet: boolean | null;
   loading: boolean;
@@ -54,6 +61,11 @@ export function WalletPresenceProvider({
 
     try {
       const response = await bffFetch(walletPresencePath(storeId));
+      if (response.status === 429) {
+        setError(new RateLimitError(429, "Too many requests, please try again in a few seconds."));
+        setLoading(false);
+        return;
+      }
       if (!response.ok) {
         throw new Error(`Wallet presence request failed (${response.status})`);
       }

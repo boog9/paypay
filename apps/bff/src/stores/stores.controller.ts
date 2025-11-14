@@ -9,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { StoresService, AuthenticatedUserContext } from './stores.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -21,6 +21,7 @@ export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
   @Get()
+  @SkipThrottle()
   listStores(@Req() req: Request) {
     return this.storesService.listStores(this.resolveContext(req));
   }

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { api } from "../../lib/api";
+import { ApiError, api, isApiError } from "../../lib/api";
 
 const rawStoreSchema = z.object({
   id: z.string().min(1).optional(),
@@ -37,8 +37,8 @@ function normalizeStore(record: z.infer<typeof rawStoreSchema>): StoreSummary | 
   };
 }
 
-export function useStoresQuery(): UseQueryResult<StoreSummary[]> {
-  const query = useQuery<StoreSummary[]>({
+export function useStoresQuery(): UseQueryResult<StoreSummary[], ApiError> {
+  const query = useQuery<StoreSummary[], ApiError>({
     queryKey: ["stores"],
     queryFn: async () => {
       const response = await api<unknown>("/api/stores", {
@@ -58,6 +58,12 @@ export function useStoresQuery(): UseQueryResult<StoreSummary[]> {
       return normalized;
     },
     select: (data) => data ?? [],
+    retry: (failureCount, error) => {
+      if (isApiError(error) && error.status === 429) {
+        return false;
+      }
+      return failureCount < 2;
+    },
   });
 
   return useMemo(() => query, [query]);

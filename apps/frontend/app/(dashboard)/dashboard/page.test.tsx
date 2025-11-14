@@ -44,7 +44,7 @@ describe("DashboardPage", () => {
 
   it("renders the dashboard empty state", () => {
     const view = DashboardPage();
-    render(<AppShell>{view}</AppShell>);
+    render(<AppShell walletHasWallet={null}>{view}</AppShell>);
 
     expect(screen.getByRole("heading", { level: 1, name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByText(/no stores connected yet/i)).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("DashboardPage", () => {
     });
 
     const view = DashboardPage();
-    render(<AppShell>{view}</AppShell>);
+    render(<AppShell walletHasWallet={null}>{view}</AppShell>);
 
     expect(screen.getByRole("heading", { level: 1, name: /dashboard/i })).toBeInTheDocument();
     expect(screen.queryByText(/no stores connected yet/i)).not.toBeInTheDocument();

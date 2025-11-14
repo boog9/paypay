@@ -4,10 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ShellSidebar } from "../sidebar";
 import { StoreProvider } from "../../../src/contexts/store-context";
-import { WalletPresenceProvider } from "../../../src/contexts/wallet-presence";
 
-const { usePathnameMock } = vi.hoisted(() => ({
+const { usePathnameMock, useWalletPresenceMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(() => "/"),
+  useWalletPresenceMock: vi.fn(() => ({
+    hasWallet: null,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  })),
 }));
 
 vi.mock("next/link", () => ({
@@ -31,21 +36,30 @@ vi.mock("../../../src/components/stores/store-selector", () => ({
   ),
 }));
 
+vi.mock("../../../src/contexts/wallet-presence", () => ({
+  useWalletPresence: () => useWalletPresenceMock(),
+}));
+
 function renderSidebar({ walletConnected, pathname }: { walletConnected: boolean | null; pathname: string }) {
   usePathnameMock.mockReturnValue(pathname);
+  useWalletPresenceMock.mockReturnValue({
+    hasWallet: walletConnected,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  });
 
   return render(
-    <WalletPresenceProvider initial={walletConnected}>
-      <StoreProvider storeId="store-123">
-        <ShellSidebar variant="desktop" user={{ name: "Ada Merchant", email: "ada@example.com" }} />
-      </StoreProvider>
-    </WalletPresenceProvider>
+    <StoreProvider storeId="store-123">
+      <ShellSidebar variant="desktop" user={{ name: "Ada Merchant", email: "ada@example.com" }} />
+    </StoreProvider>
   );
 }
 
 describe("ShellSidebar wallets navigation", () => {
   beforeEach(() => {
     usePathnameMock.mockReturnValue("/");
+    useWalletPresenceMock.mockReset();
   });
 
   it("links Bitcoin entry to the wizard when wallet is not connected", () => {

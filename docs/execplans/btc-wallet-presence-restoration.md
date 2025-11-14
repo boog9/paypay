@@ -16,6 +16,7 @@ Merchants using the PayPay portal need consistent Bitcoin wallet navigation. Whe
 - [x] (2025-11-13 19:20Z) Ran targeted Jest and Vitest suites; Playwright skipped due to explicit opt-out in commands.
 - [x] (2025-11-14 17:12Z) Audited repository for regressions after feedback; confirmed backend/frontend sources align with the `{ hasWallet }` contract but located Playwright fixtures still returning legacy payloads.
 - [x] (2025-11-14 17:40Z) Refreshed Playwright specs and related fixtures to emit `{ hasWallet }`, reran Jest/Vitest successfully, and documented Playwright's browser-install dependency blocking e2e execution.
+- [x] (2025-11-14 19:11Z) Re-verified frontend wallet presence context after regression report; refreshed provider/sidebar to consume live store state and reran backend/frontend tests (Playwright blocked by missing browsers).
 
 ## Surprises & Discoveries
 

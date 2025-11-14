@@ -8,8 +8,15 @@ import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet";
 import { ShellSidebar } from "./sidebar";
 import { StoreProvider } from "../../src/contexts/store-context";
+import { WalletPresenceProvider } from "../../src/contexts/wallet-presence";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  walletHasWallet,
+}: {
+  children: ReactNode;
+  walletHasWallet: boolean | null;
+}) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const params = useParams<Record<string, string | string[]>>();
   const rawStoreId = params?.storeId;
@@ -22,9 +29,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <StoreProvider storeId={storeId}>
-      <div className="min-h-screen bg-muted/20">
-        <a
-          href="#main-content"
+      <WalletPresenceProvider initial={walletHasWallet}>
+        <div className="min-h-screen bg-muted/20">
+          <a
+            href="#main-content"
           className="sr-only focus-visible:absolute focus-visible:left-6 focus-visible:top-6 focus-visible:z-50 focus-visible:inline-flex focus-visible:rounded-md focus-visible:bg-primary focus-visible:px-4 focus-visible:py-2 focus-visible:text-primary-foreground focus-visible:outline-none"
         >
           Skip to content
@@ -52,7 +60,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </main>
           </div>
         </div>
-      </div>
+        </div>
+      </WalletPresenceProvider>
     </StoreProvider>
   );
 }

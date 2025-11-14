@@ -1,11 +1,27 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { makeSessionCookie } from "./utils/cookies";
 import { walletPresencePath } from "../lib/walletPaths";
 
+async function mockAuthenticatedSession(page: Page) {
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        user: {
+          id: "user-sidebar-wallet",
+          email: "ada.merchant@example.com",
+        },
+      }),
+    });
+  });
+}
+
 test.describe("Sidebar wallet navigation", () => {
   test("shows Bitcoin submenu items when a wallet exists", async ({ page }) => {
     const storeId = "store-sidebar-wallet";
+    await mockAuthenticatedSession(page);
     await page.context().addCookies([makeSessionCookie()]);
 
     await page.route(`**${walletPresencePath(storeId)}`, async (route) => {
@@ -33,6 +49,7 @@ test.describe("Sidebar wallet navigation", () => {
 
   test("hides Bitcoin submenu items when the wallet is missing", async ({ page }) => {
     const storeId = "store-sidebar-wallet-missing";
+    await mockAuthenticatedSession(page);
     await page.context().addCookies([makeSessionCookie()]);
 
     await page.route(`**${walletPresencePath(storeId)}`, async (route) => {

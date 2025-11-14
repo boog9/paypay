@@ -1,5 +1,5 @@
 import { BadGatewayException, BadRequestException, UnauthorizedException } from '@nestjs/common';
-import axios, { AxiosError, AxiosInstance, AxiosHeaders } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosHeaders, AxiosResponse } from 'axios';
 import { Repository } from 'typeorm';
 import {
   BtcpayPaymentMethodsService,
@@ -54,11 +54,38 @@ describe('BtcpayPaymentMethodsService', () => {
     (encryptionService.decrypt as jest.Mock).mockClear();
     mockedAxios.create.mockReset();
     mockedAxios.isAxiosError.mockReset?.();
-    mockedAxios.isAxiosError.mockImplementation(
-      (candidate: unknown): candidate is AxiosError => Boolean(candidate && (candidate as { isAxiosError?: boolean }).isAxiosError)
-    );
+    mockedAxios.isAxiosError.mockImplementation((candidate: unknown): candidate is AxiosError => {
+      if (!candidate || typeof candidate !== 'object') {
+        return false;
+      }
+      if (candidate instanceof AxiosError) {
+        return true;
+      }
+      return Boolean((candidate as { isAxiosError?: boolean }).isAxiosError);
+    });
     (repository.findOne as unknown as jest.Mock).mockResolvedValue(store);
   });
+
+  function buildAxiosError(
+    status: number,
+    data: unknown,
+    options: { message?: string; statusText?: string; code?: string } = {}
+  ): AxiosError {
+    const { message = 'Request failed', statusText = 'Error', code } = options;
+    const response = {
+      status,
+      statusText,
+      data,
+      headers: new AxiosHeaders(),
+      config: { headers: new AxiosHeaders() }
+    } as AxiosResponse;
+
+    const axiosError = new AxiosError(message, code, { headers: new AxiosHeaders() }, undefined, response);
+    axiosError.isAxiosError = true;
+    axiosError.response = response;
+
+    return axiosError;
+  }
 
   function buildService(): BtcpayPaymentMethodsService {
     return new BtcpayPaymentMethodsService(repository, encryptionService, btcpayService);
@@ -110,20 +137,11 @@ describe('BtcpayPaymentMethodsService', () => {
     });
 
     it('maps BTCPay validation errors to BadRequestException with descriptor context', async () => {
-      const axiosError = new AxiosError(
-        'Invalid',
-        'ERR_BAD_REQUEST',
-        { headers: new AxiosHeaders() },
-        undefined,
-        {
-          status: 422,
-          statusText: 'Unprocessable',
-          data: { message: 'Invalid derivation strategy' },
-          headers: new AxiosHeaders(),
-          config: { headers: new AxiosHeaders() }
-        }
+      const axiosError = buildAxiosError(
+        422,
+        { message: 'Invalid derivation strategy' },
+        { message: 'Invalid', statusText: 'Unprocessable', code: 'ERR_BAD_REQUEST' }
       );
-      (axiosError as AxiosError).isAxiosError = true;
 
       const getMock = jest.fn().mockRejectedValue(axiosError);
       mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
@@ -165,7 +183,8 @@ describe('BtcpayPaymentMethodsService', () => {
                 accountKeyPath: "84'/1'/0'",
                 accountKey: SAMPLE_TPUB
               }
-            ]
+            ],
+            isHotWallet: false
           }
         },
         {
@@ -178,20 +197,11 @@ describe('BtcpayPaymentMethodsService', () => {
     });
 
     it('translates Missing config error into descriptive BadRequest', async () => {
-      const axiosError = new AxiosError(
-        'Missing config',
-        'ERR_BAD_REQUEST',
-        { headers: new AxiosHeaders() },
-        undefined,
-        {
-          status: 422,
-          statusText: 'Unprocessable',
-          data: { message: 'Missing config' },
-          headers: new AxiosHeaders(),
-          config: { headers: new AxiosHeaders() }
-        }
+      const axiosError = buildAxiosError(
+        422,
+        { message: 'Missing config' },
+        { message: 'Missing config', statusText: 'Unprocessable', code: 'ERR_BAD_REQUEST' }
       );
-      (axiosError as AxiosError).isAxiosError = true;
 
       const postMock = jest.fn().mockRejectedValue(axiosError);
       mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
@@ -256,7 +266,8 @@ describe('BtcpayPaymentMethodsService', () => {
                 accountKeyPath: "84'/1'/0'",
                 accountKey: SAMPLE_TPUB
               }
-            ]
+            ],
+            isHotWallet: false
           },
           enabled: true
         }
@@ -282,20 +293,11 @@ describe('BtcpayPaymentMethodsService', () => {
     });
 
     it('maps BTCPay auth failure to UnauthorizedException', async () => {
-      const axiosError = new AxiosError(
-        'Unauthorized',
-        'ERR_BAD_REQUEST',
-        { headers: new AxiosHeaders() },
-        undefined,
-        {
-          status: 401,
-          statusText: 'Unauthorized',
-          data: 'Unauthorized',
-          headers: new AxiosHeaders(),
-          config: { headers: new AxiosHeaders() }
-        }
-      );
-      (axiosError as AxiosError).isAxiosError = true;
+      const axiosError = buildAxiosError(401, 'Unauthorized', {
+        message: 'Unauthorized',
+        statusText: 'Unauthorized',
+        code: 'ERR_BAD_REQUEST'
+      });
       const putMock = jest.fn().mockRejectedValue(axiosError);
       mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
@@ -311,20 +313,11 @@ describe('BtcpayPaymentMethodsService', () => {
     });
 
     it('translates BTCPay upstream errors to BadRequestException when validation fails', async () => {
-      const axiosError = new AxiosError(
-        'Invalid AccountKeySettings',
-        'ERR_BAD_REQUEST',
-        { headers: new AxiosHeaders() },
-        undefined,
-        {
-          status: 422,
-          statusText: 'Unprocessable',
-          data: { message: 'Invalid AccountKeySettings' },
-          headers: new AxiosHeaders(),
-          config: { headers: new AxiosHeaders() }
-        }
+      const axiosError = buildAxiosError(
+        422,
+        { message: 'Invalid AccountKeySettings' },
+        { message: 'Invalid AccountKeySettings', statusText: 'Unprocessable', code: 'ERR_BAD_REQUEST' }
       );
-      (axiosError as AxiosError).isAxiosError = true;
       const putMock = jest.fn().mockRejectedValue(axiosError);
       mockedAxios.create.mockReturnValue(mockAxiosInstance({ put: putMock }));
 
@@ -341,14 +334,11 @@ describe('BtcpayPaymentMethodsService', () => {
   });
 
   it('propagates BTCPay auth failures during preview as UnauthorizedException', async () => {
-    const axiosError = new AxiosError(
-      'Unauthorized',
-      'ERR_BAD_REQUEST',
-      { headers: new AxiosHeaders() },
-      undefined,
-      { status: 401, statusText: 'Unauthorized', data: 'Unauthorized', headers: new AxiosHeaders(), config: { headers: new AxiosHeaders() } }
-    );
-    (axiosError as AxiosError).isAxiosError = true;
+    const axiosError = buildAxiosError(401, 'Unauthorized', {
+      message: 'Unauthorized',
+      statusText: 'Unauthorized',
+      code: 'ERR_BAD_REQUEST'
+    });
     const postMock = jest.fn().mockRejectedValue(axiosError);
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
 

@@ -42,6 +42,7 @@ describe("getWalletPresence", () => {
 
     await expect(getWalletPresence("store-1")).resolves.toEqual({
       status: 200,
+      connected: true,
       hasWallet: true,
       payload: { hasWallet: true },
     });
@@ -59,6 +60,35 @@ describe("getWalletPresence", () => {
 
     await expect(getWalletPresence("store-2")).resolves.toEqual({
       status: 500,
+      connected: false,
+      hasWallet: false,
+      payload: null,
+    });
+  });
+
+  it("uses payload hasWallet flag to compute presence", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        hasWallet: false,
+      }),
+    } as unknown as Response);
+
+    await expect(getWalletPresence("store-3")).resolves.toEqual({
+      status: 200,
+      connected: false,
+      hasWallet: false,
+      payload: { hasWallet: false },
+    });
+  });
+
+  it("returns hasWallet false when request fails", async () => {
+    mockFetch.mockRejectedValue(new Error("network"));
+
+    await expect(getWalletPresence("store-4")).resolves.toEqual({
+      status: 0,
+      connected: false,
       hasWallet: false,
       payload: null,
     });

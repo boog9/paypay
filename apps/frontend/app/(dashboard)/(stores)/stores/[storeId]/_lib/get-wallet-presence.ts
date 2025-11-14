@@ -9,6 +9,7 @@ export interface WalletPresenceResponse {
 
 export interface WalletPresenceResult {
   status: number;
+  connected: boolean;
   hasWallet: boolean;
   payload: WalletPresenceResponse | null;
 }
@@ -16,7 +17,7 @@ export interface WalletPresenceResult {
 export const getWalletPresence = cache(async (storeId: string): Promise<WalletPresenceResult> => {
   const normalized = typeof storeId === "string" ? storeId.trim() : "";
   if (!normalized) {
-    return { status: 400, hasWallet: false, payload: null } satisfies WalletPresenceResult;
+    return { status: 400, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
   }
 
   try {
@@ -27,16 +28,17 @@ export const getWalletPresence = cache(async (storeId: string): Promise<WalletPr
     const status = typeof response.status === "number" ? response.status : response.ok ? 200 : 0;
 
     if (!response.ok) {
-      return { status, hasWallet: false, payload: null } satisfies WalletPresenceResult;
+      return { status, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
     }
 
     const raw = (await response.json()) as unknown;
     const payload = parseWalletPresence(raw);
-    const hasWallet = Boolean(payload?.hasWallet);
+    const connected = isWalletConnected(payload);
+    const hasWallet = connected;
 
-    return { status, hasWallet, payload } satisfies WalletPresenceResult;
+    return { status, connected, hasWallet, payload } satisfies WalletPresenceResult;
   } catch {
-    return { status: 0, hasWallet: false, payload: null } satisfies WalletPresenceResult;
+    return { status: 0, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
   }
 });
 
@@ -52,5 +54,9 @@ export function parseWalletPresence(data: unknown): WalletPresenceResponse | nul
 }
 
 export function resolveWalletPresence(data: unknown): boolean {
-  return Boolean(parseWalletPresence(data)?.hasWallet);
+  return isWalletConnected(parseWalletPresence(data));
+}
+
+function isWalletConnected(payload: WalletPresenceResponse | null): boolean {
+  return Boolean(payload?.hasWallet);
 }

@@ -6,7 +6,7 @@ import { Suspense, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useStoreContext } from "../../src/contexts/store-context";
-import { useBtcWalletPresence } from "../../src/contexts/wallet-presence";
+import { useWalletPresence } from "../../src/contexts/wallet-presence";
 import { StoreSelector } from "../../src/components/stores/store-selector";
 import { Separator } from "../ui/separator";
 import { UserMenu } from "../user-menu";
@@ -26,23 +26,23 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   const { storeId } = useStoreContext();
   const pathname = usePathname();
   const baseStorePath = storeId ? `/stores/${storeId}` : null;
-  const { hasWallet } = useBtcWalletPresence();
+  const walletPresence = useWalletPresence();
 
   const primaryNav = [
     { label: "Dashboard", href: baseStorePath ? `${baseStorePath}/dashboard` : null },
     { label: "Settings", href: baseStorePath ? `${baseStorePath}/settings` : null },
   ];
 
-  const walletHasMenu = hasWallet === true;
+  const walletHasMenu = walletPresence === true;
   const walletBaseHref = baseStorePath ? `${baseStorePath}/wallets/btc` : null;
   const walletHref = (() => {
     if (!baseStorePath) {
       return null;
     }
-    if (hasWallet === false) {
+    if (walletPresence === false) {
       return `${baseStorePath}/wallets/btc/wizard`;
     }
-    if (hasWallet === true) {
+    if (walletPresence === true) {
       return `${baseStorePath}/wallets/btc/transactions`;
     }
     return walletBaseHref;

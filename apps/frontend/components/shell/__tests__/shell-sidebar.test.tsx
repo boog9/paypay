@@ -5,13 +5,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellSidebar } from "../sidebar";
 import { StoreProvider } from "../../../src/contexts/store-context";
 
+type WalletPresenceMockValue = {
+  hasWallet: boolean | null;
+  loading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+};
+
 const { usePathnameMock, useWalletPresenceMock, RateLimitErrorMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(() => "/"),
-  useWalletPresenceMock: vi.fn(() => ({
+  useWalletPresenceMock: vi.fn<() => WalletPresenceMockValue>(() => ({
     hasWallet: null,
     loading: false,
     error: null,
-    refresh: vi.fn(),
+    refresh: vi.fn(async () => {}),
   })),
   RateLimitErrorMock: class extends Error {
     constructor(status: number, message: string) {
@@ -62,7 +69,7 @@ function renderSidebar({
     hasWallet: walletConnected,
     loading: false,
     error: rateLimited ? new RateLimitErrorMock(429, "Too many requests") : null,
-    refresh: vi.fn(),
+    refresh: vi.fn(async () => {}),
   });
 
   return render(

@@ -1,15 +1,7 @@
-import type { WalletPresenceState } from '../onchain-wallets.service';
-
 export interface WalletPresenceDto {
-  enabled: boolean;
-  config: {
-    derivationScheme: string | null;
-  };
+  hasWallet: boolean;
 }
 
-export function toWalletPresenceDto(presence: WalletPresenceState): WalletPresenceDto {
-  return {
-    enabled: presence.enabled,
-    config: { derivationScheme: presence.derivationScheme }
-  } satisfies WalletPresenceDto;
+export function toWalletPresenceDto(hasWallet: boolean): WalletPresenceDto {
+  return { hasWallet } satisfies WalletPresenceDto;
 }

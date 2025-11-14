@@ -6,7 +6,7 @@ import { CheckCircle2, Wallet } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../../../components/ui/card";
 import { Button } from "../../../../../../components/ui/button";
 
-export default function DashboardClient({ storeId, connected }: { storeId: string; connected: boolean }) {
+export default function DashboardClient({ storeId, hasWallet }: { storeId: string; hasWallet: boolean }) {
   return (
     <div className="space-y-8">
       <header className="space-y-2">
@@ -31,7 +31,7 @@ export default function DashboardClient({ storeId, connected }: { storeId: strin
           </CardHeader>
         </Card>
 
-        {connected ? (
+        {hasWallet ? (
           <Card className="border border-emerald-500/20 bg-emerald-500/5">
             <CardHeader className="flex flex-row items-start gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-600">

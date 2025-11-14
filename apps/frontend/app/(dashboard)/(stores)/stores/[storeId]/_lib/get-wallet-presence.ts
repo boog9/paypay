@@ -4,42 +4,39 @@ import { bffFetch } from "../../../../../../lib/bff-fetch";
 import { walletPresencePath } from "../../../../../../lib/walletPaths";
 
 export interface WalletPresenceResponse {
-  enabled: boolean;
-  config: {
-    derivationScheme: string | null;
-  } | null;
+  hasWallet: boolean;
 }
 
 export interface WalletPresenceResult {
   status: number;
-  connected: boolean;
+  hasWallet: boolean;
   payload: WalletPresenceResponse | null;
 }
 
 export const getWalletPresence = cache(async (storeId: string): Promise<WalletPresenceResult> => {
   const normalized = typeof storeId === "string" ? storeId.trim() : "";
   if (!normalized) {
-    return { status: 400, connected: false, payload: null };
+    return { status: 400, hasWallet: false, payload: null } satisfies WalletPresenceResult;
   }
 
   try {
     const response = await bffFetch(walletPresencePath(normalized), {
-      cache: "no-store"
+      cache: "no-store",
     });
 
     const status = typeof response.status === "number" ? response.status : response.ok ? 200 : 0;
 
     if (!response.ok) {
-      return { status, connected: false, payload: null };
+      return { status, hasWallet: false, payload: null } satisfies WalletPresenceResult;
     }
 
     const raw = (await response.json()) as unknown;
     const payload = parseWalletPresence(raw);
-    const connected = isWalletConnected(payload);
+    const hasWallet = Boolean(payload?.hasWallet);
 
-    return { status, connected, payload };
+    return { status, hasWallet, payload } satisfies WalletPresenceResult;
   } catch {
-    return { status: 0, connected: false, payload: null };
+    return { status: 0, hasWallet: false, payload: null } satisfies WalletPresenceResult;
   }
 });
 
@@ -49,35 +46,11 @@ export function parseWalletPresence(data: unknown): WalletPresenceResponse | nul
   }
 
   const record = data as Record<string, unknown>;
-  const enabled = record.enabled === true;
-  const rawConfig = record.config;
+  const hasWallet = record.hasWallet === true;
 
-  if (rawConfig === null) {
-    return { enabled, config: null } satisfies WalletPresenceResponse;
-  }
-
-  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
-    return { enabled, config: { derivationScheme: null } } satisfies WalletPresenceResponse;
-  }
-
-  const configRecord = rawConfig as Record<string, unknown>;
-  const derivation = typeof configRecord.derivationScheme === "string" ? configRecord.derivationScheme : null;
-
-  return {
-    enabled,
-    config: { derivationScheme: derivation }
-  } satisfies WalletPresenceResponse;
-}
-
-export function isWalletConnected(payload: WalletPresenceResponse | null): boolean {
-  if (!payload) {
-    return false;
-  }
-
-  const scheme = payload.config?.derivationScheme;
-  return Boolean(payload.enabled && typeof scheme === "string" && scheme.trim().length > 0);
+  return { hasWallet } satisfies WalletPresenceResponse;
 }
 
 export function resolveWalletPresence(data: unknown): boolean {
-  return isWalletConnected(parseWalletPresence(data));
+  return Boolean(parseWalletPresence(data)?.hasWallet);
 }

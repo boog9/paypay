@@ -28,6 +28,7 @@ import {
   BtcpayPaymentMethodsService,
   type OnchainConfigResponse
 } from '../btcpay/btcpay.payment-methods.service';
+import { BtcpayWalletService } from '../btcpay/btcpay.wallets.service';
 import { isUuid } from '../shared/is-uuid';
 
 interface BitcoinWalletMetadataDto {
@@ -44,7 +45,8 @@ export class OnchainWalletsController {
     @InjectRepository(ManagedStoreEntity)
     private readonly storesRepository: Repository<ManagedStoreEntity>,
     private readonly walletsService: OnchainWalletsService,
-    private readonly paymentMethods: BtcpayPaymentMethodsService
+    private readonly paymentMethods: BtcpayPaymentMethodsService,
+    private readonly btcpayWallets: BtcpayWalletService
   ) {}
 
   @Get('stores/:storeId/wallets/btc/presence')
@@ -58,8 +60,11 @@ export class OnchainWalletsController {
     @Param('storeId') storeId: string
   ): Promise<WalletPresenceDto> {
     const store = await this.requireStore(user, storeId);
-    const presence = await this.walletsService.getPresence(store);
-    return toWalletPresenceDto(presence);
+    const presence = await this.btcpayWallets.getBitcoinWalletPresence(store.btcpayStoreId, {
+      store,
+      host: store.btcpayHost
+    });
+    return toWalletPresenceDto(presence.hasWallet);
   }
 
   @Get('stores/:storeId/wallets/bitcoin')

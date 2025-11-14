@@ -14,8 +14,7 @@ test.describe("Dashboard wallet CTA", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          config: { derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)" },
-          enabled: true,
+          hasWallet: true,
         }),
       });
     });
@@ -37,8 +36,7 @@ test.describe("Dashboard wallet CTA", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          config: { derivationScheme: "wpkh([10b3bfc0/84'/0'/0']xpubExample/0/*)" },
-          enabled: true,
+          hasWallet: true,
         }),
       });
     });

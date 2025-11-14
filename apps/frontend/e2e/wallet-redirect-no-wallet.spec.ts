@@ -13,7 +13,7 @@ test.describe("Wallet redirect without connection", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ config: { derivationScheme: null }, enabled: false }),
+        body: JSON.stringify({ hasWallet: false }),
       });
     });
 

@@ -154,7 +154,7 @@ export default async function WalletSettingsPage({ params, searchParams: _search
     redirect(dashboardPath);
   }
 
-  if (presence.status === 404 || (presence.status === 200 && !presence.connected)) {
+  if (presence.status === 404 || (presence.status === 200 && !presence.hasWallet)) {
     redirect(wizardPath);
   }
 

@@ -27,17 +27,17 @@ function AuthGateSuspenseFallback() {
 export default async function AppLayout({ children, params }: DashboardLayoutProps) {
   noStore();
   const resolvedParams = await params;
-  let connected: boolean | null = null;
+  let hasWallet: boolean | null = null;
 
   if (typeof resolvedParams?.storeId === "string" && resolvedParams.storeId.length > 0) {
     const presence = await getWalletPresence(resolvedParams.storeId);
-    connected = presence.connected;
+    hasWallet = presence.hasWallet;
   }
 
   return (
     <Suspense fallback={<AuthGateSuspenseFallback />}>
       <AuthGate>
-        <WalletPresenceProvider initial={connected}>
+        <WalletPresenceProvider storeId={resolvedParams?.storeId ?? null} initial={hasWallet}>
           <AppShell>
             <DashboardGate>{children}</DashboardGate>
           </AppShell>

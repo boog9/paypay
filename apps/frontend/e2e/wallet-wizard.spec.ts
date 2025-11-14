@@ -85,8 +85,7 @@ test.describe("Wallet wizard", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          config: { derivationScheme: walletConnected ? derivationScheme : null },
-          enabled: walletConnected,
+          hasWallet: walletConnected,
         }),
       });
     });

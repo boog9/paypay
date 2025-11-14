@@ -18,7 +18,7 @@ interface StoreSettingsResponse {
 }
 
 interface WalletPresenceResponse {
-  enabled: boolean;
+  hasWallet: boolean;
 }
 
 async function loadStoreSettings(tenantId: string, storeId: string): Promise<StoreSettingsResponse> {
@@ -39,7 +39,7 @@ async function loadBitcoinWalletPresence(storeId: string): Promise<boolean> {
       return false;
     }
     const payload = (await response.json()) as WalletPresenceResponse;
-    return payload.enabled === true;
+    return payload.hasWallet === true;
   } catch {
     return false;
   }

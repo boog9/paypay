@@ -35,7 +35,7 @@ function renderSidebar({ walletConnected, pathname }: { walletConnected: boolean
   usePathnameMock.mockReturnValue(pathname);
 
   return render(
-    <WalletPresenceProvider initial={walletConnected}>
+    <WalletPresenceProvider storeId="store-123" initial={walletConnected}>
       <StoreProvider storeId="store-123">
         <ShellSidebar variant="desktop" user={{ name: "Ada Merchant", email: "ada@example.com" }} />
       </StoreProvider>

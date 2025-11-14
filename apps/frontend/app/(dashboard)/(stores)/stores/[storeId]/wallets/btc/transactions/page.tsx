@@ -316,7 +316,7 @@ export default async function TransactionsPage({ params, searchParams }: PagePar
     redirect(wizardPath);
   }
 
-  if (presence.status === 200 && !presence.connected) {
+  if (presence.status === 200 && !presence.hasWallet) {
     redirect(wizardPath);
   }
 

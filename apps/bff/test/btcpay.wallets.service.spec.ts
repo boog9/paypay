@@ -150,4 +150,69 @@ describe('BtcpayWalletService', () => {
     );
     expect(result).toEqual(addressPayload);
   });
+
+  it('detects wallet presence when BTCPay returns 200', async () => {
+    const overviewPayload = { label: 'Demo Wallet' };
+    const getMock = jest.fn().mockResolvedValue({ data: overviewPayload });
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getOnchainWalletOverview(store.btcpayStoreId, 'btc', { store });
+
+    expect(getMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet'
+    );
+    expect(result).toEqual({ hasWallet: true, raw: overviewPayload });
+  });
+
+  it('returns hasWallet=false when BTCPay responds with 404', async () => {
+    const error: AxiosError = {
+      isAxiosError: true,
+      toJSON: () => ({}),
+      config: {},
+      name: 'AxiosError',
+      message: 'Wallet not found',
+      response: {
+        status: 404,
+        data: { message: 'Wallet not found' },
+        headers: {},
+        statusText: 'Not Found',
+        config: {}
+      }
+    } as AxiosError;
+
+    const getMock = jest.fn().mockRejectedValue(error);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+    const result = await service.getOnchainWalletOverview(store.btcpayStoreId, 'btc', { store });
+
+    expect(result).toEqual({ hasWallet: false });
+  });
+
+  it('rethrows non-404 errors from wallet overview', async () => {
+    const error: AxiosError = {
+      isAxiosError: true,
+      toJSON: () => ({}),
+      config: {},
+      name: 'AxiosError',
+      message: 'Forbidden',
+      response: {
+        status: 403,
+        data: { message: 'Forbidden' },
+        headers: {},
+        statusText: 'Forbidden',
+        config: {}
+      }
+    } as AxiosError;
+
+    const getMock = jest.fn().mockRejectedValue(error);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.getOnchainWalletOverview(store.btcpayStoreId, 'btc', { store })
+    ).rejects.toHaveProperty('status', 403);
+  });
 });

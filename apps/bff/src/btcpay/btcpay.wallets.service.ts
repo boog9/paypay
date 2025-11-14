@@ -119,6 +119,50 @@ export class BtcpayWalletService {
     throw new InternalServerErrorException('Failed to load on-chain wallet overview.');
   }
 
+  /**
+   * Checks BTCPay's `/wallet` endpoint to determine whether an on-chain wallet exists.
+   *
+   * BTCPay returns HTTP 200 with the wallet payload when a wallet is present and
+   * HTTP 404 when the payment method has no associated wallet yet. Any other
+   * status code (401/403/5xx) indicates an upstream error and is rethrown using
+   * the standard BTCPay error mapper.
+   */
+  async getOnchainWalletOverview(
+    storeId: string,
+    cryptoCode: string,
+    options?: WalletRequestOptions
+  ): Promise<{ hasWallet: boolean; raw?: unknown }> {
+    const context = await this.prepareStoreContext(storeId, options);
+
+    try {
+      const response = await context.http.get(
+        this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)
+      );
+      return { hasWallet: true, raw: response.data };
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 404) {
+          return { hasWallet: false };
+        }
+      }
+
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    throw new InternalServerErrorException('Failed to check on-chain wallet presence.');
+  }
+
+  async getBitcoinWalletPresence(
+    storeId: string,
+    options?: WalletRequestOptions
+  ): Promise<{ hasWallet: boolean }> {
+    const overview = await this.getOnchainWalletOverview(storeId, 'BTC', options);
+    return { hasWallet: overview.hasWallet };
+  }
+
   async listUtxos(
     storeId: string,
     cryptoCode: string,

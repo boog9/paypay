@@ -74,6 +74,31 @@ describe('AuthModule CSRF + Cookie flow (e2e)', () => {
     return token;
   }
 
+  it('throttles repeated login attempts from the same IP address', async () => {
+    const throttledIp = '198.51.100.77';
+    const csrfResponse = await agent
+      .get('/api/auth/csrf')
+      .set('X-Forwarded-For', throttledIp)
+      .expect(204);
+    const csrfToken = readCsrfToken(csrfResponse);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await agent
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', throttledIp)
+        .set('X-CSRF-Token', csrfToken)
+        .send({ email: credentials.email, password: 'definitely-wrong' });
+      expect(response.status).toBe(401);
+    }
+
+    await agent
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', throttledIp)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ email: credentials.email, password: 'definitely-wrong' })
+      .expect(429);
+  });
+
   it('supports CSRF-protected cookie authentication flow', async () => {
     const csrfResponse = await agent.get('/api/auth/csrf').expect(204);
     const csrfCookies = getCookies(csrfResponse);

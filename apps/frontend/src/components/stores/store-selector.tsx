@@ -8,7 +8,7 @@ import { cn } from "../../../lib/utils";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Skeleton } from "../../../components/ui/skeleton";
-import { useStoresQuery } from "../../hooks/use-stores";
+import { useStoresQuery, type StoreSummary } from "../../hooks/use-stores";
 import { useStoreContext } from "../../contexts/store-context";
 
 type StoreSelectorProps = {
@@ -27,7 +27,17 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
   const pathname = usePathname();
   const { storeId: activeStoreIdFromContext } = useStoreContext();
 
-  const { data: stores = [], isLoading, isError } = useStoresQuery();
+  const storesQuery = useStoresQuery();
+  const { data, isLoading, isError, error } = storesQuery;
+  const [cachedStores, setCachedStores] = useState<StoreSummary[]>([]);
+
+  useEffect(() => {
+    if (Array.isArray(data)) {
+      setCachedStores(data);
+    }
+  }, [data]);
+
+  const stores = data ?? cachedStores;
 
   const normalizedStores = useMemo(() => stores, [stores]);
 
@@ -103,14 +113,18 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
     onStoreSelected?.();
   };
 
+  const disableToggle = isLoading || !normalizedStores.length;
+
   const handleToggle = () => {
-    if (isLoading || isError) {
+    if (disableToggle) {
       return;
     }
     setIsOpen((previous) => !previous);
   };
 
   const buttonLabel = isLoading ? "Loading stores…" : activeStore?.name ?? "No stores connected";
+  const isRateLimited = error?.status === 429;
+  const showGenericError = isError && !isRateLimited && !normalizedStores.length;
 
   return (
     <div className="relative">
@@ -119,13 +133,13 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
         type="button"
         className={cn(
           "flex w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          (isLoading || isError || !normalizedStores.length) && "cursor-default text-muted-foreground"
+          (disableToggle || isLoading) && "cursor-default text-muted-foreground"
         )}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={listboxId}
         onClick={handleToggle}
-        disabled={isLoading || isError || !normalizedStores.length}
+        disabled={disableToggle}
       >
         <span className="truncate">{buttonLabel}</span>
         <svg
@@ -236,7 +250,12 @@ export function StoreSelector({ onStoreSelected }: StoreSelectorProps) {
         </div>
       ) : null}
 
-      {isError && !normalizedStores.length ? (
+      {isRateLimited ? (
+        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          Too many requests, please try again in a few seconds.
+        </p>
+      ) : null}
+      {showGenericError ? (
         <p className="mt-2 text-xs text-destructive">Failed to load stores.</p>
       ) : null}
     </div>

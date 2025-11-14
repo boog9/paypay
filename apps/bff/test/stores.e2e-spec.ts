@@ -103,6 +103,19 @@ describe('Stores onboarding (e2e)', () => {
     await idempotencyRepository.clear();
   });
 
+  it('allows repeated store listing without throttling', async () => {
+    const rateLimitedIp = '203.0.113.55';
+    btcpayMock.listStores.mockResolvedValue([]);
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await agent
+        .get('/api/stores')
+        .set('X-Forwarded-For', rateLimitedIp)
+        .expect(200);
+      expect(Array.isArray(response.body)).toBe(true);
+    }
+  });
+
   async function fetchCsrf(): Promise<string> {
     const response = await agent.get('/api/auth/csrf').expect(204);
     const token = readCsrfToken(response);

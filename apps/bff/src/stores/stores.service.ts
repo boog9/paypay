@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,6 +15,7 @@ import { normalizeEmail } from '../auth/email.utils';
 import { UserEntity } from '../auth/entities/user.entity';
 import { IdempotencyKeyEntity } from '../tenants/entities/idempotency-key.entity';
 import { UsersService } from '../auth/users.service';
+import { StoreSettingsDto } from './dto/update-store-settings.dto';
 
 export interface AuthenticatedUserContext {
   userId: string | null;
@@ -224,6 +226,171 @@ export class StoresService {
     }
   }
 
+  async getStoreSettings(context: AuthenticatedUserContext, storeId: string): Promise<StoreSettingsDto> {
+    const email = this.normalizeEmail(context.email);
+    const userId = this.normalizeUserId(context.userId);
+    if (!email || !userId) {
+      throw new UnauthorizedException('Authenticated user context is required.');
+    }
+
+    const store = await this.findOwnedStore(userId, storeId);
+    const baseUrl = this.btcpayService.resolveBaseUrl(store.btcpayHost);
+    const apiKey = this.decryptStoreApiKey(store);
+
+    try {
+      const response = await this.btcpayService.getStore(baseUrl, apiKey, store.btcpayStoreId);
+      return this.mapStoreSettings(store, response);
+    } finally {
+      this.clearBuffer(apiKey);
+    }
+  }
+
+  async updateStoreSettings(
+    context: AuthenticatedUserContext,
+    storeId: string,
+    dto: { name?: string; website?: string | null; defaultCurrency?: string }
+  ): Promise<StoreSettingsDto> {
+    const email = this.normalizeEmail(context.email);
+    const userId = this.normalizeUserId(context.userId);
+    if (!email || !userId) {
+      throw new UnauthorizedException('Authenticated user context is required.');
+    }
+
+    const store = await this.findOwnedStore(userId, storeId);
+    const user = await this.getAuthorizedUser(userId, email);
+    const baseUrl = this.btcpayService.resolveBaseUrl(store.btcpayHost);
+    const permission = `btcpay.store.canmodifystoresettings:${store.btcpayStoreId}`;
+
+    let issuedKey: { apiKey: string; id?: string } | null = null;
+    try {
+      issuedKey = await this.btcpayService.issueUserApiKey(baseUrl, this.resolveBtcpaySubject(user, email), [permission], {
+        label: 'portal-store-settings'
+      });
+
+      const response = await this.btcpayService.updateStore(baseUrl, issuedKey.apiKey, store.btcpayStoreId, {
+        name: dto.name,
+        website: dto.website,
+        defaultCurrency: dto.defaultCurrency
+      });
+
+      const nextName = response?.name?.trim();
+      if (nextName) {
+        store.storeName = nextName;
+      }
+
+      const nextCurrency = response?.defaultCurrency?.trim();
+      if (nextCurrency) {
+        store.defaultCurrency = nextCurrency.toUpperCase();
+      }
+
+      await this.storesRepository.save(store);
+
+      return this.mapStoreSettings(store, response);
+    } finally {
+      if (issuedKey) {
+        const keyIdentifier = issuedKey.id ?? issuedKey.apiKey;
+        await this.safeRevokeKey(baseUrl, keyIdentifier);
+        this.clearBuffer(issuedKey.apiKey);
+      }
+    }
+  }
+
+  async deleteStore(context: AuthenticatedUserContext, storeId: string): Promise<void> {
+    const email = this.normalizeEmail(context.email);
+    const userId = this.normalizeUserId(context.userId);
+    if (!email || !userId) {
+      throw new UnauthorizedException('Authenticated user context is required.');
+    }
+
+    const store = await this.findOwnedStore(userId, storeId);
+    const user = await this.getAuthorizedUser(userId, email);
+    const baseUrl = this.btcpayService.resolveBaseUrl(store.btcpayHost);
+    const permission = `btcpay.store.canmodifystoresettings:${store.btcpayStoreId}`;
+
+    let issuedKey: { apiKey: string; id?: string } | null = null;
+    try {
+      issuedKey = await this.btcpayService.issueUserApiKey(baseUrl, this.resolveBtcpaySubject(user, email), [permission], {
+        label: 'portal-store-settings'
+      });
+
+      await this.btcpayService.deleteStore(baseUrl, issuedKey.apiKey, store.btcpayStoreId);
+      await this.storesRepository.remove(store);
+    } finally {
+      if (issuedKey) {
+        const keyIdentifier = issuedKey.id ?? issuedKey.apiKey;
+        await this.safeRevokeKey(baseUrl, keyIdentifier);
+        this.clearBuffer(issuedKey.apiKey);
+      }
+    }
+  }
+
+  private async findOwnedStore(userId: string, storeId: string): Promise<ManagedStoreEntity> {
+    const normalizedId = typeof storeId === 'string' ? storeId.trim() : '';
+    if (!normalizedId) {
+      throw new NotFoundException('Store not found');
+    }
+
+    const entity = await this.storesRepository.findOne({
+      where: { userId, btcpayStoreId: normalizedId }
+    });
+
+    if (!entity) {
+      throw new NotFoundException('Store not found');
+    }
+
+    return entity;
+  }
+
+  private async getAuthorizedUser(userId: string, email: string): Promise<UserEntity> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user || this.normalizeEmail(user.email) !== email) {
+      throw new UnauthorizedException('Authenticated user was not found.');
+    }
+    return user;
+  }
+
+  private decryptStoreApiKey(store: ManagedStoreEntity): string {
+    try {
+      return this.encryptionService.decrypt(store.apiKeyCiphertext, store.apiKeyDekWrapped);
+    } catch (error) {
+      this.logger.error(`Failed to decrypt BTCPay API key for store ${store.btcpayStoreId}`);
+      throw new InternalServerErrorException('Failed to decrypt BTCPay API key', {
+        cause: error instanceof Error ? error : undefined
+      });
+    }
+  }
+
+  private resolveBtcpaySubject(user: UserEntity, fallbackEmail: string): string {
+    const subject = user.btcpayUserId?.trim();
+    if (subject) {
+      return subject;
+    }
+    return fallbackEmail;
+  }
+
+  private mapStoreSettings(
+    store: ManagedStoreEntity,
+    payload: { name?: string | null; website?: string | null; defaultCurrency?: string | null } | null
+  ): StoreSettingsDto {
+    const name = payload?.name?.trim() || store.storeName?.trim() || 'Unnamed store';
+    const websiteCandidate = payload?.website ?? null;
+    const website =
+      typeof websiteCandidate === 'string' && websiteCandidate.trim()
+        ? websiteCandidate.trim()
+        : null;
+    const defaultCurrency =
+      payload?.defaultCurrency?.trim()?.toUpperCase() ||
+      store.defaultCurrency?.trim()?.toUpperCase() ||
+      'BTC';
+
+    return {
+      storeId: store.btcpayStoreId,
+      name,
+      website,
+      defaultCurrency
+    } satisfies StoreSettingsDto;
+  }
+
   private normalizeEmail(value: string | null): string | null {
     if (!value) {
       return null;
@@ -282,7 +449,7 @@ export class StoresService {
         ? Array.from(new Set(meta.permissions))
         : this.btcpayService.buildBootstrapPermissions();
     const label = meta.label?.trim() || 'portal-bootstrap';
-    const issued = await this.btcpayService.issueUserApiKeyWithPermissions(subject, permissions, label);
+    const issued = await this.btcpayService.issueUserApiKeyWithPermissions(undefined, subject, permissions, label);
     const hash = this.usersService.hashBootstrapApiKey(issued.apiKey);
     await this.usersService.saveBootstrapMeta(userId, {
       apiKeyHash: hash,
@@ -339,11 +506,14 @@ export class StoresService {
     }
   }
 
-  private async safeRevokeKey(baseUrl: string, apiKey: string): Promise<void> {
+  private async safeRevokeKey(host: string, apiKeyOrId: string): Promise<void> {
     try {
-      await this.btcpayService.revokeUserApiKey(baseUrl, apiKey);
+      await this.btcpayService.revokeUserApiKey(host, apiKeyOrId);
     } catch (error) {
-      this.logger.warn(`Failed to revoke BTCPay API key: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to revoke BTCPay API key`,
+        error instanceof Error ? error.stack : undefined
+      );
     }
   }
 

@@ -1,3 +1,4 @@
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,6 +14,7 @@ const managedStoresRepositoryMock = () => ({
   findOne: jest.fn(),
   create: jest.fn((value) => value),
   save: jest.fn(async (value) => value),
+  remove: jest.fn(async (value) => value),
 });
 
 const usersRepositoryMock = () => ({
@@ -44,7 +46,7 @@ describe('StoresService', () => {
         {
           provide: BtcpayService,
           useValue: {
-            resolveBaseUrl: jest.fn(() => 'https://btcpay.example'),
+            resolveBaseUrl: jest.fn((host?: string) => host ?? 'https://btcpay.example'),
             issueUserApiKeyWithPermissions: jest.fn(),
             createStoreUsingUserKey: jest.fn(),
             setCoinGeckoAsDefaultRateSource: jest.fn(),
@@ -52,6 +54,10 @@ describe('StoresService', () => {
             registerWebhook: jest.fn(),
             deleteWebhook: jest.fn(),
             revokeUserApiKey: jest.fn(),
+            issueUserApiKey: jest.fn(),
+            getStore: jest.fn(),
+            updateStore: jest.fn(),
+            deleteStore: jest.fn(),
             buildStorePermissions: jest.fn((storeId: string) => [
               `btcpay.store.cancreateinvoice:${storeId}`,
               `btcpay.store.canmodifystoresettings:${storeId}`,
@@ -124,6 +130,7 @@ describe('StoresService', () => {
     expect(result).not.toHaveProperty('secret');
 
     expect(btcpayService.issueUserApiKeyWithPermissions).toHaveBeenCalledWith(
+      undefined,
       'btcpay-user-1',
       ['btcpay.store.canmodifystoresettings'],
       'portal-bootstrap',
@@ -228,5 +235,196 @@ describe('StoresService', () => {
 
     expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'internal-key');
     expect(btcpayService.deleteWebhook).not.toHaveBeenCalled();
+  });
+
+  describe('getStoreSettings', () => {
+    const context = { userId: 'user-1', email: 'merchant@example.com', bootstrapApiKey: null };
+
+    it('throws UnauthorizedException when context lacks user information', async () => {
+      await expect(
+        service.getStoreSettings({ userId: null, email: null, bootstrapApiKey: null }, 'store-1')
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('throws NotFoundException when the store is not owned by the user', async () => {
+      storesRepository.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.getStoreSettings(context, 'store-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(storesRepository.findOne).toHaveBeenCalledWith({
+        where: { userId: 'user-1', btcpayStoreId: 'store-1' }
+      });
+    });
+
+    it('returns normalized settings fetched from BTCPay', async () => {
+      const entity = {
+        userId: 'user-1',
+        btcpayStoreId: 'store-1',
+        storeName: 'Legacy name',
+        defaultCurrency: 'btc',
+        btcpayHost: 'https://merchant-host',
+        apiKeyCiphertext: 'cipher',
+        apiKeyDekWrapped: 'dek'
+      } as ManagedStoreEntity;
+
+      storesRepository.findOne.mockResolvedValueOnce(entity);
+      encryptionService.decrypt.mockReturnValueOnce('decrypted-key');
+      btcpayService.getStore.mockResolvedValueOnce({
+        id: 'store-1',
+        name: ' Demo Store ',
+        website: ' https://demo.example ',
+        defaultCurrency: 'usd'
+      });
+
+      const result = await service.getStoreSettings(context, 'store-1');
+
+      expect(btcpayService.resolveBaseUrl).toHaveBeenCalledWith('https://merchant-host');
+      expect(btcpayService.getStore).toHaveBeenCalledWith('https://merchant-host', 'decrypted-key', 'store-1');
+      expect(result).toEqual({
+        storeId: 'store-1',
+        name: 'Demo Store',
+        website: 'https://demo.example',
+        defaultCurrency: 'USD'
+      });
+    });
+  });
+
+  describe('updateStoreSettings', () => {
+    const context = { userId: 'user-1', email: 'merchant@example.com', bootstrapApiKey: null };
+
+    it('throws UnauthorizedException when context is missing', async () => {
+      await expect(
+        service.updateStoreSettings({ userId: null, email: null, bootstrapApiKey: null }, 'store-1', {})
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('throws NotFoundException when the store is absent', async () => {
+      storesRepository.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.updateStoreSettings(context, 'store-1', {})).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('updates the store via BTCPay and persists normalized values locally', async () => {
+      const entity = {
+        userId: 'user-1',
+        btcpayStoreId: 'store-1',
+        storeName: 'Old name',
+        defaultCurrency: 'btc',
+        btcpayHost: 'https://merchant-host',
+      } as ManagedStoreEntity;
+
+      storesRepository.findOne.mockResolvedValueOnce(entity);
+      usersRepository.findOne.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'merchant@example.com',
+        btcpayUserId: 'btcpay-user-1'
+      } as UserEntity);
+      btcpayService.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'temp-key' });
+      btcpayService.updateStore.mockResolvedValueOnce({
+        id: 'store-1',
+        name: ' New Store ',
+        website: ' https://updated.example ',
+        defaultCurrency: 'eur'
+      });
+
+      const result = await service.updateStoreSettings(context, 'store-1', {
+        name: 'New Store',
+        website: 'https://updated.example',
+        defaultCurrency: 'eur'
+      });
+
+      expect(btcpayService.issueUserApiKey).toHaveBeenCalledWith(
+        'https://merchant-host',
+        'btcpay-user-1',
+        ['btcpay.store.canmodifystoresettings:store-1'],
+        { label: 'portal-store-settings' }
+      );
+      expect(btcpayService.updateStore).toHaveBeenCalledWith('https://merchant-host', 'temp-key', 'store-1', {
+        name: 'New Store',
+        website: 'https://updated.example',
+        defaultCurrency: 'eur'
+      });
+      expect(storesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ storeName: 'New Store', defaultCurrency: 'EUR' })
+      );
+      expect(result).toEqual({
+        storeId: 'store-1',
+        name: 'New Store',
+        website: 'https://updated.example',
+        defaultCurrency: 'EUR'
+      });
+      expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://merchant-host', 'temp-key');
+    });
+
+    it('revokes the temporary API key even when BTCPay update fails', async () => {
+      const entity = {
+        userId: 'user-1',
+        btcpayStoreId: 'store-1',
+        storeName: 'Old name',
+        defaultCurrency: 'btc',
+        btcpayHost: 'https://merchant-host',
+      } as ManagedStoreEntity;
+
+      storesRepository.findOne.mockResolvedValueOnce(entity);
+      usersRepository.findOne.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'merchant@example.com',
+        btcpayUserId: 'btcpay-user-1'
+      } as UserEntity);
+      btcpayService.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'temp-key' });
+      btcpayService.updateStore.mockRejectedValueOnce(new Error('update failed'));
+
+      await expect(
+        service.updateStoreSettings(context, 'store-1', { name: 'Another' })
+      ).rejects.toThrow('update failed');
+
+      expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://merchant-host', 'temp-key');
+    });
+  });
+
+  describe('deleteStore', () => {
+    const context = { userId: 'user-1', email: 'merchant@example.com', bootstrapApiKey: null };
+
+    it('throws UnauthorizedException when context is missing', async () => {
+      await expect(
+        service.deleteStore({ userId: null, email: null, bootstrapApiKey: null }, 'store-1')
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('throws NotFoundException when store cannot be found', async () => {
+      storesRepository.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.deleteStore(context, 'store-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('deletes the store in BTCPay, revokes the key, and removes the record', async () => {
+      const entity = {
+        userId: 'user-1',
+        btcpayStoreId: 'store-1',
+        storeName: 'Demo Store',
+        defaultCurrency: 'usd',
+        btcpayHost: 'https://merchant-host',
+      } as ManagedStoreEntity;
+
+      storesRepository.findOne.mockResolvedValueOnce(entity);
+      usersRepository.findOne.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'merchant@example.com',
+        btcpayUserId: 'btcpay-user-1'
+      } as UserEntity);
+      btcpayService.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'temp-key' });
+      btcpayService.deleteStore.mockResolvedValueOnce(undefined);
+
+      await service.deleteStore(context, 'store-1');
+
+      expect(btcpayService.issueUserApiKey).toHaveBeenCalledWith(
+        'https://merchant-host',
+        'btcpay-user-1',
+        ['btcpay.store.canmodifystoresettings:store-1'],
+        { label: 'portal-store-settings' }
+      );
+      expect(btcpayService.deleteStore).toHaveBeenCalledWith('https://merchant-host', 'temp-key', 'store-1');
+      expect(storesRepository.remove).toHaveBeenCalledWith(entity);
+      expect(btcpayService.revokeUserApiKey).toHaveBeenCalledWith('https://merchant-host', 'temp-key');
+    });
   });
 });

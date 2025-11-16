@@ -170,7 +170,7 @@ export function StoreSettingsForm({ initial }: StoreSettingsFormProps) {
           return;
         }
 
-        const data = await response.json().catch(() => null);
+        const data: unknown = await response.json().catch(() => null);
 
         if (!response.ok) {
           const message =
@@ -238,7 +238,7 @@ export function StoreSettingsForm({ initial }: StoreSettingsFormProps) {
         }
 
         if (!response.ok && response.status !== 204) {
-          const data = await response.json().catch(() => null);
+          const data: unknown = await response.json().catch(() => null);
           const message =
             data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
               ? (data as { message: string }).message
@@ -274,7 +274,12 @@ export function StoreSettingsForm({ initial }: StoreSettingsFormProps) {
           <CardDescription>Update the basic information exposed for this BTCPay store.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
+          <form
+            className="flex flex-col gap-6"
+            onSubmit={(event) => {
+              void handleSubmit(event);
+            }}
+          >
             <div className="grid gap-6 md:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <label htmlFor="store-id" className="text-sm font-medium text-foreground">

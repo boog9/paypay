@@ -2,10 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -13,6 +16,7 @@ import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { StoresService, AuthenticatedUserContext } from './stores.service';
 import { CreateStoreDto } from './dto/create-store.dto';
+import { UpdateStoreSettingsDto } from './dto/update-store-settings.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -38,6 +42,28 @@ export class StoresController {
       { name: dto.name, defaultCurrency: dto.defaultCurrency },
       idempotencyKey,
     );
+  }
+
+  @Get(':storeId')
+  @SkipThrottle()
+  getStoreSettings(@Req() req: Request, @Param('storeId') storeId: string) {
+    return this.storesService.getStoreSettings(this.resolveContext(req), storeId);
+  }
+
+  @Put(':storeId')
+  @HttpCode(HttpStatus.OK)
+  updateStoreSettings(
+    @Req() req: Request,
+    @Param('storeId') storeId: string,
+    @Body() dto: UpdateStoreSettingsDto,
+  ) {
+    return this.storesService.updateStoreSettings(this.resolveContext(req), storeId, dto);
+  }
+
+  @Delete(':storeId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteStore(@Req() req: Request, @Param('storeId') storeId: string) {
+    await this.storesService.deleteStore(this.resolveContext(req), storeId);
   }
 
   private resolveContext(req: Request): AuthenticatedUserContext {

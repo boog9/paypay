@@ -32,7 +32,7 @@ export interface CreateInvoiceRequest {
 
 interface ApiKeyResponse {
   apiKey: string;
-  permissions: string[];
+  permissions?: string[];
   id?: string;
 }
 
@@ -41,9 +41,9 @@ interface WebhookResponse {
   secret?: string | null;
 }
 
-interface StoreResponse {
+export interface StoreResponse {
   id: string;
-  name?: string;
+  name?: string | null;
   website?: string | null;
   defaultCurrency?: string | null;
 }
@@ -397,7 +397,7 @@ export class BtcpayService {
     });
   }
 
-  async issueUserApiKey(
+  private async issueUserApiKeyInternal(
     host: string | undefined,
     idOrEmail: string,
     permissions: string[],
@@ -434,13 +434,24 @@ export class BtcpayService {
     }
   }
 
+  async issueUserApiKey(
+    host: string | undefined,
+    subject: string,
+    permissions: string[],
+    options?: IssueUserApiKeyOptions
+  ): Promise<{ apiKey: string; id?: string }> {
+    return this.issueUserApiKeyWithPermissions(host, subject, permissions, options);
+  }
+
   async issueUserApiKeyWithPermissions(
+    host: string | undefined,
     idOrEmail: string,
     permissions: string[],
-    label = 'portal-bootstrap'
-  ): Promise<{ apiKey: string }> {
-    const response = await this.issueUserApiKey(undefined, idOrEmail, permissions, { label });
-    return { apiKey: response.apiKey };
+    options?: IssueUserApiKeyOptions | string
+  ): Promise<{ apiKey: string; id?: string }> {
+    const normalizedOptions = typeof options === 'string' ? { label: options } : options;
+    const response = await this.issueUserApiKeyInternal(host, idOrEmail, permissions, normalizedOptions);
+    return { apiKey: response.apiKey, id: response.id };
   }
 
   async createStoreUsingUserKey(
@@ -760,6 +771,51 @@ export class BtcpayService {
     });
     try {
       const { data } = await http.get<StoreResponse>(`/api/v1/stores/${storeId}`);
+      return data;
+    } catch (error) {
+      return this.maskError(error);
+    }
+  }
+
+  async updateStore(
+    host: string | undefined,
+    apiKey: string,
+    storeId: string,
+    payload: { name?: string; website?: string | null; defaultCurrency?: string | null }
+  ): Promise<StoreResponse> {
+    const http = this.createHttp(host ?? this.config.baseUrl, {
+      Authorization: `token ${apiKey}`
+    });
+
+    const body: Record<string, string | null> = {};
+
+    if (payload.name !== undefined) {
+      const normalized = payload.name?.trim();
+      if (normalized) {
+        body.name = normalized;
+      }
+    }
+
+    if (payload.website !== undefined) {
+      if (payload.website === null) {
+        body.website = null;
+      } else {
+        const normalized = payload.website?.trim();
+        if (normalized) {
+          body.website = normalized;
+        }
+      }
+    }
+
+    if (payload.defaultCurrency !== undefined) {
+      const normalized = payload.defaultCurrency?.trim();
+      if (normalized) {
+        body.defaultCurrency = normalized.toUpperCase();
+      }
+    }
+
+    try {
+      const { data } = await http.put<StoreResponse>(`/api/v1/stores/${storeId}`, body);
       return data;
     } catch (error) {
       return this.maskError(error);

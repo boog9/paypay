@@ -155,6 +155,7 @@ describe('Stores onboarding (e2e)', () => {
     });
 
     expect(btcpayMock.issueUserApiKeyWithPermissions).toHaveBeenCalledWith(
+      undefined,
       'user-btcpay-id',
       ['btcpay.store.canmodifystoresettings'],
       'portal-bootstrap'

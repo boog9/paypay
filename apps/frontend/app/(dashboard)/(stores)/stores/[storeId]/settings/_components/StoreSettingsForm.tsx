@@ -12,6 +12,7 @@ import { bffFetch } from "@/lib/bff-fetch";
 import { storeSettingsPath } from "@/lib/storePaths";
 
 const DEFAULT_ERROR_MESSAGE = "Failed to save store settings.";
+const INFRA_ERROR_MESSAGE = "We could not reach BTCPay. Please try again in a moment.";
 const DELETE_ERROR_MESSAGE = "Failed to delete store.";
 
 type StoreSettings = {
@@ -172,11 +173,17 @@ export function StoreSettingsForm({ initial }: StoreSettingsFormProps) {
 
         const data: unknown = await response.json().catch(() => null);
 
+        const responseMessage =
+          data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null;
+
         if (!response.ok) {
-          const message =
-            data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
-              ? (data as { message: string }).message
-              : DEFAULT_ERROR_MESSAGE;
+          const isClientError = response.status >= 400 && response.status < 500;
+          const message = isClientError
+            ? responseMessage ?? "BTCPay rejected these store settings."
+            : INFRA_ERROR_MESSAGE;
+
           setFormError(message);
           toast({ title: "Failed to save store settings", description: message, variant: "destructive" });
           return;

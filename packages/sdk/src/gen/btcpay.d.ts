@@ -5,6 +5,7 @@ export interface components {
       id: string;
       name?: string;
       defaultCurrency?: string;
+      website?: string | null;
       [key: string]: unknown;
     };
     CreateInvoiceRequest: {

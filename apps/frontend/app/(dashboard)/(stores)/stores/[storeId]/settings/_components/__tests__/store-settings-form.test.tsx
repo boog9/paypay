@@ -100,6 +100,50 @@ describe("StoreSettingsForm", () => {
     expect(toastMock).toHaveBeenCalledWith({ title: "Settings saved", variant: "success" });
   });
 
+  it("shows BTCPay validation errors when the BFF returns 400", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: vi.fn().mockResolvedValue({ message: "Invalid BTCPay payload" }),
+    } as unknown as Response);
+
+    render(<StoreSettingsForm initial={initial} />);
+
+    fireEvent.submit(screen.getByRole("button", { name: /Save settings/i }).closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid BTCPay payload/)).toBeInTheDocument();
+    });
+    expect(toastMock).toHaveBeenCalledWith({
+      title: "Failed to save store settings",
+      description: "Invalid BTCPay payload",
+      variant: "destructive",
+    });
+  });
+
+  it("renders an infrastructure message for 5xx failures", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: vi.fn().mockResolvedValue({ message: "BTCPay request failed" }),
+    } as unknown as Response);
+
+    render(<StoreSettingsForm initial={initial} />);
+
+    fireEvent.submit(screen.getByRole("button", { name: /Save settings/i }).closest("form")!);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/We could not reach BTCPay. Please try again in a moment./i)
+      ).toBeInTheDocument();
+    });
+    expect(toastMock).toHaveBeenCalledWith({
+      title: "Failed to save store settings",
+      description: "We could not reach BTCPay. Please try again in a moment.",
+      variant: "destructive",
+    });
+  });
+
   it("sends DELETE request when archiving and redirects afterwards", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

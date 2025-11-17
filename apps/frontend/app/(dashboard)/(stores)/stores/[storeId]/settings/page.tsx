@@ -97,7 +97,7 @@ export default async function StoreSettingsPage({ params }: PageProps) {
       </header>
       <div className="rounded-md border border-muted bg-muted/30 p-4 text-sm text-muted-foreground">
         Looking for wallet configuration? Head to the{" "}
-        <Link className="font-medium text-foreground underline" href="../wallets/btc">
+        <Link className="font-medium text-foreground underline" href={`/stores/${normalizedStoreId}/wallets/btc`}>
           Bitcoin wallet settings
         </Link>{" "}
         page to manage your derivation scheme and receiving addresses.

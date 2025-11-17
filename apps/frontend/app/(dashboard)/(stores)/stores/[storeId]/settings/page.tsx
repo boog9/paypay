@@ -9,11 +9,11 @@ export const metadata = {
 };
 
 type PageProps = {
-  params: { storeId: string };
+  params: Promise<{ storeId: string }>;
 };
 
 export default async function StoreSettingsPage({ params }: PageProps) {
-  const { storeId } = params;
+  const { storeId } = await params;
   const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
 
   if (!normalizedStoreId) {

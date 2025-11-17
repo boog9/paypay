@@ -24,8 +24,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { Request } from 'express';
 import { SecurityModule } from './security/security.module';
 import { CsrfGuard } from './security/csrf.guard';
-import { AppThrottlerGuard } from './app.throttler.guard';
 import { AxiosExceptionFilter } from './http/axios-exception.filter';
+import { WriteThrottlerGuard } from './common/guards/write-throttler.guard';
 
 @Module({
   imports: [
@@ -205,7 +205,7 @@ import { AxiosExceptionFilter } from './http/axios-exception.filter';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: AppThrottlerGuard
+      useClass: WriteThrottlerGuard
     },
     {
       provide: APP_GUARD,

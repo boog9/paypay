@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadOverview, loadTransactions } from "./page";
+import { loadOverview, loadTransactions } from "./data-loaders";
 import type { TransactionsQuery } from "./types";
 
 vi.mock("@/lib/bff-fetch", () => ({

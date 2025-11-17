@@ -1,5 +1,5 @@
 import { Controller, Get, Header, Param, Query, UseGuards } from '@nestjs/common';
-import { Throttle, seconds } from '@nestjs/throttler';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReqUser, RequestUser } from '../auth/decorators/req-user.decorator';
 import {
@@ -19,7 +19,7 @@ import { OnchainWalletReadService } from './onchain-wallet-read.service';
 export class WalletsController {
   constructor(private readonly wallets: OnchainWalletReadService) {}
 
-  @Throttle({ burst: { limit: 40, ttl: 2_000 } })
+  @SkipThrottle()
   @Header('Cache-Control', 'private, max-age=3')
   @Get('transactions')
   listTransactions(
@@ -36,7 +36,7 @@ export class WalletsController {
     );
   }
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Header('Cache-Control', 'private, max-age=3')
   @Get('transactions/:txId')
   getTransaction(
@@ -53,7 +53,7 @@ export class WalletsController {
     );
   }
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Get('overview')
   getOverview(
     @ReqUser() user: RequestUser,
@@ -63,7 +63,7 @@ export class WalletsController {
     return this.wallets.getOverview({ id: user.id ?? null, email: user.email ?? null }, storeId, cryptoCode);
   }
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Get('utxos')
   listUtxos(
     @ReqUser() user: RequestUser,
@@ -73,7 +73,7 @@ export class WalletsController {
     return this.wallets.listUtxos({ id: user.id ?? null, email: user.email ?? null }, storeId, cryptoCode);
   }
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Get('address')
   getReceiveAddress(
     @ReqUser() user: RequestUser,
@@ -87,7 +87,7 @@ export class WalletsController {
     );
   }
 
-  @Throttle({ uiBurst: { limit: 600, ttl: seconds(30) } })
+  @SkipThrottle()
   @Get('feerate')
   getFeeRate(
     @ReqUser() user: RequestUser,

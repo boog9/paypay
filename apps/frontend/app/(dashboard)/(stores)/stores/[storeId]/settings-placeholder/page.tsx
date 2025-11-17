@@ -5,12 +5,12 @@ export const metadata = {
 };
 
 type PageProps = {
-  params: { storeId: string };
+  params: Promise<{ storeId: string }>;
 };
 
-export default function StoreSettingsPlaceholderPage({ params }: PageProps) {
-  const normalizedStoreId =
-    typeof params.storeId === "string" ? params.storeId.trim() : "";
+export default async function StoreSettingsPlaceholderPage({ params }: PageProps) {
+  const { storeId } = await params;
+  const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
 
   const walletHref = normalizedStoreId
     ? `/stores/${normalizedStoreId}/wallets/btc`

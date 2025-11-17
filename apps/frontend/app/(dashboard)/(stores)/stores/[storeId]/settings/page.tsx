@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { loadStoreSettings, type StoreSettingsResult } from "./loadStoreSettings";
+import { loadStoreSettings } from "./loadStoreSettings";
 import { StoreSettingsForm } from "./_components/StoreSettingsForm";
 
 export const metadata = {

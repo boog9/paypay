@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { bffFetch } from "@/lib/bff-fetch";
+import { getCurrentUserSafe } from "@/src/auth/server";
 import { Button } from "../../../../../components/ui/button";
 import { StoreLayoutProvider } from "./store-layout-context";
 import { StoreSidebar, StoreSidebarSection } from "./store-sidebar";
@@ -101,6 +102,12 @@ type StoreLayoutProps = {
 
 export default async function StoreLayout({ children, params }: StoreLayoutProps) {
   const { tenantId, storeId } = await params;
+  const user = await getCurrentUserSafe();
+
+  if (!user) {
+    redirect("/sign-in?reason=session-expired");
+  }
+
   const store = await loadStoreSettings(tenantId, storeId);
   const bitcoinWalletEnabled = await loadBitcoinWalletPresence(storeId);
   const sections = buildStoreSections(tenantId, storeId, bitcoinWalletEnabled);
@@ -132,8 +139,7 @@ export default async function StoreLayout({ children, params }: StoreLayoutProps
               </nav>
               <h1 className="text-3xl font-semibold text-foreground">{store.storeName ?? "Unnamed store"}</h1>
               <p className="text-sm text-muted-foreground">
-                Connected to BTCPay store <span className="font-mono text-foreground">{store.btcpayStoreId}</span> on
-                {" "}
+                Connected to BTCPay store <span className="font-mono text-foreground">{store.btcpayStoreId}</span> on{" "}
                 <a
                   href={store.btcpayHost}
                   target="_blank"

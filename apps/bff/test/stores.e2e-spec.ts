@@ -1,4 +1,4 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { HttpException, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -37,6 +37,8 @@ describe('Stores onboarding (e2e)', () => {
     listStores: jest.fn(),
     registerWebhook: jest.fn(),
     deleteWebhook: jest.fn(),
+    issueUserApiKey: jest.fn(),
+    updateStore: jest.fn(),
     buildStorePermissions: jest.fn((storeId: string) => [
       `btcpay.store.cancreateinvoice:${storeId}`,
       `btcpay.store.canviewinvoices:${storeId}`,
@@ -121,6 +123,26 @@ describe('Stores onboarding (e2e)', () => {
     const token = readCsrfToken(response);
     expect(typeof token).toBe('string');
     return token;
+  }
+
+  async function seedStore(): Promise<ManagedStoreEntity> {
+    const user = await usersRepository.findOneOrFail({ where: { email: 'merchant@example.com' } });
+    const store = managedStoresRepository.create({
+      userId: user.id,
+      user,
+      btcpayStoreId: 'store-1',
+      storeName: 'Demo Store',
+      defaultCurrency: 'USD',
+      btcpayHost: 'https://btcpay.example',
+      apiKeyCiphertext: 'cipher',
+      apiKeyDekWrapped: 'dek',
+      webhookId: null,
+      webhookSecretCiphertext: null,
+      webhookSecretDekWrapped: null,
+      storeKeyLastFour: null,
+      lastActiveAt: null,
+    });
+    return managedStoresRepository.save(store);
   }
 
   it('creates a store and lists it', async () => {
@@ -232,6 +254,61 @@ describe('Stores onboarding (e2e)', () => {
 
     expect(response.body.message).toContain('already exists');
     expect(btcpayMock.issueUserApiKeyWithPermissions).not.toHaveBeenCalled();
+  });
+
+  it('updates store settings and returns BTCPay values when successful', async () => {
+    await seedStore();
+    const csrfToken = await fetchCsrf();
+
+    btcpayMock.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'temp-key', id: 'key-id' });
+    btcpayMock.updateStore.mockResolvedValueOnce({
+      id: 'store-1',
+      name: 'Updated Name',
+      website: 'https://updated.example/',
+      defaultCurrency: 'EUR',
+    });
+
+    const response = await agent
+      .put('/api/stores/store-1')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ name: 'Updated Name', website: 'updated.example', defaultCurrency: 'eur' })
+      .expect(200);
+
+    expect(response.body).toEqual({
+      storeId: 'store-1',
+      name: 'Updated Name',
+      website: 'https://updated.example/',
+      defaultCurrency: 'EUR',
+    });
+    expect(btcpayMock.issueUserApiKey).toHaveBeenCalledWith(
+      'https://btcpay.example',
+      'user-btcpay-id',
+      ['btcpay.store.canmodifystoresettings:store-1'],
+      { label: 'portal-store-settings' }
+    );
+    expect(btcpayMock.updateStore).toHaveBeenCalledWith('https://btcpay.example', 'temp-key', 'store-1', {
+      name: 'Updated Name',
+      website: 'updated.example',
+      defaultCurrency: 'eur',
+    });
+    expect(btcpayMock.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'key-id');
+  });
+
+  it('surfaces BTCPay validation errors when updates are rejected', async () => {
+    await seedStore();
+    const csrfToken = await fetchCsrf();
+
+    btcpayMock.issueUserApiKey.mockResolvedValueOnce({ apiKey: 'temp-key', id: 'key-id' });
+    btcpayMock.updateStore.mockRejectedValueOnce(new HttpException('Invalid BTCPay payload', 400));
+
+    const response = await agent
+      .put('/api/stores/store-1')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ name: 'Updated Name', website: 'http:///broken', defaultCurrency: 'usd' })
+      .expect(400);
+
+    expect(response.body).toEqual({ statusCode: 400, message: 'Invalid BTCPay payload' });
+    expect(btcpayMock.revokeUserApiKey).toHaveBeenCalledWith('https://btcpay.example', 'key-id');
   });
 
   it('propagates BTCPay failures when store creation fails', async () => {

@@ -311,6 +311,7 @@ export class BtcpayService {
       const body = err.response?.data as { message?: string } | undefined;
       const message =
         body?.message && typeof body.message === 'string' ? body.message : 'BTCPay request failed';
+
       const logPayload: Record<string, unknown> = {
         statusCode: code,
         message,
@@ -323,21 +324,29 @@ export class BtcpayService {
         logPayload.error = summary;
       }
       this.logger.error(logPayload, context?.action ?? 'BTCPay request failed');
-      switch (code) {
-        case 400:
-          throw new BadRequestException(message, { cause: error as Error });
-        case 401:
-          throw new UnauthorizedException(message, { cause: error as Error });
-        case 403:
-          throw new ForbiddenException(message, { cause: error as Error });
-        case 404:
-          throw new NotFoundException(message, { cause: error as Error });
-        case 409:
-          throw new ConflictException(message, { cause: error as Error });
-        default:
-          throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+
+      if (code >= 400 && code < 500) {
+        switch (code) {
+          case 401:
+            throw new UnauthorizedException(message, { cause: error as Error });
+          case 403:
+            throw new ForbiddenException(message, { cause: error as Error });
+          case 404:
+            throw new NotFoundException(message, { cause: error as Error });
+          case 409:
+            throw new ConflictException(message, { cause: error as Error });
+          default:
+            throw new HttpException(message, code, { cause: error as Error });
+        }
       }
+
+      if (code >= 500 && code < 600) {
+        throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+      }
+
+      throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
     }
+
     throw new InternalServerErrorException('Unexpected BTCPay error', { cause: error as Error });
   }
 
@@ -797,13 +806,9 @@ export class BtcpayService {
     }
 
     if (payload.website !== undefined) {
-      if (payload.website === null) {
-        body.website = null;
-      } else {
-        const normalized = payload.website?.trim();
-        if (normalized) {
-          body.website = normalized;
-        }
+      const normalizedWebsite = this.normalizeWebsite(payload.website);
+      if (normalizedWebsite !== undefined) {
+        body.website = normalizedWebsite;
       }
     }
 
@@ -819,6 +824,32 @@ export class BtcpayService {
       return data;
     } catch (error) {
       return this.maskError(error);
+    }
+  }
+
+  private normalizeWebsite(value: string | null | undefined): string | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+
+    try {
+      const url = new URL(`https://${trimmed}`);
+      return url.toString();
+    } catch (error) {
+      throw new BadRequestException('Store website must be a valid URL.', {
+        cause: error instanceof Error ? error : undefined,
+      });
     }
   }
 

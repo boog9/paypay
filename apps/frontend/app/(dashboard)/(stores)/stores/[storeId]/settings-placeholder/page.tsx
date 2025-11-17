@@ -4,7 +4,18 @@ export const metadata = {
   title: "Store settings placeholder",
 };
 
-export default function StoreSettingsPlaceholderPage() {
+type PageProps = {
+  params: { storeId: string };
+};
+
+export default function StoreSettingsPlaceholderPage({ params }: PageProps) {
+  const normalizedStoreId =
+    typeof params.storeId === "string" ? params.storeId.trim() : "";
+
+  const walletHref = normalizedStoreId
+    ? `/stores/${normalizedStoreId}/wallets/btc`
+    : "/stores";
+
   return (
     <div className="space-y-6 p-6">
       <header className="space-y-2">
@@ -16,7 +27,7 @@ export default function StoreSettingsPlaceholderPage() {
       </header>
       <div className="rounded-md border border-muted bg-muted/30 p-4 text-sm text-muted-foreground">
         Looking for wallet configuration? Head to the{" "}
-        <Link className="font-medium text-foreground underline" href="../wallets/btc">
+        <Link className="font-medium text-foreground underline" href={walletHref}>
           Bitcoin wallet settings
         </Link>{" "}
         page to manage your derivation scheme and receiving addresses.

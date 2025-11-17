@@ -27,6 +27,10 @@ export const getWalletPresence = cache(async (storeId: string): Promise<WalletPr
 
     const status = typeof response.status === "number" ? response.status : response.ok ? 200 : 0;
 
+    if (response.status === 429) {
+      return { status, connected: true, hasWallet: true, payload: null } satisfies WalletPresenceResult;
+    }
+
     if (!response.ok) {
       return { status, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
     }

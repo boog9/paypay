@@ -62,7 +62,6 @@ export function WalletPresenceProvider({
     try {
       const response = await bffFetch(walletPresencePath(storeId));
       if (response.status === 429) {
-        setError(new RateLimitError(429, "Too many requests, please try again in a few seconds."));
         setLoading(false);
         return;
       }
@@ -74,7 +73,6 @@ export function WalletPresenceProvider({
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Failed to load wallet presence"));
-      setHasWallet(null);
       setLoading(false);
     }
   }, [storeId]);

@@ -16,7 +16,8 @@ export default defineConfig({
     include: [
       "app/**/*.{test,spec}.{ts,tsx}",
       "components/**/*.{test,spec}.{ts,tsx}",
-      "lib/**/*.{test,spec}.{ts,tsx}"
+      "lib/**/*.{test,spec}.{ts,tsx}",
+      "src/**/*.{test,spec}.{ts,tsx}"
     ],
     coverage: {
       reporter: ["text", "lcov"],

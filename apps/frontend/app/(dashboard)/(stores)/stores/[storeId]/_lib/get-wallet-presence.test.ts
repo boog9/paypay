@@ -66,6 +66,16 @@ describe("getWalletPresence", () => {
     });
   });
 
+  it("treats 429 as a temporary success to keep wallet navigation", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+    } as unknown as Response);
+
+    await expect(getWalletPresence("store-2"))
+      .resolves.toEqual({ status: 429, connected: true, hasWallet: true, payload: null });
+  });
+
   it("uses payload hasWallet flag to compute presence", async () => {
     mockFetch.mockResolvedValue({
       ok: true,

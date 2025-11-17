@@ -10,6 +10,8 @@ import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { UserEntity } from '../src/auth/entities/user.entity';
 import { BtcpayPaymentMethodsService } from '../src/btcpay/btcpay.payment-methods.service';
+import { BtcpayWalletService } from '../src/btcpay/btcpay.wallets.service';
+import { CsrfGuard } from '../src/security/csrf.guard';
 
 function readCsrfToken(response: request.Response): string {
   const token = response.headers['x-csrf-token'];
@@ -26,20 +28,35 @@ describe('On-chain wallet controller (e2e)', () => {
   let usersRepository: Repository<UserEntity>;
   let storesRepository: Repository<ManagedStoreEntity>;
   let store: ManagedStoreEntity;
+  let authenticatedUser: { id: string; email: string } | null = null;
 
   const paymentMethodsMock = {
     getOnchain: jest.fn(),
     saveOnchain: jest.fn()
   } as unknown as jest.Mocked<BtcpayPaymentMethodsService>;
 
+  const walletServiceMock = {
+    getBitcoinWalletPresence: jest.fn()
+  } as unknown as jest.Mocked<BtcpayWalletService>;
+
   beforeAll(async () => {
+    process.env.NODE_ENV = 'test';
     process.env.NBITCOIN_NETWORK = 'testnet';
+    process.env.POSTGRES_HOST = process.env.POSTGRES_HOST ?? 'localhost';
+    process.env.POSTGRES_PORT = process.env.POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = process.env.POSTGRES_USER ?? 'test';
+    process.env.POSTGRES_PASSWORD = process.env.POSTGRES_PASSWORD ?? 'test';
+    process.env.POSTGRES_DB = process.env.POSTGRES_DB ?? 'test';
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     })
       .overrideProvider(BtcpayPaymentMethodsService)
       .useValue(paymentMethodsMock)
+      .overrideProvider(BtcpayWalletService)
+      .useValue(walletServiceMock)
+      .overrideProvider(CsrfGuard)
+      .useValue({ canActivate: () => true })
       .overrideProvider(JwtAuthGuard)
       .useValue({ canActivate: () => true })
       .compile();
@@ -49,10 +66,7 @@ describe('On-chain wallet controller (e2e)', () => {
     configureApp(app, env);
     configureCors(app, env);
     app.use((req: any, _res: any, next: () => void) => {
-      req.user = {
-        id: 'user-1',
-        email: 'merchant@example.com'
-      };
+      req.user = authenticatedUser ?? { id: 'user-1', email: 'merchant@example.com' };
       next();
     });
     app.useGlobalPipes(
@@ -76,6 +90,7 @@ describe('On-chain wallet controller (e2e)', () => {
       btcpayApiKeyPermissions: null
     });
     const persistedUser = await usersRepository.save(user);
+    authenticatedUser = { id: persistedUser.id, email: persistedUser.email };
 
     store = storesRepository.create({
       userId: persistedUser.id,
@@ -102,10 +117,20 @@ describe('On-chain wallet controller (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(storesRepository, 'findOne').mockResolvedValue(store);
     paymentMethodsMock.getOnchain.mockResolvedValue({
       enabled: false,
-      config: { derivationScheme: null }
+      config: {
+        derivationScheme: null,
+        accountKey: null,
+        accountKeyPath: null,
+        masterFingerprint: null,
+        label: null
+      },
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-CHAIN'
     });
+    walletServiceMock.getBitcoinWalletPresence.mockResolvedValue({ hasWallet: false });
   });
 
   async function fetchCsrf(): Promise<string> {
@@ -114,21 +139,34 @@ describe('On-chain wallet controller (e2e)', () => {
   }
 
   it('returns presence based on BTCPay response', async () => {
-    paymentMethodsMock.getOnchain.mockResolvedValueOnce({
-      enabled: false,
-      config: { derivationScheme: null }
-    });
+    walletServiceMock.getBitcoinWalletPresence.mockResolvedValueOnce({ hasWallet: true });
 
     const response = await agent
       .get(`/api/stores/${store.id}/wallets/btc/presence`)
       .expect(200);
 
-    expect(response.body).toEqual({ enabled: false, config: { derivationScheme: null } });
-    expect(paymentMethodsMock.getOnchain).toHaveBeenCalledWith(
+    expect(response.body).toEqual({ hasWallet: true });
+    expect(walletServiceMock.getBitcoinWalletPresence).toHaveBeenCalledWith(
       store.btcpayStoreId,
-      'BTC',
-      expect.objectContaining({ store: expect.any(Object) })
+      expect.objectContaining({ store: expect.any(Object), host: store.btcpayHost })
     );
+  });
+
+  it('does not throttle repeated wallet presence checks', async () => {
+    walletServiceMock.getBitcoinWalletPresence.mockResolvedValue({ hasWallet: true });
+
+    const results = await Promise.all(
+      Array.from({ length: 15 }).map(() =>
+        agent.get(`/api/stores/${store.id}/wallets/btc/presence`)
+      )
+    );
+
+    for (const response of results) {
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ hasWallet: true });
+    }
+
+    expect(walletServiceMock.getBitcoinWalletPresence).toHaveBeenCalledTimes(15);
   });
 
   it('validates testnet extended keys', async () => {
@@ -182,8 +220,11 @@ describe('On-chain wallet controller (e2e)', () => {
         derivationScheme: 'tpubExample',
         accountKeyPath: "84'/1'/0'",
         masterFingerprint: 'A1B2C3D4',
-        accountKey: 'tpubExample'
-      }
+        accountKey: 'tpubExample',
+        label: null
+      },
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-CHAIN'
     });
 
     const metadata = await agent
@@ -207,8 +248,11 @@ describe('On-chain wallet controller (e2e)', () => {
         derivationScheme: 'tpubExample',
         accountKey: 'tpubExample',
         accountKeyPath: "84'/1'/0'",
-        masterFingerprint: 'A1B2C3D4'
-      }
+        masterFingerprint: 'A1B2C3D4',
+        label: null
+      },
+      storeId: store.btcpayStoreId,
+      paymentMethodId: 'BTC-CHAIN'
     });
     paymentMethodsMock.saveOnchain.mockResolvedValueOnce({});
 
@@ -227,6 +271,6 @@ describe('On-chain wallet controller (e2e)', () => {
       .get(`/api/stores/${store.id}/wallets/btc/presence`)
       .expect(200);
 
-    expect(presence.body).toEqual({ enabled: false, config: { derivationScheme: null } });
+    expect(presence.body).toEqual({ hasWallet: false });
   });
 });

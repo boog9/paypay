@@ -6,7 +6,7 @@ import { Suspense, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useStoreContext } from "../../src/contexts/store-context";
-import { RateLimitError, useWalletPresence } from "../../src/contexts/wallet-presence";
+import { useWalletPresence } from "../../src/contexts/wallet-presence";
 import { StoreSelector } from "../../src/components/stores/store-selector";
 import { Separator } from "../ui/separator";
 import { UserMenu } from "../user-menu";
@@ -26,7 +26,7 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
   const { storeId } = useStoreContext();
   const pathname = usePathname();
   const baseStorePath = storeId ? `/stores/${storeId}` : null;
-  const { hasWallet, error: walletError } = useWalletPresence();
+  const { hasWallet } = useWalletPresence();
 
   const primaryNav = [
     { label: "Dashboard", href: baseStorePath ? `${baseStorePath}/dashboard` : null },
@@ -68,8 +68,6 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
         : [],
     },
   ];
-
-  const walletRateLimited = walletError instanceof RateLimitError;
 
   return (
     <aside
@@ -134,11 +132,6 @@ export function ShellSidebar({ variant, onNavigate, user, onSignOut }: ShellSide
               );
             })}
           </div>
-          {walletRateLimited ? (
-            <p className="px-2 text-xs text-amber-600 dark:text-amber-400">
-              Too many requests, please try again in a few seconds.
-            </p>
-          ) : null}
         </div>
         <div className="flex flex-col gap-2 text-muted-foreground">
           <span className="px-2 text-xs font-semibold uppercase tracking-wide">Payments</span>

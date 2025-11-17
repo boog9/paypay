@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadStoreSettings, type StoreSettingsResult } from "./page";
+import { loadStoreSettings, type StoreSettingsResult } from "./loadStoreSettings";
 
 vi.mock("@/lib/bff-fetch", () => ({
   bffFetch: vi.fn(),

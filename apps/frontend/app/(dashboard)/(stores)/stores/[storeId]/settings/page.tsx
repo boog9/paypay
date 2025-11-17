@@ -21,6 +21,10 @@ type StoreSettings = {
   defaultCurrency: string;
 };
 
+export type StoreSettingsResult =
+  | { kind: "ok"; data: StoreSettings }
+  | { kind: "rate-limited" };
+
 function parseStoreSettingsPayload(value: unknown): StoreSettings | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -49,7 +53,7 @@ function parseStoreSettingsPayload(value: unknown): StoreSettings | null {
   } satisfies StoreSettings;
 }
 
-async function loadStoreSettings(storeId: string): Promise<StoreSettings> {
+export async function loadStoreSettings(storeId: string): Promise<StoreSettingsResult> {
   let response: Response;
   try {
     response = await bffFetch(storeSettingsPath(storeId), { cache: "no-store" });
@@ -65,6 +69,10 @@ async function loadStoreSettings(storeId: string): Promise<StoreSettings> {
     redirect("/stores");
   }
 
+  if (response.status === 429) {
+    return { kind: "rate-limited" };
+  }
+
   if (!response.ok) {
     throw new Error(`Failed to load store settings (status ${response.status}).`);
   }
@@ -73,7 +81,7 @@ async function loadStoreSettings(storeId: string): Promise<StoreSettings> {
   if (!payload) {
     throw new Error("Unexpected store settings payload.");
   }
-  return payload;
+  return { kind: "ok", data: payload };
 }
 
 export default async function StoreSettingsPage({ params }: PageProps) {
@@ -84,7 +92,26 @@ export default async function StoreSettingsPage({ params }: PageProps) {
     redirect("/stores");
   }
 
-  const initialSettings = await loadStoreSettings(normalizedStoreId);
+  const settingsResult = await loadStoreSettings(normalizedStoreId);
+
+  if (settingsResult.kind === "rate-limited") {
+    return (
+      <div className="space-y-6 p-6">
+        <header className="space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">Store settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Store-wide settings will be available soon. Use the navigation sidebar to manage wallets and invoices while we
+            finish porting the remaining BTCPay configuration screens.
+          </p>
+        </header>
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-sm text-amber-900">
+          Too many requests to the BFF (rate limit). Please wait a few seconds and refresh the page.
+        </div>
+      </div>
+    );
+  }
+
+  const initialSettings = settingsResult.data;
 
   return (
     <div className="space-y-6 p-6">

@@ -21,12 +21,10 @@ type PageParams = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type FetchResult<T> = {
-  status: number;
-  data: T | null;
-  error: string | null;
-  attemptedRefresh: boolean;
-};
+export type FetchResult<T> =
+  | { kind: "ok"; status: number; data: T; error: null; attemptedRefresh: boolean }
+  | { kind: "rate-limited"; status: 429; data: null; error: string | null; attemptedRefresh: boolean }
+  | { kind: "error"; status: number; data: null; error: string | null; attemptedRefresh: boolean };
 
 function parseSearchParams(params?: Record<string, string | string[] | undefined>): TransactionsQuery {
   const result: TransactionsQuery = {
@@ -193,7 +191,10 @@ async function attemptSessionRefresh(): Promise<boolean> {
   }
 }
 
-async function loadTransactions(storeId: string, query: TransactionsQuery): Promise<FetchResult<WalletTransactionsResponse>> {
+export async function loadTransactions(
+  storeId: string,
+  query: TransactionsQuery,
+): Promise<FetchResult<WalletTransactionsResponse>> {
   const search = new URLSearchParams();
   search.set("skip", String(query.skip));
   search.set("take", String(query.take));
@@ -211,39 +212,60 @@ async function loadTransactions(storeId: string, query: TransactionsQuery): Prom
   try {
     response = await bffFetch(path);
   } catch {
-    return { status: 0, data: null, error: "Failed to load transactions.", attemptedRefresh: false };
+    return { kind: "error", status: 0, data: null, error: "Failed to load transactions.", attemptedRefresh: false };
   }
 
   if (response.status === 401) {
     attemptedRefresh = true;
     const refreshed = await attemptSessionRefresh();
     if (!refreshed) {
-      return { status: 401, data: null, error: "Unauthorized", attemptedRefresh };
+      return { kind: "error", status: 401, data: null, error: "Unauthorized", attemptedRefresh };
     }
     try {
       response = await bffFetch(path);
     } catch {
-      return { status: 0, data: null, error: "Failed to load transactions.", attemptedRefresh };
+      return { kind: "error", status: 0, data: null, error: "Failed to load transactions.", attemptedRefresh };
     }
   }
 
   if (response.status === 404) {
-    return { status: 404, data: null, error: BFF_CONFIG_ERROR_MESSAGE, attemptedRefresh };
+    return { kind: "error", status: 404, data: null, error: BFF_CONFIG_ERROR_MESSAGE, attemptedRefresh };
   }
 
   const payload = await readJsonPayload(response);
   const data = normalizeTransactionsPayload(payload);
   const errorMessage = response.ok ? null : extractErrorMessage(payload) ?? response.statusText ?? null;
 
+  if (response.status === 429) {
+    return {
+      kind: "rate-limited",
+      status: 429,
+      data: null,
+      error: errorMessage,
+      attemptedRefresh,
+    } satisfies FetchResult<WalletTransactionsResponse>;
+  }
+
+  if (response.ok && data) {
+    return {
+      kind: "ok",
+      status: response.status,
+      data,
+      error: null,
+      attemptedRefresh,
+    } satisfies FetchResult<WalletTransactionsResponse>;
+  }
+
   return {
+    kind: "error",
     status: response.status,
-    data: response.ok && data ? data : null,
+    data: null,
     error: errorMessage,
     attemptedRefresh,
   } satisfies FetchResult<WalletTransactionsResponse>;
 }
 
-async function loadOverview(storeId: string): Promise<FetchResult<WalletOverview>> {
+export async function loadOverview(storeId: string): Promise<FetchResult<WalletOverview>> {
   const path = `/api/stores/${storeId}/wallets/btc/overview`;
   let response: Response;
   let attemptedRefresh = false;
@@ -251,29 +273,54 @@ async function loadOverview(storeId: string): Promise<FetchResult<WalletOverview
   try {
     response = await bffFetch(path);
   } catch {
-    return { status: 0, data: null, error: "Failed to load overview.", attemptedRefresh: false };
+    return { kind: "error", status: 0, data: null, error: "Failed to load overview.", attemptedRefresh: false };
   }
 
   if (response.status === 401) {
     attemptedRefresh = true;
     const refreshed = await attemptSessionRefresh();
     if (!refreshed) {
-      return { status: 401, data: null, error: "Unauthorized", attemptedRefresh };
+      return { kind: "error", status: 401, data: null, error: "Unauthorized", attemptedRefresh };
     }
     try {
       response = await bffFetch(path);
     } catch {
-      return { status: 0, data: null, error: "Failed to load overview.", attemptedRefresh };
+      return { kind: "error", status: 0, data: null, error: "Failed to load overview.", attemptedRefresh };
     }
+  }
+
+  if (response.status === 404) {
+    return { kind: "error", status: 404, data: null, error: BFF_CONFIG_ERROR_MESSAGE, attemptedRefresh };
   }
 
   const payload = await readJsonPayload(response);
   const data = normalizeOverviewPayload(payload);
   const errorMessage = response.ok ? null : extractErrorMessage(payload) ?? response.statusText ?? null;
 
+  if (response.status === 429) {
+    return {
+      kind: "rate-limited",
+      status: 429,
+      data: null,
+      error: errorMessage,
+      attemptedRefresh,
+    } satisfies FetchResult<WalletOverview>;
+  }
+
+  if (response.ok && data) {
+    return {
+      kind: "ok",
+      status: response.status,
+      data,
+      error: null,
+      attemptedRefresh,
+    } satisfies FetchResult<WalletOverview>;
+  }
+
   return {
+    kind: "error",
     status: response.status,
-    data: response.ok && data ? data : null,
+    data: null,
     error: errorMessage,
     attemptedRefresh,
   } satisfies FetchResult<WalletOverview>;
@@ -289,6 +336,22 @@ function extractErrorMessage(payload: unknown): string | null {
     return message.trim();
   }
   return null;
+}
+
+function TransactionsRateLimitNotice() {
+  return (
+    <div className="space-y-6 p-6">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold text-foreground">BTC wallet transactions</h1>
+        <p className="text-sm text-muted-foreground">
+          Review on-chain activity, labels, and balances for your Bitcoin store wallet.
+        </p>
+      </header>
+      <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-sm text-amber-900">
+        Too many requests to the BFF (rate limit). Please wait a few seconds and reload the transactions page.
+      </div>
+    </div>
+  );
 }
 
 export default async function TransactionsPage({ params, searchParams }: PageParams) {
@@ -327,22 +390,27 @@ export default async function TransactionsPage({ params, searchParams }: PagePar
     loadOverview(normalizedStoreId),
   ]);
 
-  if (transactions.status === 401 && transactions.attemptedRefresh) {
+  if (transactions.kind === "error" && transactions.status === 401 && transactions.attemptedRefresh) {
     redirect("/sign-in?reason=session-expired");
   }
 
-  if (overview.status === 401 && overview.attemptedRefresh) {
+  if (overview.kind === "error" && overview.status === 401 && overview.attemptedRefresh) {
     redirect("/sign-in?reason=session-expired");
   }
 
-  const error = transactions.error ?? overview.error;
+  if (transactions.kind === "rate-limited" || overview.kind === "rate-limited") {
+    return <TransactionsRateLimitNotice />;
+  }
+
+  const error = (transactions.kind === "error" ? transactions.error : null)
+    ?? (overview.kind === "error" ? overview.error : null);
 
   return (
     <TransactionsClient
       storeId={normalizedStoreId}
       initialQuery={query}
-      transactions={transactions.data}
-      overview={overview.data}
+      transactions={transactions.kind === "ok" ? transactions.data : null}
+      overview={overview.kind === "ok" ? overview.data : null}
       error={error}
     />
   );

@@ -6,7 +6,7 @@ import SettingsPage from "./page";
 
 const { getWalletSettingsMock, redirectMock } = vi.hoisted(() => ({
   getWalletSettingsMock: vi.fn(),
-  redirectMock: vi.fn<never, [string]>(),
+  redirectMock: vi.fn<(path: string) => void>(),
 }));
 
 vi.mock("./_lib/get-wallet-settings", () => ({

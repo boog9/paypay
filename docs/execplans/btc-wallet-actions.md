@@ -9,9 +9,9 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 ## Progress
 
 - [x] (2025-03-05 00:00Z) Created initial ExecPlan and surveyed relevant backend/frontend files.
-- [ ] Implement backend BTCPay wallet action methods and controller endpoints.
-- [ ] Implement frontend Actions dropdown, modals, and API client wiring on wallet settings page.
-- [ ] Add rescan wallet page with form and behaviour.
+- [x] Implement backend BTCPay wallet action methods and controller endpoints.
+- [x] Implement frontend Actions dropdown, modals, and API client wiring on wallet settings page.
+- [x] Add rescan wallet page with form and behaviour.
 - [ ] Update/expand tests for UI interactions and endpoint behaviour.
 - [ ] Run test suite and finalize documentation/cleanup.
 

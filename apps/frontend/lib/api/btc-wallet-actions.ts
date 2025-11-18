@@ -5,8 +5,14 @@ async function assertOk(response: Response): Promise<void> {
 
   let message: string | null = null;
   try {
-    const payload = await response.json();
-    if (payload && typeof payload === "object" && typeof payload.message === "string" && payload.message.trim()) {
+    const payload: unknown = await response.json();
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "message" in payload &&
+      typeof payload.message === "string" &&
+      payload.message.trim()
+    ) {
       message = payload.message.trim();
     }
   } catch {

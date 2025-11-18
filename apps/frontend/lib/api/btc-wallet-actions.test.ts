@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { pruneBtcWalletHistory, removeBtcWallet } from "./btc-wallet-actions";
 
-const bffFetchMock = vi.fn();
+const bffFetchMock = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 
 vi.mock("@/lib/bff-fetch", () => ({
-  bffFetch: (...args: unknown[]) => bffFetchMock(...args),
+  bffFetch: (input: string, init?: RequestInit) => bffFetchMock(input, init),
 }));
 
 describe("btc-wallet-actions assertOk", () => {

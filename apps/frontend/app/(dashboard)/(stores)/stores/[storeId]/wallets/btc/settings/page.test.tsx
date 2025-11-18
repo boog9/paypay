@@ -6,7 +6,7 @@ import SettingsPage from "./page";
 
 const { getWalletSettingsMock, redirectMock } = vi.hoisted(() => ({
   getWalletSettingsMock: vi.fn(),
-  redirectMock: vi.fn(),
+  redirectMock: vi.fn<never, [string]>(),
 }));
 
 vi.mock("./_lib/get-wallet-settings", () => ({
@@ -14,7 +14,7 @@ vi.mock("./_lib/get-wallet-settings", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  redirect: (...args: unknown[]) => redirectMock(...args),
+  redirect: (path: string) => redirectMock(path),
 }));
 
 // Radix dropdowns rely on PointerEvent; JSDOM omits it by default.

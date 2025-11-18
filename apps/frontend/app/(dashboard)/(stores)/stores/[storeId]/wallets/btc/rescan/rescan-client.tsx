@@ -64,7 +64,7 @@ export function RescanClient({ storeId }: RescanClientProps): ReactElement {
           wallet secrets are sent to the portal.
         </p>
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             <label className="flex flex-col gap-2 text-sm">
               <span className="text-xs uppercase tracking-wide text-muted-foreground">Starting index</span>

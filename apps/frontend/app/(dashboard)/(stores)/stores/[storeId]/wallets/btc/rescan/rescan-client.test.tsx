@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RescanClient } from "./rescan-client";
 
-const pushMock = vi.fn();
-const toastMock = vi.fn();
-const rescanMock = vi.fn();
+const pushMock = vi.fn<void, [string]>();
+const toastMock = vi.fn<void, [{ title: string; description: string }]>();
+const rescanMock = vi.fn<(storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }) => Promise<void>>();
+const rescanBtcWalletMock = (storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }): Promise<void> => rescanMock(storeId, payload);
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
@@ -16,7 +17,7 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 vi.mock("@/lib/api/btc-wallet-actions", () => ({
-  rescanBtcWallet: (...args: unknown[]) => rescanMock(...args),
+  rescanBtcWallet: rescanBtcWalletMock,
 }));
 
 describe("RescanClient", () => {

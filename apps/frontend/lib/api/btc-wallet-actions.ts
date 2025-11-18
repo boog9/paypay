@@ -1,15 +1,28 @@
 import { bffFetch } from "@/lib/bff-fetch";
 
-function assertOk(response: Response): void {
-  if (!response.ok) {
-    const message = response.status === 403 ? "Insufficient permissions" : "Request failed";
-    throw new Error(message);
+async function assertOk(response: Response): Promise<void> {
+  if (response.ok) return;
+
+  let message: string | null = null;
+  try {
+    const payload = await response.json();
+    if (payload && typeof payload === "object" && typeof payload.message === "string" && payload.message.trim()) {
+      message = payload.message.trim();
+    }
+  } catch {
+    // Ignore body parsing errors and fall back to a generic message.
   }
+
+  if (!message) {
+    message = response.status === 403 ? "Insufficient permissions" : response.statusText || "Request failed";
+  }
+
+  throw new Error(message);
 }
 
 export async function rescanBtcWallet(
   storeId: string,
-  payload: { startIndex?: number; gapLimit?: number; batchSize?: number }
+  payload: { startIndex: number; gapLimit: number; batchSize: number }
 ): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/rescan`, {
     method: "POST",
@@ -18,33 +31,33 @@ export async function rescanBtcWallet(
     },
     body: JSON.stringify(payload)
   });
-  assertOk(response);
+  await assertOk(response);
 }
 
 export async function pruneBtcWalletHistory(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/prune-history`, {
     method: "POST"
   });
-  assertOk(response);
+  await assertOk(response);
 }
 
 export async function clearBtcWalletHistory(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/clear-history`, {
     method: "POST"
   });
-  assertOk(response);
+  await assertOk(response);
 }
 
 export async function replaceBtcWallet(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/replace`, {
     method: "POST"
   });
-  assertOk(response);
+  await assertOk(response);
 }
 
 export async function removeBtcWallet(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/remove`, {
     method: "POST"
   });
-  assertOk(response);
+  await assertOk(response);
 }

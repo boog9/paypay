@@ -21,6 +21,7 @@ import { BtcpayWalletService } from '../btcpay/btcpay.wallets.service';
 import { ConfirmDangerousActionDto, RescanWalletBodyDto } from './dto/bitcoin-wallet-actions.dto';
 
 const rescanValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
+const confirmValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
 
 @Controller('stores/:storeId/wallets/bitcoin/actions')
 @UseGuards(JwtAuthGuard, CsrfGuard)
@@ -42,7 +43,7 @@ export class BitcoinWalletActionsController {
     const store = await this.requireStore(user, storeId);
     await this.btcpayWallets.rescanWallet(store.id, 'BTC', {
       store,
-      startingIndex: dto.startingIndex,
+      startIndex: dto.startIndex,
       gapLimit: dto.gapLimit,
       batchSize: dto.batchSize
     });
@@ -73,7 +74,7 @@ export class BitcoinWalletActionsController {
   async replaceWallet(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
-    @Body() _body: ConfirmDangerousActionDto
+    @Body(confirmValidationPipe) _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);
@@ -87,7 +88,7 @@ export class BitcoinWalletActionsController {
   async removeWallet(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
-    @Body() _body: ConfirmDangerousActionDto
+    @Body(confirmValidationPipe) _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);

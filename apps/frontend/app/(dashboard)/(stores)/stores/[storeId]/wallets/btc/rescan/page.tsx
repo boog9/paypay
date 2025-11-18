@@ -4,8 +4,10 @@ import { RescanClient } from "./rescan-client";
 
 type PageParams = { storeId: string };
 
-export default function RescanPage({ params }: { params: PageParams }): ReactElement {
-  const { storeId } = params;
+type PageProps = { params: Promise<PageParams> };
+
+export default async function RescanPage({ params }: PageProps): Promise<ReactElement> {
+  const { storeId } = await params;
   return <RescanClient storeId={storeId} />;
 }
 

@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 };
 
 type SettingsPageProps = {
-  params: { storeId: string };
-  searchParams?: Record<string, string | string[] | undefined>;
+  params: Promise<{ storeId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function normalizeStoreId(value: unknown): string {
@@ -23,8 +23,8 @@ function normalizeStoreId(value: unknown): string {
 }
 
 export default async function SettingsPage({ params, searchParams }: SettingsPageProps) {
-  const { storeId } = params;
-  const search = searchParams;
+  const { storeId } = await params;
+  const search = searchParams ? await searchParams : undefined;
 
   const normalizedStoreId = normalizeStoreId(storeId);
   if (!normalizedStoreId) {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { WalletActions } from "./_components/wallet-actions";
 import { WalletSettingsPanel } from "./_components/wallet-settings-panel";
 import { getWalletSettings } from "./_lib/get-wallet-settings";
 
@@ -9,8 +10,8 @@ export const metadata: Metadata = {
 };
 
 type SettingsPageProps = {
-  params: Promise<{ storeId: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  params: { storeId: string };
+  searchParams?: Record<string, string | string[] | undefined>;
 };
 
 function normalizeStoreId(value: unknown): string {
@@ -22,8 +23,8 @@ function normalizeStoreId(value: unknown): string {
 }
 
 export default async function SettingsPage({ params, searchParams }: SettingsPageProps) {
-  const { storeId } = await params;
-  const search = await searchParams;
+  const { storeId } = params;
+  const search = searchParams;
 
   const normalizedStoreId = normalizeStoreId(storeId);
   if (!normalizedStoreId) {
@@ -44,6 +45,7 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
   }
 
   const viewModel = data;
+  const hasConnectedWallet = Boolean(viewModel?.hasOnChainPaymentMethod && viewModel.enabled !== false);
   const isForbidden = status === 403;
   const isServerError = status >= 500;
   const fetchFailed = status !== 200 && status !== 404 && status !== 403;
@@ -68,12 +70,16 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-foreground">Bitcoin wallet settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Review the on-chain configuration sourced from BTCPay Server. Sensitive credentials such as extended public keys are never
-          exposed in the dashboard.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">Bitcoin wallet settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Review the on-chain configuration sourced from BTCPay Server. Sensitive credentials such as extended public keys are
+            never exposed in the dashboard.
+          </p>
+        </div>
+
+        {hasConnectedWallet ? <WalletActions storeId={normalizedStoreId} /> : null}
       </header>
 
       <WalletSettingsPanel

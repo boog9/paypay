@@ -12,12 +12,13 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 - [x] Implement backend BTCPay wallet action methods and controller endpoints.
 - [x] Implement frontend Actions dropdown, modals, and API client wiring on wallet settings page.
 - [x] Add rescan wallet page with form and behaviour.
-- [ ] Update/expand tests for UI interactions and endpoint behaviour.
-- [ ] Run test suite and finalize documentation/cleanup.
+- [x] Update/expand tests for UI interactions and endpoint behaviour.
+- [x] Run test suite and finalize documentation/cleanup.
 
 ## Surprises & Discoveries
 
-- None yet.
+- BTCPay Greenfield rescan expects the `startIndex` field (not `startingIndex`), with `gapLimit` and `batchSize` matching the swagger payload. Body defaults remain 0/10000/3000.
+- Frontend `@/` alias resolves to the workspace root, so wallet action API helpers need to live under `apps/frontend/lib/**` rather than `apps/frontend/src/lib/**`.
 
 ## Decision Log
 

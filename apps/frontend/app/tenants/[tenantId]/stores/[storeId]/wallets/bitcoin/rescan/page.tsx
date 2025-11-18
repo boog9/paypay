@@ -16,7 +16,7 @@ interface PageParams {
 export default function RescanPage({ params }: { params: PageParams }): JSX.Element {
   const router = useRouter();
   const { toast } = useToast();
-  const [startingIndex, setStartingIndex] = useState<number>(0);
+  const [startIndex, setStartIndex] = useState<number>(0);
   const [gapLimit, setGapLimit] = useState<number>(10_000);
   const [batchSize, setBatchSize] = useState<number>(3_000);
   const [submitting, setSubmitting] = useState(false);
@@ -27,7 +27,7 @@ export default function RescanPage({ params }: { params: PageParams }): JSX.Elem
     setError(null);
     setSubmitting(true);
     try {
-      await rescanBtcWallet(params.storeId, { startingIndex, gapLimit, batchSize });
+      await rescanBtcWallet(params.storeId, { startIndex, gapLimit, batchSize });
       toast({
         title: "Rescan started",
         description: "BTCPay is rescanning your on-chain wallet. This may take a while."
@@ -71,8 +71,8 @@ export default function RescanPage({ params }: { params: PageParams }): JSX.Elem
               <Input
                 type="number"
                 min={0}
-                value={startingIndex}
-                onChange={(event) => setStartingIndex(parseInput(event.target.value, 0, 0))}
+                value={startIndex}
+                onChange={(event) => setStartIndex(parseInput(event.target.value, 0, 0))}
               />
             </label>
             <label className="flex flex-col gap-2 text-sm">

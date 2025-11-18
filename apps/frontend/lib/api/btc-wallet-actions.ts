@@ -9,7 +9,7 @@ function assertOk(response: Response): void {
 
 export async function rescanBtcWallet(
   storeId: string,
-  payload: { startingIndex?: number; gapLimit?: number; batchSize?: number }
+  payload: { startIndex?: number; gapLimit?: number; batchSize?: number }
 ): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/rescan`, {
     method: "POST",

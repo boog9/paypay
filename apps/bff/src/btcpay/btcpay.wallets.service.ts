@@ -36,7 +36,7 @@ export interface ListTransactionsResult {
 }
 
 interface RescanWalletOptions extends WalletRequestOptions {
-  startingIndex?: number;
+  startIndex?: number;
   gapLimit?: number;
   batchSize?: number;
 }
@@ -226,7 +226,7 @@ export class BtcpayWalletService {
     const context = await this.prepareStoreContext(storeId, options);
     const path = `${this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)}/rescan`;
 
-    const startIndex = this.normalizeNonNegativeInt(options?.startingIndex, 0);
+    const startIndex = this.normalizeNonNegativeInt(options?.startIndex, 0);
     const gapLimit = this.normalizeNonNegativeInt(options?.gapLimit, 10_000);
     const batchSize = this.normalizePositiveInt(options?.batchSize, 3_000);
 

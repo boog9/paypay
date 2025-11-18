@@ -109,6 +109,13 @@ export interface OnchainPaymentMethodStatus {
   enabled: boolean;
 }
 
+export interface SafeOnChainWalletSettings {
+  enabled: boolean;
+  label: string | null;
+  accountKeyPath: string | null;
+  masterFingerprint: string | null;
+}
+
 export interface OnchainWalletSummary {
   storeId: string;
   paymentMethodId: string;
@@ -509,6 +516,52 @@ export class BtcpayPaymentMethodsService {
     } finally {
       context.cleanup();
     }
+  }
+
+  async getOnchainWalletSettings(
+    storeId: string,
+    cryptoCode = 'BTC',
+    options?: PaymentMethodRequestOptions
+  ): Promise<SafeOnChainWalletSettings> {
+    const baseConfig = await this.getOnchainConfig(storeId, false, options);
+
+    if (!baseConfig.enabled) {
+      throw new NotFoundException('On-chain BTC payment method not found');
+    }
+
+    let label: string | null = null;
+    let accountKeyPath: string | null = null;
+    let masterFingerprint: string | null = null;
+
+    try {
+      const detailed = await this.getOnchain(storeId, cryptoCode, options);
+      const metadata = this.extractConfigMetadata(detailed.config ?? {});
+
+      label = metadata.label ?? null;
+      accountKeyPath = metadata.accountKeyPath ?? null;
+      masterFingerprint = metadata.masterFingerprint ? metadata.masterFingerprint.toUpperCase() : null;
+    } catch (error) {
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadGatewayException ||
+        error instanceof InternalServerErrorException
+      ) {
+        // Best-effort: fallback to enabled status without additional metadata.
+      } else if (error instanceof NotFoundException) {
+        throw error;
+      } else {
+        // Any other unexpected error should be surfaced as upstream failure without leaking details.
+        throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+      }
+    }
+
+    return {
+      enabled: true,
+      label,
+      accountKeyPath,
+      masterFingerprint
+    } satisfies SafeOnChainWalletSettings;
   }
 
   async getOnchainConfig(

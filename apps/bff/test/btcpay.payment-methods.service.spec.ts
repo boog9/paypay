@@ -1,4 +1,9 @@
-import { BadGatewayException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException
+} from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosHeaders, AxiosResponse } from 'axios';
 import { Repository } from 'typeorm';
 import {
@@ -154,6 +159,27 @@ describe('BtcpayPaymentMethodsService', () => {
           accountKeyPath: "m/84'/1'/0'"
         }, { store })
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('getOnchainConfig', () => {
+    it('returns disabled payload when BTCPay responds with 404', async () => {
+      const getMock = jest.fn().mockRejectedValue(buildAxiosError(404, 'Not found'));
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+      const service = buildService();
+
+      await expect(service.getOnchainConfig(store.id, true)).resolves.toEqual({ enabled: false });
+      expect(getMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods',
+        {
+          params: {
+            paymentMethodId: 'BTC-CHAIN',
+            includeConfig: true,
+            onlyEnabled: false,
+          },
+        }
+      );
     });
   });
 
@@ -381,5 +407,88 @@ describe('BtcpayPaymentMethodsService', () => {
         { store }
       )
     ).rejects.toBeInstanceOf(BadGatewayException);
+  });
+
+  describe('getOnchainWalletSettings', () => {
+    it('returns safe fields without descriptor data from the payment method config', async () => {
+      const baseResponse = { enabled: true, paymentMethodId: 'BTC-CHAIN' };
+      const detailedResponse = {
+        enabled: true,
+        paymentMethodId: 'BTC-CHAIN',
+        config: {
+          derivationScheme: "wpkh([deadbeef/84'/1'/0']tpub.../0/*)",
+          accountKeyPath: "m/84'/1'/0'",
+          masterFingerprint: 'deadbeef',
+          label: 'Primary',
+          mnemonic: 'should-not-leak',
+        },
+      };
+
+      const getMock = jest
+        .fn()
+        .mockResolvedValueOnce({ data: baseResponse })
+        .mockResolvedValueOnce({ data: detailedResponse });
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+      const service = buildService();
+
+      const result = await service.getOnchainWalletSettings(store.id, 'btc');
+
+      expect(getMock).toHaveBeenNthCalledWith(
+        1,
+        '/api/v1/stores/JDm5GuV/payment-methods',
+        {
+          params: {
+            paymentMethodId: 'BTC-CHAIN',
+            includeConfig: false,
+            onlyEnabled: false,
+          },
+        }
+      );
+
+      expect(getMock).toHaveBeenNthCalledWith(
+        2,
+        '/api/v1/stores/JDm5GuV/payment-methods',
+        {
+          params: {
+            paymentMethodId: 'BTC-CHAIN',
+            includeConfig: true,
+            onlyEnabled: false,
+          },
+        }
+      );
+
+      expect(result).toEqual({
+        enabled: true,
+        label: 'Primary',
+        accountKeyPath: "84'/1'/0'",
+        masterFingerprint: 'DEADBEEF',
+      });
+      expect((result as unknown as Record<string, unknown>).derivationScheme).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).accountKey).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).mnemonic).toBeUndefined();
+    });
+
+    it('maps BTCPay 404 responses to NotFoundException', async () => {
+      const getMock = jest.fn().mockRejectedValue(buildAxiosError(404, 'Not found'));
+      mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+      const service = buildService();
+
+      await expect(service.getOnchainWalletSettings(store.id, 'btc')).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(getMock).toHaveBeenCalledTimes(1);
+      expect(getMock).toHaveBeenCalledWith(
+        '/api/v1/stores/JDm5GuV/payment-methods',
+        {
+          params: {
+            paymentMethodId: 'BTC-CHAIN',
+            includeConfig: false,
+            onlyEnabled: false,
+          },
+        }
+      );
+    });
   });
 });

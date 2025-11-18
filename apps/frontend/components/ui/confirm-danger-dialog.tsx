@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { ReactNode } from "react";
+import { type ReactElement, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -31,7 +31,7 @@ export function ConfirmDangerDialog({
   onValueChange,
   onConfirm,
   onCancel
-}: ConfirmDangerDialogProps): JSX.Element {
+}: ConfirmDangerDialogProps): ReactElement {
   const normalized = value.trim().toUpperCase();
   const required = keyword.trim().toUpperCase();
   const disabled = normalized !== required || Boolean(pendingLabel);

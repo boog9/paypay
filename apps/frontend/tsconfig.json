@@ -25,7 +25,8 @@
     "incremental": true,
     "types": [
       "node",
-      "vitest"
+      "react",
+      "vitest/globals"
     ],
     "esModuleInterop": true,
     "plugins": [

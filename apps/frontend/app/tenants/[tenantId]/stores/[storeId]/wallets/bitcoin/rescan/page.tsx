@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, type ReactElement, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ interface PageParams {
   storeId: string;
 }
 
-export default function RescanPage({ params }: { params: PageParams }): JSX.Element {
+export default function RescanPage({ params }: { params: PageParams }): ReactElement {
   const router = useRouter();
   const { toast } = useToast();
   const [startIndex, setStartIndex] = useState<number>(0);

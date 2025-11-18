@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpException,
   Param,
+  NotFoundException,
   Put,
   UnauthorizedException,
   UnprocessableEntityException,
@@ -26,7 +27,8 @@ import { toWalletPresenceDto, WalletPresenceDto } from './dto/wallet-presence.dt
 import { OnchainConfigBodyDto } from './dto/onchain-config.dto';
 import {
   BtcpayPaymentMethodsService,
-  type OnchainConfigResponse
+  type OnchainConfigResponse,
+  type SafeOnChainWalletSettings
 } from '../btcpay/btcpay.payment-methods.service';
 import { BtcpayWalletService } from '../btcpay/btcpay.wallets.service';
 import { isUuid } from '../shared/is-uuid';
@@ -37,6 +39,10 @@ interface BitcoinWalletMetadataDto {
   accountKeyPath: string | null;
   masterFingerprint: string | null;
   label: string | null;
+}
+
+interface BitcoinWalletSettingsDto extends SafeOnChainWalletSettings {
+  hasOnChainPaymentMethod: boolean;
 }
 
 @Controller()
@@ -65,6 +71,28 @@ export class OnchainWalletsController {
       host: store.btcpayHost
     });
     return toWalletPresenceDto(presence.hasWallet);
+  }
+
+  @Get('stores/:storeId/wallets/bitcoin/onchain/settings')
+  @UseGuards(JwtAuthGuard)
+  @SkipThrottle()
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Vary', 'Cookie')
+  async getOnchainSettings(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string
+  ): Promise<BitcoinWalletSettingsDto> {
+    const store = await this.requireStore(user, storeId);
+    const settings = await this.paymentMethods.getOnchainWalletSettings(store.btcpayStoreId, 'BTC', {
+      store,
+      host: store.btcpayHost,
+    });
+
+    return {
+      hasOnChainPaymentMethod: true,
+      ...settings
+    } satisfies BitcoinWalletSettingsDto;
   }
 
   @Get('stores/:storeId/wallets/bitcoin')

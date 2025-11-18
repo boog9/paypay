@@ -37,7 +37,7 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
       ? connectedFlag.trim().toLowerCase()
       : "";
 
-  const { status, data, error, attemptedRefresh } = await getWalletSettings(normalizedStoreId);
+  const { status, data, error } = await getWalletSettings(normalizedStoreId);
 
   if (status === 401 || status === 419) {
     redirect("/sign-in?reason=session-expired");

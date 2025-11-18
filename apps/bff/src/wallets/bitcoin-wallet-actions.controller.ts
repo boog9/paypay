@@ -75,6 +75,7 @@ export class BitcoinWalletActionsController {
     @Param('storeId') storeId: string,
     @Body() _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
+    void _body;
     const store = await this.requireStore(user, storeId);
     await this.btcpayWallets.replaceWallet(store.id, 'BTC', { store });
     return { status: 'ok' } as const;
@@ -88,6 +89,7 @@ export class BitcoinWalletActionsController {
     @Param('storeId') storeId: string,
     @Body() _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
+    void _body;
     const store = await this.requireStore(user, storeId);
     await this.btcpayWallets.removeWallet(store.id, 'BTC', { store });
     return { status: 'ok' } as const;

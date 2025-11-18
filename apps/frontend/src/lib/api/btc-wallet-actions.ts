@@ -1,6 +1,6 @@
 import { bffFetch } from "@/lib/bff-fetch";
 
-async function assertOk(response: Response): Promise<void> {
+function assertOk(response: Response): void {
   if (!response.ok) {
     const message = response.status === 403 ? "Insufficient permissions" : "Request failed";
     throw new Error(message);
@@ -18,33 +18,33 @@ export async function rescanBtcWallet(
     },
     body: JSON.stringify(payload)
   });
-  await assertOk(response);
+  assertOk(response);
 }
 
 export async function pruneBtcWalletHistory(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/prune-history`, {
     method: "POST"
   });
-  await assertOk(response);
+  assertOk(response);
 }
 
 export async function clearBtcWalletHistory(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/clear-history`, {
     method: "POST"
   });
-  await assertOk(response);
+  assertOk(response);
 }
 
 export async function replaceBtcWallet(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/replace`, {
     method: "POST"
   });
-  await assertOk(response);
+  assertOk(response);
 }
 
 export async function removeBtcWallet(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/remove`, {
     method: "POST"
   });
-  await assertOk(response);
+  assertOk(response);
 }

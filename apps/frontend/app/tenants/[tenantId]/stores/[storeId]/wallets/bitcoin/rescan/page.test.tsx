@@ -19,7 +19,7 @@ vi.mock("@/lib/api/btc-wallet-actions", () => ({
 }));
 
 describe("RescanPage", () => {
-  const params = { tenantId: "tenant-1", storeId: "store-1" };
+  const params = Promise.resolve({ tenantId: "tenant-1", storeId: "store-1" });
 
   beforeEach(() => {
     vi.clearAllMocks();

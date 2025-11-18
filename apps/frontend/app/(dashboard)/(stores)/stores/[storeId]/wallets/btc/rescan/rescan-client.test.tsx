@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RescanClient } from "./rescan-client";
 
-const pushMock = vi.fn<void, [string]>();
-const toastMock = vi.fn<void, [{ title: string; description: string }]>();
+const pushMock = vi.fn<(path: string) => void>();
+const toastMock = vi.fn<(payload: { title: string; description: string }) => void>();
 const rescanMock = vi.fn<(storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }) => Promise<void>>();
 const rescanBtcWalletMock = (storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }): Promise<void> => rescanMock(storeId, payload);
 

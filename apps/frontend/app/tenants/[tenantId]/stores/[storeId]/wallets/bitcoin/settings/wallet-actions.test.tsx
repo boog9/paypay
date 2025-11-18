@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { WalletActions } from "./wallet-actions";
 
@@ -40,14 +39,11 @@ describe("WalletActions", () => {
 
   it("navigates to rescan page", () => {
     render(<WalletActions {...props} />);
-    const user = userEvent.setup();
 
-    return user
-      .click(screen.getByRole("button", { name: /actions/i }))
-      .then(() => user.click(screen.getByText(/Rescan wallet/i)))
-      .then(() => {
-        expect(push).toHaveBeenCalledWith("/tenants/t1/stores/s1/wallets/bitcoin/rescan");
-      });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /actions/i }));
+    fireEvent.click(screen.getByText(/Rescan wallet/i));
+
+    expect(push).toHaveBeenCalledWith("/tenants/t1/stores/s1/wallets/bitcoin/rescan");
   });
 
   it("calls prune and clear helpers", async () => {
@@ -55,14 +51,12 @@ describe("WalletActions", () => {
     clearBtcWalletHistory.mockResolvedValue(undefined);
 
     render(<WalletActions {...props} />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: /actions/i }));
-    await user.click(screen.getByText(/Prune old transactions/i));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /actions/i }));
+    fireEvent.click(screen.getByText(/Prune old transactions/i));
     await waitFor(() => expect(pruneBtcWalletHistory).toHaveBeenCalledTimes(1));
 
-    await user.click(screen.getByRole("button", { name: /actions/i }));
-    await user.click(screen.getByText(/Clear all transactions/i));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /actions/i }));
+    fireEvent.click(screen.getByText(/Clear all transactions/i));
     await waitFor(() => expect(clearBtcWalletHistory).toHaveBeenCalledTimes(1));
   });
 
@@ -70,19 +64,17 @@ describe("WalletActions", () => {
     replaceBtcWallet.mockResolvedValue(undefined);
 
     render(<WalletActions {...props} />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: /actions/i }));
-    await user.click(screen.getByText(/Replace wallet/i));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /actions/i }));
+    fireEvent.click(screen.getByText(/Replace wallet/i));
 
     const confirmButton = screen.getByRole("button", { name: /Replace wallet/i });
     expect(confirmButton).toBeDisabled();
 
     const input = screen.getByPlaceholderText(/REPLACE/i);
-    await user.type(input, "replace");
+    fireEvent.change(input, { target: { value: "replace" } });
     expect(confirmButton).not.toBeDisabled();
 
-    await user.click(confirmButton);
+    fireEvent.click(confirmButton);
     await waitFor(() => expect(replaceBtcWallet).toHaveBeenCalledWith("s1"));
   });
 
@@ -90,19 +82,17 @@ describe("WalletActions", () => {
     removeBtcWallet.mockResolvedValue(undefined);
 
     render(<WalletActions {...props} />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: /actions/i }));
-    await user.click(screen.getByText(/Remove wallet/i));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /actions/i }));
+    fireEvent.click(screen.getByText(/Remove wallet/i));
 
     const confirmButton = screen.getByRole("button", { name: /Remove wallet/i });
     expect(confirmButton).toBeDisabled();
 
     const input = screen.getByPlaceholderText(/REMOVE/i);
-    await user.type(input, "remove");
+    fireEvent.change(input, { target: { value: "remove" } });
     expect(confirmButton).not.toBeDisabled();
 
-    await user.click(confirmButton);
+    fireEvent.click(confirmButton);
     await waitFor(() => expect(removeBtcWallet).toHaveBeenCalledWith("s1"));
     expect(push).toHaveBeenCalledWith("/tenants/t1/stores/s1");
   });

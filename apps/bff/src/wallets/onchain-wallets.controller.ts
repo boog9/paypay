@@ -9,7 +9,6 @@ import {
   HttpCode,
   HttpException,
   Param,
-  NotFoundException,
   Put,
   UnauthorizedException,
   UnprocessableEntityException,

@@ -35,6 +35,12 @@ export interface ListTransactionsResult {
   items: unknown[];
 }
 
+interface RescanWalletOptions extends WalletRequestOptions {
+  startingIndex?: number;
+  gapLimit?: number;
+  batchSize?: number;
+}
+
 interface StoreContext {
   store: ManagedStoreEntity;
   apiKey: string;
@@ -206,6 +212,110 @@ export class BtcpayWalletService {
     }
 
     throw new InternalServerErrorException('Failed to load on-chain receive address.');
+  }
+
+  /**
+   * Triggers BTCPay Greenfield rescan for the store's on-chain wallet.
+   * Operation: StoreOnChainWallets_RescanWallet
+   */
+  async rescanWallet(
+    storeId: string,
+    cryptoCode: string,
+    options?: RescanWalletOptions
+  ): Promise<void> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const path = `${this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)}/rescan`;
+
+    const startIndex = this.normalizeNonNegativeInt(options?.startingIndex, 0);
+    const gapLimit = this.normalizeNonNegativeInt(options?.gapLimit, 10_000);
+    const batchSize = this.normalizePositiveInt(options?.batchSize, 3_000);
+
+    try {
+      await context.http.post(path, {
+        startIndex,
+        gapLimit,
+        batchSize
+      });
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  /**
+   * Prunes historical transactions without affecting current wallet state.
+   * Operation: StoreOnChainWallets_PruneOnChainWalletTransactions
+   */
+  async pruneWalletTransactions(
+    storeId: string,
+    cryptoCode: string,
+    options?: WalletRequestOptions
+  ): Promise<void> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const path = `${this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)}/transactions/prune`;
+
+    try {
+      await context.http.post(path);
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  /**
+   * Clears on-chain wallet transaction history.
+   * Operation: StoreOnChainWallets_DeleteOnChainWalletTransactions
+   */
+  async clearWalletTransactions(
+    storeId: string,
+    cryptoCode: string,
+    options?: WalletRequestOptions
+  ): Promise<void> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const path = `${this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)}/transactions`;
+
+    try {
+      await context.http.delete(path);
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+  }
+
+  /**
+   * Removes the on-chain wallet configuration so a new watch-only wallet can be attached.
+   * Operation: StoreOnChainWallets_DeleteOnChainWallet
+   */
+  async replaceWallet(
+    storeId: string,
+    cryptoCode: string,
+    options?: WalletRequestOptions
+  ): Promise<void> {
+    await this.removeWallet(storeId, cryptoCode, options);
+  }
+
+  /**
+   * Removes the on-chain wallet configuration from BTCPay.
+   * Operation: StoreOnChainWallets_DeleteOnChainWallet
+   */
+  async removeWallet(
+    storeId: string,
+    cryptoCode: string,
+    options?: WalletRequestOptions
+  ): Promise<void> {
+    const context = await this.prepareStoreContext(storeId, options);
+    const path = this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode);
+
+    try {
+      await context.http.delete(path);
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
   }
 
   async getFeeRate(
@@ -511,5 +621,19 @@ export class BtcpayWalletService {
     } catch {
       // best effort cleanup only
     }
+  }
+
+  private normalizeNonNegativeInt(value: number | undefined, fallback: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(0, Math.trunc(value));
+  }
+
+  private normalizePositiveInt(value: number | undefined, fallback: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(1, Math.trunc(value));
   }
 }

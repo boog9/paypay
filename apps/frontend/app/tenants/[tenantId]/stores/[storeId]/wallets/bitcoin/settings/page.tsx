@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bffFetch } from "@/lib/bff-fetch";
+import { WalletActions } from "./wallet-actions";
 
 interface PageParams {
   tenantId: string;
@@ -43,13 +44,14 @@ export default async function SettingsPage({
 }: {
   params: Promise<PageParams>;
 }): Promise<ReactElement> {
-  const { storeId } = await params;
+  const { storeId, tenantId } = await params;
   const { data, error } = await loadWalletMetadata(storeId);
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Settings</CardTitle>
+        <WalletActions tenantId={tenantId} storeId={storeId} enabled={Boolean(data?.enabled)} />
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         {error ? (

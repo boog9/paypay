@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ interface WalletActionsProps {
 
 type ConfirmableAction = "replace" | "remove" | null;
 
-export function WalletActions({ tenantId, storeId, enabled }: WalletActionsProps): JSX.Element | null {
+export function WalletActions({ tenantId, storeId, enabled }: WalletActionsProps): ReactElement | null {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, setPending] = useState<string | null>(null);

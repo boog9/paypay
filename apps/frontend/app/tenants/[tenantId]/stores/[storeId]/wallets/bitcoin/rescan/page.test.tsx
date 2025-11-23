@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import RescanPage from "./page";
 
-const push = vi.fn();
-const toast = vi.fn();
-const rescanBtcWallet = vi.fn();
+const { push, toast, rescanBtcWallet } = vi.hoisted(() => ({
+  push: vi.fn(),
+  toast: vi.fn(),
+  rescanBtcWallet: vi.fn()
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push })
@@ -25,15 +27,22 @@ describe("RescanPage", () => {
     vi.clearAllMocks();
   });
 
-  it("shows default values", () => {
-    render(<RescanPage params={params} />);
+  const renderPage = async (): Promise<void> => {
+    await act(async () => {
+      const element = await RescanPage({ params });
+      render(element);
+    });
+  };
+
+  it("shows default values", async () => {
+    await renderPage();
     expect(screen.getByLabelText(/Starting index/i)).toHaveValue(0);
     expect(screen.getByLabelText(/Gap limit/i)).toHaveValue(10000);
     expect(screen.getByLabelText(/Batch size/i)).toHaveValue(3000);
   });
 
-  it("prevents negative inputs", () => {
-    render(<RescanPage params={params} />);
+  it("prevents negative inputs", async () => {
+    await renderPage();
 
     const startInput = screen.getByLabelText(/Starting index/i);
     fireEvent.change(startInput, { target: { value: "-5" } });
@@ -47,7 +56,7 @@ describe("RescanPage", () => {
   it("submits values and redirects", async () => {
     rescanBtcWallet.mockResolvedValue(undefined);
 
-    render(<RescanPage params={params} />);
+    await renderPage();
 
     fireEvent.change(screen.getByLabelText(/Starting index/i), { target: { value: "5" } });
     fireEvent.change(screen.getByLabelText(/Gap limit/i), { target: { value: "25" } });

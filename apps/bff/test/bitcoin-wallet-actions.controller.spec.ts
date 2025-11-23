@@ -70,12 +70,12 @@ describe('BitcoinWalletActionsController', () => {
     wallets.rescanWallet.mockResolvedValue(undefined);
 
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/rescan`)
+      .post(`/stores/${store.id}/wallets/btc/actions/rescan`)
       .send({ startIndex: 0, gapLimit: 100, batchSize: 50 })
       .expect(202)
       .expect({ status: 'ok' });
 
-    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.id, 'BTC', {
+    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.id, 'btc', {
       store,
       startIndex: 0,
       gapLimit: 100,
@@ -85,7 +85,7 @@ describe('BitcoinWalletActionsController', () => {
 
   it('rejects invalid rescan payloads', async () => {
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/rescan`)
+      .post(`/stores/${store.id}/wallets/btc/actions/rescan`)
       .send({ startIndex: -1 })
       .expect(400);
 
@@ -96,45 +96,45 @@ describe('BitcoinWalletActionsController', () => {
     wallets.pruneWalletTransactions.mockResolvedValue(undefined);
 
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/prune-history`)
+      .post(`/stores/${store.id}/wallets/btc/actions/prune-history`)
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.pruneWalletTransactions).toHaveBeenCalledWith(store.id, 'BTC', { store });
+    expect(wallets.pruneWalletTransactions).toHaveBeenCalledWith(store.id, 'btc', { store });
   });
 
   it('clears history', async () => {
     wallets.clearWalletTransactions.mockResolvedValue(undefined);
 
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/clear-history`)
+      .post(`/stores/${store.id}/wallets/btc/actions/clear-history`)
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.clearWalletTransactions).toHaveBeenCalledWith(store.id, 'BTC', { store });
+    expect(wallets.clearWalletTransactions).toHaveBeenCalledWith(store.id, 'btc', { store });
   });
 
   it('replaces wallet', async () => {
     wallets.replaceWallet.mockResolvedValue(undefined);
 
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/replace`)
+      .post(`/stores/${store.id}/wallets/btc/actions/replace`)
       .send({ confirmation: 'ok' })
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.replaceWallet).toHaveBeenCalledWith(store.id, 'BTC', { store });
+    expect(wallets.replaceWallet).toHaveBeenCalledWith(store.id, 'btc', { store });
   });
 
   it('removes wallet', async () => {
     wallets.removeWallet.mockResolvedValue(undefined);
 
     await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/remove`)
+      .post(`/stores/${store.id}/wallets/btc/actions/remove`)
       .send({ confirmation: 'ok' })
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.removeWallet).toHaveBeenCalledWith(store.id, 'BTC', { store });
+    expect(wallets.removeWallet).toHaveBeenCalledWith(store.id, 'btc', { store });
   });
 });

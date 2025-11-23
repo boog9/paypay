@@ -23,7 +23,7 @@ import { ConfirmDangerousActionDto, RescanWalletBodyDto } from './dto/bitcoin-wa
 const rescanValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
 const confirmValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
 
-@Controller('stores/:storeId/wallets/bitcoin/actions')
+@Controller('stores/:storeId/wallets/:walletCode/actions')
 @UseGuards(JwtAuthGuard, CsrfGuard)
 export class BitcoinWalletActionsController {
   constructor(
@@ -38,10 +38,11 @@ export class BitcoinWalletActionsController {
   async rescan(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string,
     @Body(rescanValidationPipe) dto: RescanWalletBodyDto
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.rescanWallet(store.id, 'BTC', {
+    await this.btcpayWallets.rescanWallet(store.id, walletCode, {
       store,
       startIndex: dto.startIndex,
       gapLimit: dto.gapLimit,
@@ -53,18 +54,26 @@ export class BitcoinWalletActionsController {
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @HttpCode(200)
   @Post('prune-history')
-  async pruneHistory(@ReqUser() user: RequestUser, @Param('storeId') storeId: string): Promise<{ status: 'ok' }> {
+  async pruneHistory(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string
+  ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.pruneWalletTransactions(store.id, 'BTC', { store });
+    await this.btcpayWallets.pruneWalletTransactions(store.id, walletCode, { store });
     return { status: 'ok' } as const;
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @HttpCode(200)
   @Post('clear-history')
-  async clearHistory(@ReqUser() user: RequestUser, @Param('storeId') storeId: string): Promise<{ status: 'ok' }> {
+  async clearHistory(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string
+  ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.clearWalletTransactions(store.id, 'BTC', { store });
+    await this.btcpayWallets.clearWalletTransactions(store.id, walletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -74,11 +83,12 @@ export class BitcoinWalletActionsController {
   async replaceWallet(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string,
     @Body(confirmValidationPipe) _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.replaceWallet(store.id, 'BTC', { store });
+    await this.btcpayWallets.replaceWallet(store.id, walletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -88,11 +98,12 @@ export class BitcoinWalletActionsController {
   async removeWallet(
     @ReqUser() user: RequestUser,
     @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string,
     @Body(confirmValidationPipe) _body: ConfirmDangerousActionDto
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.removeWallet(store.id, 'BTC', { store });
+    await this.btcpayWallets.removeWallet(store.id, walletCode, { store });
     return { status: 'ok' } as const;
   }
 

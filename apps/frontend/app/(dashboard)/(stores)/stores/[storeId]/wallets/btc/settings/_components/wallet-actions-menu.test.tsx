@@ -2,21 +2,22 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
+import type { WalletActionId } from "../_lib/get-wallet-actions";
 import { WalletActionsMenu } from "./wallet-actions-menu";
 
 const { push, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWallet, removeBtcWallet } = vi.hoisted(() => {
-  const pushMock = vi.fn<[string], void>();
-  const toastMock = vi.fn<[
-    {
+  const pushMock = vi.fn<(path: string) => void>();
+  const toastMock = vi.fn<
+    (options: {
       title: string;
       description?: string;
       variant?: string;
-    }
-  ], void>();
-  const pruneBtcWalletHistoryMock = vi.fn<[string], Promise<void>>();
-  const clearBtcWalletHistoryMock = vi.fn<[string], Promise<void>>();
-  const replaceBtcWalletMock = vi.fn<[string], Promise<void>>();
-  const removeBtcWalletMock = vi.fn<[string], Promise<void>>();
+    }) => void
+  >();
+  const pruneBtcWalletHistoryMock = vi.fn<(storeId: string) => Promise<void>>();
+  const clearBtcWalletHistoryMock = vi.fn<(storeId: string) => Promise<void>>();
+  const replaceBtcWalletMock = vi.fn<(storeId: string) => Promise<void>>();
+  const removeBtcWalletMock = vi.fn<(storeId: string) => Promise<void>>();
 
   return {
     push: pushMock,
@@ -55,9 +56,9 @@ vi.mock("@radix-ui/react-dropdown-menu", () => {
         {children}
       </button>
     ),
-  } satisfies typeof import("@radix-ui/react-dropdown-menu");
+  };
 
-  return dropdownMenu;
+  return dropdownMenu as unknown as typeof import("@radix-ui/react-dropdown-menu");
 });
 
 vi.mock("next/navigation", () => ({
@@ -76,7 +77,10 @@ vi.mock("@/lib/api/btc-wallet-actions", () => ({
 }));
 
 describe("WalletActionsMenu", () => {
-  const props = { storeId: "store-123", actions: ["prune-history", "clear-history", "replace", "remove"] as const };
+  const props = {
+    storeId: "store-123",
+    actions: ["prune-history", "clear-history", "replace", "remove"] as WalletActionId[],
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();

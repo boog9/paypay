@@ -46,7 +46,7 @@ function normalizeActionsPayload(payload: unknown): WalletActionId[] | null {
 
   const normalized = actions
     .map((action) => (typeof action === "string" ? action.trim() : ""))
-    .filter((action) => isWalletActionId(action)) as WalletActionId[];
+    .filter((action): action is WalletActionId => isWalletActionId(action));
 
   return normalized;
 }

@@ -1,4 +1,4 @@
-import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { UnprocessableEntityException } from '@nestjs/common';
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';

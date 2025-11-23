@@ -21,7 +21,6 @@ export default async function WalletReceivePlaceholder({ params }: PageProps) {
     redirect("/stores");
   }
 
-  const wizardPath = `/stores/${normalizedStoreId}/wallets/btc/wizard`;
   const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
   const presence: WalletPresenceResult = await getWalletPresence(normalizedStoreId);
 
@@ -34,7 +33,7 @@ export default async function WalletReceivePlaceholder({ params }: PageProps) {
   }
 
   if (presence.status === 404 || (presence.status === 200 && !presence.hasWallet)) {
-    redirect(wizardPath);
+    redirect(dashboardPath);
   }
 
   return (

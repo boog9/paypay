@@ -124,9 +124,10 @@ export function WalletActionsMenu({ storeId, actions, error }: WalletActionsMenu
       "remove",
       async () => {
         await removeBtcWallet(storeId);
-        router.push(`/stores/${storeId}/wallets/btc`);
+        router.push(`/stores/${storeId}/dashboard`);
+        router.refresh();
       },
-      "Wallet removed. Configure a new wallet to resume on-chain payments."
+      "Wallet removed"
     );
     resetConfirmation();
   };

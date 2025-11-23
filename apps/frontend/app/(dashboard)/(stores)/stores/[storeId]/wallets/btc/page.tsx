@@ -16,7 +16,6 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
   }
 
   const transactionsPath = `/stores/${normalizedStoreId}/wallets/btc/transactions`;
-  const wizardPath = `/stores/${normalizedStoreId}/wallets/btc/wizard`;
   const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
   const presence = await getWalletPresence(normalizedStoreId);
 
@@ -29,11 +28,11 @@ export default async function BitcoinWalletRedirectPage({ params }: PageProps) {
   }
 
   if (presence.status === 404) {
-    redirect(wizardPath);
+    redirect(dashboardPath);
   }
 
   if (presence.status === 200 && !presence.hasWallet) {
-    redirect(wizardPath);
+    redirect(dashboardPath);
   }
 
   redirect(transactionsPath);

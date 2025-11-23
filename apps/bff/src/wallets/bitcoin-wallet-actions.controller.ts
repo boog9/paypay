@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -9,7 +11,7 @@ import {
   UseGuards,
   ValidationPipe
 } from '@nestjs/common';
-import { Throttle, seconds } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, seconds } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -19,6 +21,13 @@ import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { isUuid } from '../shared/is-uuid';
 import { BtcpayWalletService } from '../btcpay/btcpay.wallets.service';
 import { ConfirmDangerousActionDto } from './dto/bitcoin-wallet-actions.dto';
+import { OnchainWalletsService } from './onchain-wallets.service';
+
+const ACTIONS = ['prune-history', 'clear-history', 'replace', 'remove'] as const;
+export type BitcoinWalletActionId = (typeof ACTIONS)[number];
+export interface BitcoinWalletActionsResponse {
+  actions: BitcoinWalletActionId[];
+}
 const confirmValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
 
 @Controller('stores/:storeId/wallets/:walletCode/actions')
@@ -27,6 +36,7 @@ export class BitcoinWalletActionsController {
   constructor(
     @InjectRepository(ManagedStoreEntity)
     private readonly storesRepository: Repository<ManagedStoreEntity>,
+    private readonly walletsService: OnchainWalletsService,
     private readonly btcpayWallets: BtcpayWalletService
   ) {}
 
@@ -38,6 +48,42 @@ export class BitcoinWalletActionsController {
     }
 
     throw new NotFoundException('Wallet not found or unsupported.');
+  }
+
+  @SkipThrottle()
+  @Get()
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Vary', 'Cookie')
+  async listActions(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string
+  ): Promise<BitcoinWalletActionsResponse> {
+    const store = await this.requireStore(user, storeId);
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+
+    if (normalizedWalletCode !== 'btc') {
+      throw new NotFoundException('Wallet not found or unsupported.');
+    }
+
+    let presence: Awaited<ReturnType<OnchainWalletsService['getPresence']>>;
+
+    try {
+      presence = await this.walletsService.getPresence(store);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return { actions: [] } satisfies BitcoinWalletActionsResponse;
+      }
+
+      throw error;
+    }
+
+    if (presence.enabled !== true) {
+      return { actions: [] } satisfies BitcoinWalletActionsResponse;
+    }
+
+    return { actions: [...ACTIONS] } satisfies BitcoinWalletActionsResponse;
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })

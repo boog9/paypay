@@ -1,4 +1,10 @@
-import { INestApplication, ValidationPipe, CanActivate, ExecutionContext } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  CanActivate,
+  ExecutionContext,
+  NotFoundException
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -8,12 +14,14 @@ import { BtcpayWalletService } from '../src/btcpay/btcpay.wallets.service';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { CsrfGuard } from '../src/security/csrf.guard';
+import { OnchainWalletsService } from '../src/wallets/onchain-wallets.service';
 
 describe('BitcoinWalletActionsController', () => {
   let app: INestApplication;
   let server: any;
   let repository: jest.Mocked<Repository<ManagedStoreEntity>>;
   let wallets: jest.Mocked<BtcpayWalletService>;
+  let onchainWallets: jest.Mocked<OnchainWalletsService>;
 
   const store: ManagedStoreEntity = {
     id: 'store-id',
@@ -34,6 +42,7 @@ describe('BitcoinWalletActionsController', () => {
       controllers: [BitcoinWalletActionsController],
       providers: [
         { provide: getRepositoryToken(ManagedStoreEntity), useValue: { findOne: jest.fn() } },
+        { provide: OnchainWalletsService, useValue: { getPresence: jest.fn() } },
         {
           provide: BtcpayWalletService,
           useValue: {
@@ -53,6 +62,7 @@ describe('BitcoinWalletActionsController', () => {
 
     repository = moduleRef.get(getRepositoryToken(ManagedStoreEntity));
     wallets = moduleRef.get(BtcpayWalletService);
+    onchainWallets = moduleRef.get(OnchainWalletsService);
     repository.findOne.mockResolvedValue(store);
 
     app = moduleRef.createNestApplication();
@@ -65,7 +75,43 @@ describe('BitcoinWalletActionsController', () => {
     await app?.close();
   });
 
+  it('lists actions when an on-chain wallet is enabled', async () => {
+    onchainWallets.getPresence.mockResolvedValue({ enabled: true, derivationScheme: 'xpub' });
+
+    const response = await request(server)
+      .get(`/stores/${store.id}/wallets/btc/actions`)
+      .expect(200);
+
+    expect(response.body).toEqual({ actions: ['prune-history', 'clear-history', 'replace', 'remove'] });
+    expect(onchainWallets.getPresence).toHaveBeenCalledWith(store);
+  });
+
+  it('returns an empty actions list when the wallet is disabled', async () => {
+    onchainWallets.getPresence.mockResolvedValue({ enabled: false, derivationScheme: null });
+
+    await request(server)
+      .get(`/stores/${store.id}/wallets/btc/actions`)
+      .expect(200)
+      .expect({ actions: [] });
+  });
+
+  it('returns an empty actions list when no on-chain wallet is configured', async () => {
+    onchainWallets.getPresence.mockRejectedValue(new NotFoundException());
+
+    await request(server)
+      .get(`/stores/${store.id}/wallets/btc/actions`)
+      .expect(200)
+      .expect({ actions: [] });
+  });
+
+  it('returns 404 when the store is not found', async () => {
+    repository.findOne.mockResolvedValue(null);
+
+    await request(server).get(`/stores/missing-store/wallets/btc/actions`).expect(404);
+  });
+
   it('prunes history', async () => {
+    onchainWallets.getPresence.mockResolvedValue({ enabled: true, derivationScheme: 'xpub' });
     wallets.pruneWalletTransactions.mockResolvedValue(undefined);
 
     await request(server)

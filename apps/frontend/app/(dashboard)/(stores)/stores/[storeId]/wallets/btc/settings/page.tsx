@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { WalletSettingsPanel } from "./_components/wallet-settings-panel";
+import { WalletActionsMenu } from "./_components/wallet-actions-menu";
 import { getWalletSettings } from "./_lib/get-wallet-settings";
+import { getWalletActions } from "./_lib/get-wallet-actions";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -37,18 +39,28 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
       ? connectedFlag.trim().toLowerCase()
       : "";
 
-  const { status, data, error } = await getWalletSettings(normalizedStoreId);
+  const [settings, actions] = await Promise.all([
+    getWalletSettings(normalizedStoreId),
+    getWalletActions(normalizedStoreId),
+  ]);
 
-  if (status === 401 || status === 419) {
+  if (
+    settings.status === 401 ||
+    settings.status === 419 ||
+    actions.status === 401 ||
+    actions.status === 419
+  ) {
     redirect("/sign-in?reason=session-expired");
   }
 
-  const viewModel = data;
-  const isForbidden = status === 403;
-  const isServerError = status >= 500;
-  const fetchFailed = status !== 200 && status !== 404 && status !== 403;
+  const viewModel = settings.data;
+  const isForbidden = settings.status === 403;
+  const isServerError = settings.status >= 500;
+  const fetchFailed = settings.status !== 200 && settings.status !== 404 && settings.status !== 403;
   const showBanner = viewModel ? !viewModel.hasOnChainPaymentMethod || viewModel.enabled === false : false;
   const showSuccessAlert = ["1", "true", "yes"].includes(normalizedConnected) && viewModel?.hasOnChainPaymentMethod;
+  const actionsError = actions.status === 200 ? null : actions.error;
+  const error = settings.error;
 
   const errorMessage = (() => {
     if (isForbidden) {
@@ -68,12 +80,15 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-foreground">Bitcoin wallet settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Review the on-chain configuration sourced from BTCPay Server. Sensitive credentials such as extended public keys are
-          never exposed in the dashboard.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-foreground">Bitcoin wallet settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Review the on-chain configuration sourced from BTCPay Server. Sensitive credentials such as extended public keys are
+            never exposed in the dashboard.
+          </p>
+        </div>
+        <WalletActionsMenu storeId={normalizedStoreId} actions={actions.data} error={actionsError} />
       </header>
 
       <WalletSettingsPanel

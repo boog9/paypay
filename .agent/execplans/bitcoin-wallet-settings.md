@@ -44,6 +44,7 @@ Current relevant files:
 - apps/frontend/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence.ts: helper to detect on-chain wallet presence; useful for error/404 handling patterns.
 - apps/frontend/app/(dashboard)/(stores)/stores/[storeId]/wallets/btc/transactions/*: examples of data loaders and UI state handling for wallet pages.
 - apps/frontend/e2e/wallet-settings.spec.ts: end-to-end expectations around the wallet settings page layout.
+- BTCPay store-scoped keys must include `btcpay.store.canmodifypaymentmethods:<STORE_ID>` to support payment method actions like the "Remove wallet" button. This permission covers enabling/disabling or deleting on-chain payment methods without exposing xpubs or private keys.
 
 Tech stack expectations:
 - BFF must use BTCPay store-scoped API keys via Authorization: token <KEY> and never expose secrets. Error logs should avoid sensitive payloads.

@@ -8,6 +8,7 @@ export const BTCPAY_MINIMAL_PERMISSIONS = [
   'btcpay.store.cancreateinvoice',
   'btcpay.store.canviewinvoices',
   'btcpay.store.canmodifyinvoices',
+  'btcpay.store.canmodifypaymentmethods',
   ...BTCPAY_WALLET_PERMISSIONS,
   'btcpay.store.webhooks.canmodifywebhooks'
 ];

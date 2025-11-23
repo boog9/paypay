@@ -97,10 +97,13 @@ graph TD
 - `btcpay.store.cancreateinvoice:<STORE_ID>`
 - `btcpay.store.canviewinvoices:<STORE_ID>`
 - `btcpay.store.canmodifyinvoices:<STORE_ID>`
+- `btcpay.store.canmodifypaymentmethods:<STORE_ID>`
 - `btcpay.store.canviewstoresettings:<STORE_ID>`
 - `btcpay.store.webhooks.canmodifywebhooks:<STORE_ID>`
 
 The key is kept solely in the BFF vault and surfaced read-only (masked) to users. External integrations use additional, least-privileged keys acquired via the `/api-keys/authorize` redirect flow.
+
+`btcpay.store.canmodifypaymentmethods:<STORE_ID>` is required for any payment method changes, including enabling/disabling and deleting the on-chain BTC payment method. It does not grant access to extended public keys or private keys; it only authorizes configuration changes inside the specific store so flows like the "Remove wallet" action on the Bitcoin wallet settings page can succeed.
 
 **Key rotation.** A cron worker monitors `GET /api/v1/api-keys` for expiring credentials, provisions replacements, updates the vault, and notifies merchants. Bootstrap keys expire after 24h and carry a `used_once` flag. Failed store creation triggers compensation: revoke the bootstrap key (`DELETE /api/v1/api-keys/{key}`) and mark the account as `needs_retry`. Concurrency is controlled with `SELECT ... FOR UPDATE` on the merchant row.
 

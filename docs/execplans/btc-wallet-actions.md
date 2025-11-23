@@ -30,7 +30,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 - BTCPay Greenfield rescan expects the `startIndex` field (not `startingIndex`), with `gapLimit` and `batchSize` matching the swagger payload. Body defaults remain 0/10000/3000.
 - Frontend `@/` alias resolves to the workspace root, so wallet action API helpers need to live under `apps/frontend/lib/**` rather than `apps/frontend/src/lib/**`.
 - Next.js `pnpm --filter frontend build` attempts live fetches to `/api/auth/me` and fails offline with `ENETUNREACH`; builds must be treated as best-effort in CI without BTCPay connectivity.
-- Greenfield 2.2.1 exposes on-chain wallet actions under the standard store policies; there are no dedicated wallet permissions beyond `btcpay.store.canmodifystoresettings` and `btcpay.store.canviewstoresettings`.
+- Greenfield 2.2.1 exposes on-chain wallet actions under the standard store policies. Payment method mutations (enable/disable/remove) require `btcpay.store.canmodifypaymentmethods:<STORE_ID>` in addition to the modify/view store permissions.
 
 ## Decision Log
 
@@ -39,7 +39,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 
 ## Outcomes & Retrospective
 
-- Wallet routes and UI now normalize the BTC wallet code and handle maintenance actions. The rescan feature described earlier has since been removed; prune, clear, replace, and remove actions remain in scope. Store-scoped API keys include store modify/view permissions that cover wallet maintenance per Greenfield 2.2.1.
+- Wallet routes and UI now normalize the BTC wallet code and handle maintenance actions. The rescan feature described earlier has since been removed; prune, clear, replace, and remove actions remain in scope. Store-scoped API keys include store modify/view permissions and `btcpay.store.canmodifypaymentmethods:<STORE_ID>` to cover wallet maintenance per Greenfield 2.2.1.
 
 ## Context and Orientation
 

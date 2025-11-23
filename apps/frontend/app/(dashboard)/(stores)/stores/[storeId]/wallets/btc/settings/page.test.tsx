@@ -39,8 +39,8 @@ describe("Bitcoin wallet settings page", () => {
     });
 
     const view = await SettingsPage({
-      params: { storeId: "store-123" },
-      searchParams: {},
+      params: Promise.resolve({ storeId: "store-123" }),
+      searchParams: Promise.resolve({}),
     });
 
     render(view);
@@ -65,8 +65,8 @@ describe("Bitcoin wallet settings page", () => {
     });
 
     const view = await SettingsPage({
-      params: { storeId: "store-789" },
-      searchParams: {},
+      params: Promise.resolve({ storeId: "store-789" }),
+      searchParams: Promise.resolve({}),
     });
 
     render(view);
@@ -83,10 +83,10 @@ describe("Bitcoin wallet settings page", () => {
     });
 
     const view = await SettingsPage({
-      params: { storeId: "store-456" },
-      searchParams: {},
+      params: Promise.resolve({ storeId: "store-456" }),
+      searchParams: Promise.resolve({}),
     });
-
+  
     render(view);
 
     expect(screen.queryByRole("button", { name: /actions/i })).not.toBeInTheDocument();

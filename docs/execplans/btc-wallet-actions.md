@@ -16,12 +16,14 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 - [x] Run test suite and finalize documentation/cleanup.
 - [x] (2025-11-18 14:10Z) Reopened plan to enforce BTC wallet code normalization ("bitcoin" → "btc") and update frontend calls to use `/wallets/btc/...` consistently; began implementation.
 - [x] (2025-11-18 14:50Z) Verified frontend routes use the BTC wallet code helper and added BFF wallet code normalization with back-compat tests; test suites executed.
+- [x] (2025-11-23 14:35Z) Verified BTCPay rescan path `/api/v1/stores/{storeId}/wallets/{cryptoCode}/actions/rescan`, tightened wallet 404 handling, and noted wallet actions rely on store modify/view permissions only.
 
 ## Surprises & Discoveries
 
 - BTCPay Greenfield rescan expects the `startIndex` field (not `startingIndex`), with `gapLimit` and `batchSize` matching the swagger payload. Body defaults remain 0/10000/3000.
 - Frontend `@/` alias resolves to the workspace root, so wallet action API helpers need to live under `apps/frontend/lib/**` rather than `apps/frontend/src/lib/**`.
 - Next.js `pnpm --filter frontend build` attempts live fetches to `/api/auth/me` and fails offline with `ENETUNREACH`; builds must be treated as best-effort in CI without BTCPay connectivity.
+- Greenfield 2.2.1 exposes on-chain wallet actions under the standard store policies; there are no dedicated wallet permissions beyond `btcpay.store.canmodifystoresettings` and `btcpay.store.canviewstoresettings`.
 
 ## Decision Log
 
@@ -30,7 +32,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 
 ## Outcomes & Retrospective
 
-- Pending implementation.
+- Wallet routes and UI now normalize the BTC wallet code, target `/wallets/{cryptoCode}/actions/rescan`, and surface clear `NotFound` errors when BTCPay reports missing wallets. Store-scoped API keys include store modify/view permissions that cover wallet maintenance per Greenfield 2.2.1.
 
 ## Context and Orientation
 

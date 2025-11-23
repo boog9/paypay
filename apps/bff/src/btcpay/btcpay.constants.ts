@@ -1,9 +1,14 @@
+export const BTCPAY_WALLET_PERMISSIONS = [
+  // Required for Store On-Chain Wallet operations (rescan, prune, clear, remove).
+  'btcpay.store.canmodifystoresettings',
+  'btcpay.store.canviewstoresettings'
+];
+
 export const BTCPAY_MINIMAL_PERMISSIONS = [
   'btcpay.store.cancreateinvoice',
   'btcpay.store.canviewinvoices',
   'btcpay.store.canmodifyinvoices',
-  'btcpay.store.canmodifystoresettings',
-  'btcpay.store.canviewstoresettings',
+  ...BTCPAY_WALLET_PERMISSIONS,
   'btcpay.store.webhooks.canmodifywebhooks'
 ];
 

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
   UnprocessableEntityException
@@ -51,6 +52,8 @@ interface StoreContext {
 
 @Injectable()
 export class BtcpayWalletService {
+  private readonly logger = new Logger(BtcpayWalletService.name);
+
   constructor(
     @InjectRepository(ManagedStoreEntity)
     private readonly storesRepository: Repository<ManagedStoreEntity>,
@@ -224,13 +227,27 @@ export class BtcpayWalletService {
     options?: RescanWalletOptions
   ): Promise<void> {
     const context = await this.prepareStoreContext(storeId, options);
-    const path = this.buildWalletRescanPath(context.store.btcpayStoreId, cryptoCode);
+    const normalizedCryptoCode = this.normalizeCryptoCode(cryptoCode);
+    const path = this.buildWalletRescanPath(context.store.btcpayStoreId, normalizedCryptoCode);
 
     const startIndex = this.normalizeNonNegativeInt(options?.startIndex, 0);
     const gapLimit = this.normalizeNonNegativeInt(options?.gapLimit, 10_000);
     const batchSize = this.normalizePositiveInt(options?.batchSize, 3_000);
 
     try {
+      this.logger.debug(
+        {
+          storeId: context.store.btcpayStoreId,
+          cryptoCode: normalizedCryptoCode,
+          method: 'POST',
+          path,
+          startIndex,
+          gapLimit,
+          batchSize
+        },
+        'btcpay.wallets.rescan.request'
+      );
+
       await context.http.post(path, {
         startIndex,
         gapLimit,
@@ -454,6 +471,24 @@ export class BtcpayWalletService {
   private handleBtcpayError(error: unknown): never {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 502;
+
+      this.logger.debug(
+        {
+          status,
+          path: error.config?.url,
+          method: error.config?.method?.toUpperCase(),
+          code: this.extractErrorCode(error.response?.data),
+          message: this.extractErrorMessage(error.response?.data)
+        },
+        'btcpay.wallets.error'
+      );
+
+      if (this.isWalletNotFoundError(error, status)) {
+        throw new NotFoundException('On-chain wallet not found or not configured in BTCPay.', {
+          cause: error as Error
+        });
+      }
+
       const message = this.resolveErrorMessage(error);
 
       switch (status) {
@@ -481,25 +516,79 @@ export class BtcpayWalletService {
   }
 
   private resolveErrorMessage(error: AxiosError): string {
-    const data = error.response?.data;
-    if (!data) {
-      return 'BTCPay request failed';
-    }
-
-    if (typeof data === 'string') {
-      const trimmed = data.trim();
-      return trimmed || 'BTCPay request failed';
-    }
-
-    if (typeof data === 'object' && data !== null) {
-      const record = data as Record<string, unknown>;
-      const message = record.message;
-      if (typeof message === 'string' && message.trim()) {
-        return message.trim();
-      }
+    const message = this.extractErrorMessage(error.response?.data);
+    if (message) {
+      return message;
     }
 
     return 'BTCPay request failed';
+  }
+
+  private extractErrorCode(payload: unknown): string | undefined {
+    if (typeof payload === 'object' && payload !== null) {
+      const record = payload as Record<string, unknown>;
+      const code = record.code;
+      if (typeof code === 'string') {
+        const trimmed = code.trim();
+        if (trimmed) {
+          return this.truncate(trimmed, 64);
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private extractErrorMessage(payload: unknown): string | undefined {
+    if (!payload) {
+      return undefined;
+    }
+
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      return trimmed ? this.truncate(trimmed, 256) : undefined;
+    }
+
+    if (typeof payload === 'object' && payload !== null) {
+      const record = payload as Record<string, unknown>;
+      const message = record.message;
+      if (typeof message === 'string' && message.trim()) {
+        return this.truncate(message.trim(), 256);
+      }
+    }
+
+    return undefined;
+  }
+
+  private isWalletNotFoundError(error: AxiosError, status: number): boolean {
+    if (status !== 404) {
+      return false;
+    }
+
+    const path = error.config?.url ?? '';
+    if (path && !path.includes('/wallet')) {
+      return false;
+    }
+
+    const code = this.extractErrorCode(error.response?.data);
+    if (code && this.isWalletMissingCode(code)) {
+      return true;
+    }
+
+    const message = this.extractErrorMessage(error.response?.data);
+    return message ? this.isWalletMissingCode(message) : false;
+  }
+
+  private isWalletMissingCode(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+
+    return (
+      normalized === 'wallet-not-found' ||
+      (normalized.includes('wallet') && normalized.includes('not') && normalized.includes('found'))
+    );
   }
 
   private async prepareStoreContext(
@@ -613,6 +702,13 @@ export class BtcpayWalletService {
       return 'BTC';
     }
     return trimmed.toUpperCase();
+  }
+
+  private truncate(value: string, maxLength: number): string {
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return value.slice(0, Math.max(0, maxLength));
   }
 
   private clearBuffer(value: string | null | undefined): void {

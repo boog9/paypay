@@ -724,7 +724,7 @@ export default function TransactionsClient({
 
       {items.length === 0 && !currentError ? (
         <p className="text-sm text-muted-foreground">
-          If BTCPay shows an invalid balance, rescan your wallet from the BTCPay Server interface.
+          If BTCPay shows an invalid balance, manage the wallet directly from the BTCPay Server interface.
         </p>
       ) : null}
     </div>

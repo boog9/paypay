@@ -110,28 +110,6 @@ describe('BtcpayWalletService', () => {
     expect(result).toEqual({ items });
   });
 
-  it('rescans the wallet using the wallet actions endpoint', async () => {
-    const postMock = jest.fn().mockResolvedValue({});
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    await service.rescanWallet(store.btcpayStoreId, 'btc', {
-      store,
-      startIndex: -5,
-      gapLimit: undefined
-    });
-
-    expect(postMock).toHaveBeenCalledWith(
-      '/api/v1/stores/store-123/wallets/BTC/actions/rescan',
-      {
-        startIndex: 0,
-        gapLimit: 10_000,
-        batchSize: 3_000
-      }
-    );
-  });
-
   it('uppercases cryptoCode when building wallet paths', async () => {
     const getMock = jest.fn().mockResolvedValue({ data: { address: 'tb1qexample' } });
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
@@ -257,33 +235,4 @@ describe('BtcpayWalletService', () => {
     ).rejects.toHaveProperty('status', 403);
   });
 
-  it('maps wallet-specific 404 responses to a dedicated error', async () => {
-    const error = buildAxiosError({
-      config: {
-        url: '/api/v1/stores/store-123/wallets/BTC/actions/rescan',
-        method: 'post',
-        headers: {} as AxiosRequestHeaders
-      },
-      response: {
-        status: 404,
-        data: { code: 'wallet-not-found', message: 'Wallet not found' },
-        headers: {},
-        statusText: 'Not Found',
-        config: { headers: {} as AxiosRequestHeaders }
-      }
-    });
-
-    const postMock = jest.fn().mockRejectedValue(error);
-    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
-
-    const service = buildService();
-
-    await expect(
-      service.rescanWallet(store.btcpayStoreId, 'btc', { store })
-    ).rejects.toBeInstanceOf(NotFoundException);
-
-    await expect(
-      service.rescanWallet(store.btcpayStoreId, 'btc', { store })
-    ).rejects.toHaveProperty('message', 'On-chain wallet not found or not configured in BTCPay.');
-  });
 });

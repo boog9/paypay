@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BitcoinWalletSettingsViewModel } from "./_lib/get-wallet-settings";
@@ -17,20 +17,13 @@ vi.mock("next/navigation", () => ({
   redirect: (path: string) => redirectMock(path),
 }));
 
-// Radix dropdowns rely on PointerEvent; JSDOM omits it by default.
-if (!global.PointerEvent) {
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-expect-error
-  global.PointerEvent = MouseEvent;
-}
-
 describe("Bitcoin wallet settings page", () => {
   afterEach(() => {
     getWalletSettingsMock.mockReset();
     redirectMock.mockReset();
   });
 
-  it("renders actions and rescan link when a wallet is connected", async () => {
+  it("renders settings without wallet actions when a wallet is connected", async () => {
     getWalletSettingsMock.mockResolvedValue({
       status: 200,
       data: { hasOnChainPaymentMethod: true, enabled: true } satisfies BitcoinWalletSettingsViewModel,
@@ -45,15 +38,7 @@ describe("Bitcoin wallet settings page", () => {
 
     render(view);
 
-    const button = screen.getByRole("button", { name: /actions/i });
-    expect(button).toBeVisible();
-
-    fireEvent.pointerDown(button);
-    fireEvent.click(button);
-
-    const rescanLink = await screen.findByRole("menuitem", { name: /Rescan wallet/i });
-    expect(rescanLink).toBeVisible();
-    expect(rescanLink).toHaveAttribute("href", "/stores/store-123/wallets/btc/rescan");
+    expect(screen.queryByRole("button", { name: /actions/i })).not.toBeInTheDocument();
   });
 
   it("hides actions when the on-chain wallet is disabled", async () => {

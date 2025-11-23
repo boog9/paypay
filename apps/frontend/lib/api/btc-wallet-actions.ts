@@ -28,20 +28,6 @@ async function assertOk(response: Response): Promise<void> {
   throw new Error(message);
 }
 
-export async function rescanBtcWallet(
-  storeId: string,
-  payload: { startIndex: number; gapLimit: number; batchSize: number }
-): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/rescan`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  await assertOk(response);
-}
-
 export async function pruneBtcWalletHistory(storeId: string): Promise<void> {
   const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/prune-history`, {
     method: "POST"

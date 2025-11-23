@@ -36,12 +36,6 @@ export interface ListTransactionsResult {
   items: unknown[];
 }
 
-interface RescanWalletOptions extends WalletRequestOptions {
-  startIndex?: number;
-  gapLimit?: number;
-  batchSize?: number;
-}
-
 interface StoreContext {
   store: ManagedStoreEntity;
   apiKey: string;
@@ -215,49 +209,6 @@ export class BtcpayWalletService {
     }
 
     throw new InternalServerErrorException('Failed to load on-chain receive address.');
-  }
-
-  /**
-   * Triggers BTCPay Greenfield rescan for the store's on-chain wallet.
-   * Operation: StoreOnChainWallets_RescanWallet
-   */
-  async rescanWallet(
-    storeId: string,
-    cryptoCode: string,
-    options?: RescanWalletOptions
-  ): Promise<void> {
-    const context = await this.prepareStoreContext(storeId, options);
-    const normalizedCryptoCode = this.normalizeCryptoCode(cryptoCode);
-    const path = this.buildWalletRescanPath(context.store.btcpayStoreId, normalizedCryptoCode);
-
-    const startIndex = this.normalizeNonNegativeInt(options?.startIndex, 0);
-    const gapLimit = this.normalizeNonNegativeInt(options?.gapLimit, 10_000);
-    const batchSize = this.normalizePositiveInt(options?.batchSize, 3_000);
-
-    try {
-      this.logger.debug(
-        {
-          storeId: context.store.btcpayStoreId,
-          cryptoCode: normalizedCryptoCode,
-          method: 'POST',
-          path,
-          startIndex,
-          gapLimit,
-          batchSize
-        },
-        'btcpay.wallets.rescan.request'
-      );
-
-      await context.http.post(path, {
-        startIndex,
-        gapLimit,
-        batchSize
-      });
-    } catch (error) {
-      this.handleBtcpayError(error);
-    } finally {
-      context.cleanup();
-    }
   }
 
   /**
@@ -669,11 +620,6 @@ export class BtcpayWalletService {
     const normalizedCode = this.normalizeCryptoCode(cryptoCode);
     const paymentMethodId = normalizePaymentMethodId(normalizedCode, 'chain');
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet`;
-  }
-
-  private buildWalletRescanPath(storeId: string, cryptoCode: string): string {
-    const normalizedCode = this.normalizeCryptoCode(cryptoCode);
-    return `/api/v1/stores/${encodeURIComponent(storeId)}/wallets/${encodeURIComponent(normalizedCode)}/actions/rescan`;
   }
 
   private buildTransactionsPath(storeId: string, cryptoCode: string): string {

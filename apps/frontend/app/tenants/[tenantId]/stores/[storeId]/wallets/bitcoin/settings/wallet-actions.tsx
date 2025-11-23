@@ -39,10 +39,6 @@ export function WalletActions({ tenantId, storeId, enabled }: WalletActionsProps
     setConfirmation("");
   };
 
-  const goToRescan = (): void => {
-    router.push(`/tenants/${tenantId}/stores/${storeId}/wallets/bitcoin/rescan`);
-  };
-
   const withToast = async (label: string, action: () => Promise<void>, success: string): Promise<void> => {
     try {
       setPending(label);
@@ -112,12 +108,6 @@ export function WalletActions({ tenantId, storeId, enabled }: WalletActionsProps
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="z-20 w-72 rounded-md border bg-popover p-1 text-sm shadow-lg" align="end">
-            <DropdownMenu.Item
-              className="cursor-pointer select-none rounded-sm px-3 py-2 outline-none hover:bg-muted"
-              onSelect={goToRescan}
-            >
-              Rescan wallet for missing transactions
-            </DropdownMenu.Item>
             <DropdownMenu.Item
               className="cursor-pointer select-none rounded-sm px-3 py-2 outline-none hover:bg-muted disabled:opacity-50"
               disabled={pending === "prune"}

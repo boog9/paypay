@@ -30,7 +30,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 - BTCPay Greenfield rescan expects the `startIndex` field (not `startingIndex`), with `gapLimit` and `batchSize` matching the swagger payload. Body defaults remain 0/10000/3000.
 - Frontend `@/` alias resolves to the workspace root, so wallet action API helpers need to live under `apps/frontend/lib/**` rather than `apps/frontend/src/lib/**`.
 - Next.js `pnpm --filter frontend build` attempts live fetches to `/api/auth/me` and fails offline with `ENETUNREACH`; builds must be treated as best-effort in CI without BTCPay connectivity.
-- Greenfield 2.2.1 exposes on-chain wallet actions under the standard store policies. Payment method mutations (enable/disable/remove) require `btcpay.store.canmodifypaymentmethods:<STORE_ID>` in addition to the modify/view store permissions.
+- Greenfield 2.2.1 exposes on-chain wallet actions under the standard store policies. Payment method mutations (enable/disable/remove) rely on the store-scoped key with `btcpay.store.canmodifystoresettings:<STORE_ID>` alongside the existing modify/view permissions.
 
 ## Decision Log
 
@@ -39,7 +39,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 
 ## Outcomes & Retrospective
 
-- Wallet routes and UI now normalize the BTC wallet code and handle maintenance actions. The rescan feature described earlier has since been removed; prune, clear, replace, and remove actions remain in scope. Store-scoped API keys include store modify/view permissions and `btcpay.store.canmodifypaymentmethods:<STORE_ID>` to cover wallet maintenance per Greenfield 2.2.1.
+- Wallet routes and UI now normalize the BTC wallet code and handle maintenance actions. The rescan feature described earlier has since been removed; prune, clear, replace, and remove actions remain in scope. Store-scoped API keys include store modify/view permissions plus `btcpay.store.canmodifystoresettings:<STORE_ID>` to cover wallet maintenance per Greenfield 2.2.1, with the remove action issuing `DELETE /api/v1/stores/{storeId}/payment-methods/BTC-CHAIN` (normalized via `normalizePaymentMethodId('BTC')`).
 
 ## Context and Orientation
 
@@ -51,7 +51,7 @@ Backend: NestJS BFF handles BTCPay interactions. Key files:
 Frontend: Next.js App Router under `apps/frontend/app/tenants/[tenantId]/stores/[storeId]/wallets/bitcoin/` has `settings/page.tsx` showing read-only wallet metadata. No Actions dropdown or rescan page exists yet. Shared fetch helper `@/lib/bff-fetch` handles BFF calls. UI components like `Card`, and dropdown/menu primitives likely live under `@/components/ui`.
 New dashboard route: `apps/frontend/app/(dashboard)/(stores)/stores/[storeId]/wallets/btc/settings/page.tsx` renders wallet settings without actions. Supporting view model lives in `_lib/get-wallet-settings.ts` and UI in `_components/wallet-settings-panel.tsx`.
 
-BTCPay: We must use Greenfield API v1 “Store On-Chain Wallets” endpoints for rescan, prune history, clear history, and wallet removal/reset. Operations require store-scoped API keys with minimal permissions; no wallet descriptors or keys may be exposed to the frontend.
+BTCPay: We must use Greenfield API v1 “Store On-Chain Wallets” endpoints for prune/clear plus the normalized payment method delete (`DELETE /api/v1/stores/{storeId}/payment-methods/BTC-CHAIN`) for removal/reset. Operations require store-scoped API keys with minimal permissions including `btcpay.store.canmodifystoresettings:<STORE_ID>`; no wallet descriptors or keys may be exposed to the frontend, and deletion only removes configuration.
 
 ## Plan of Work
 
@@ -99,6 +99,6 @@ BTCPay: We must use Greenfield API v1 “Store On-Chain Wallets” endpoints for
 
 ## Interfaces and Dependencies
 
-- Greenfield API v1 Store On-Chain Wallet endpoints for pruning history, clearing history, and wallet removal/reset.
+- Greenfield API v1 Store On-Chain Wallet endpoints for pruning history, clearing history, and wallet removal/reset via `DELETE /api/v1/stores/{storeId}/payment-methods/BTC-CHAIN`.
 - NestJS controllers/DTOs under `apps/bff/src/wallets` and BTCPay service under `apps/bff/src/btcpay/btcpay.service.ts`.
 - Frontend Next.js App Router pages under both tenant and `(dashboard)/(stores)` paths, plus shared fetch/toast components under `apps/frontend/lib` and `@/components/ui`.

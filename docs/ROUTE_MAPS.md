@@ -36,6 +36,7 @@ The BFF applies the `/api` prefix globally in `apps/bff/src/main.ts`; health pro
 - `POST /api/stores/:storeId/wallets/onchain/preview` runs PSBT preview logic with CSRF protection and throttling.
 - `GET /api/stores/:storeId/wallets/onchain/transactions` lists transactions for on-chain wallets; helper routes under `stores/:storeId/wallets/:cryptoCode` provide overview, UTXO, address, fee rate, and transaction detail endpoints.
 - Legacy compatibility routes (`GET /api/stores/:storeId/wallets/btc/transactions`, `GET /api/stores/:storeId/wallets/btc/overview`) proxy direct Greenfield responses for clients that still expect the historic path layout.
+- Wallet Actions: `POST /api/stores/:storeId/wallets/btc/actions/remove` deletes the BTC on-chain payment method by issuing `DELETE /api/v1/stores/{storeId}/payment-methods/BTC-CHAIN` (via `normalizePaymentMethodId('BTC')`) with the portal-internal key holding `btcpay.store.canmodifystoresettings:<STORE_ID>`. The call removes configuration only and never returns private or extended public keys.
 
 ### Health probes (`apps/bff/src/health.controller.ts`)
 

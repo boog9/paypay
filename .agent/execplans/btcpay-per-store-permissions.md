@@ -4,15 +4,13 @@ This ExecPlan is a living document maintained per .agent/PLANS.md. Update every 
 
 ## Purpose / Big Picture
 
-Ensure the portal's per-store BTCPay API keys include the payment method modification permission required for the "Remove wallet" action on the Bitcoin wallet settings page. After implementing this change, the BFF will be able to delete the on-chain BTC payment method using BTCPay's Greenfield API without 400 errors while keeping the existing key pipeline and security posture intact.
+Ensure the portal's per-store BTCPay API keys advertise the correct store-scoped permissions for the "Remove wallet" action on the Bitcoin wallet settings page. The goal is to rely on `btcpay.store.canmodifystoresettings:<STORE_ID>` (already present on the portal-internal key) rather than introducing extra permissions, while keeping the key pipeline and security posture intact.
 
 ## Progress
 
 - [x] (2025-01-29 10:00Z) Drafted initial ExecPlan describing goal, context, and intended changes.
-- [x] (2025-11-23 17:30Z) Added payment-method modification permission to per-store key builders.
-- [x] (2025-11-23 17:45Z) Updated unit/e2e tests to assert the expanded permission set.
-- [x] (2025-11-23 17:55Z) Refreshed documentation and wallet-settings ExecPlan with the new requirement.
-- [x] (2025-11-23 18:00Z) Ran BFF Jest suite to validate changes and captured outcomes.
+- [x] (2025-11-23 17:56Z) Re-evaluated wallet removal needs and confirmed the portal-internal store key already includes `btcpay.store.canmodifystoresettings:<STORE_ID>` sufficient for deleting the BTC payment method.
+- [x] (2025-11-23 17:57Z) Cleaned up documentation and related exec plans to remove the outdated `btcpay.store.canmodifypaymentmethods` requirement.
 
 ## Surprises & Discoveries
 
@@ -20,17 +18,25 @@ Ensure the portal's per-store BTCPay API keys include the payment method modific
 
 ## Decision Log
 
-- Decision: Reuse `BTCPAY_MINIMAL_PERMISSIONS` for internal store-scoped keys and append `btcpay.store.canmodifypaymentmethods` rather than introducing a new constant, because all current consumers require payment-method mutations and bootstrap/admin scopes remain unchanged.
-  Rationale: Keeps the per-store permission source of truth singular while avoiding over-scoping bootstrap/admin keys.
+- Decision: Continue using the portal-internal store key with `btcpay.store.canmodifystoresettings:<STORE_ID>` (plus invoice/view/webhook permissions) for wallet actions; do not introduce `btcpay.store.canmodifypaymentmethods` because BTCPay 2.2.1 authorizes payment method deletion via store settings.
+  Rationale: Avoids over-scoping keys while keeping the documented permission set aligned with what BTCPay enforces for deleting the BTC payment method.
   Date/Author: 2025-11-23 / Assistant
 
 ## Outcomes & Retrospective
 
-Added `btcpay.store.canmodifypaymentmethods:<STORE_ID>` to the per-store minimal permissions, ensuring wallet removal and other payment-method operations succeed with store-scoped keys. Updated tests confirm the permission is requested during key issuance, and documentation now lists and explains the new requirement. BFF Jest suite passes with the expanded permission set.
+Confirmed the per-store minimal permissions (create/view/modify invoices, modify/view store settings, modify webhooks) already cover deleting the BTC payment method via the "Remove wallet" action. Documentation now reflects the store-settings requirement and no longer references `btcpay.store.canmodifypaymentmethods` for wallet removal.
 
 ## Context and Orientation
 
-The repository is a monorepo with the BFF (NestJS) under apps/bff and documentation under docs/. BTCPay integration code lives in apps/bff/src/btcpay with helpers/constants defining permission sets for generated API keys. Per-store keys are created by the BFF using the admin API key on behalf of each user. The "Remove wallet" action calls a BFF endpoint that deletes the on-chain BTC payment method and currently fails because the store-scoped key lacks `btcpay.store.canmodifypaymentmethods:<STORE_ID>`.
+The repository is a monorepo with the BFF (NestJS) under apps/bff and documentation under docs/. BTCPay integration code lives in apps/bff/src/btcpay with helpers/constants defining permission sets for generated API keys. Per-store keys are created by the BFF using the admin API key on behalf of each user and already carry:
+- `btcpay.store.cancreateinvoice:<STORE_ID>`
+- `btcpay.store.canviewinvoices:<STORE_ID>`
+- `btcpay.store.canmodifyinvoices:<STORE_ID>`
+- `btcpay.store.canmodifystoresettings:<STORE_ID>`
+- `btcpay.store.canviewstoresettings:<STORE_ID>`
+- `btcpay.store.webhooks.canmodifywebhooks:<STORE_ID>`
+
+The "Remove wallet" action calls a BFF endpoint that deletes the on-chain BTC payment method using `DELETE /api/v1/stores/{storeId}/payment-methods/BTC-CHAIN`. The goal is to document that the existing store-settings permission is sufficient and avoid suggesting extra permissions.
 
 Key files to inspect include:
 - apps/bff BTCPay integration services or utilities that assemble permission arrays for per-store keys (e.g., BTCPAY_MINIMAL_PERMISSIONS).
@@ -39,25 +45,25 @@ Key files to inspect include:
 
 ## Plan of Work
 
-1. Locate the per-store key creation logic in the BFF. Identify the constant or function assembling the minimal permission list. Add `btcpay.store.canmodifypaymentmethods:<STORE_ID>` to the internal store-scoped permission set. If the existing minimal constant is shared with contexts that must remain mutation-limited, introduce a new constant specific to internal per-store keys and use it in the key issuance flow.
-2. Update or add unit tests to verify the generated permission list includes the new payment-method modification permission alongside the existing store-scoped permissions.
-3. Revise documentation that explains the key issuance pipeline and sample permission lists to include the new permission and its purpose (enabling payment method operations such as removing the on-chain wallet without exposing keys). Update .agent/execplans/bitcoin-wallet-settings.md if it enumerates required permissions for the wallet settings actions.
-4. Run relevant test suites to confirm the change and update this plan's Progress, Decision Log, and Outcomes sections accordingly.
+1. Audit per-store key creation logic in the BFF to ensure the minimal permission list remains limited to invoices, store settings (modify/view), and webhook modification without adding payment-method-specific scopes.
+2. Verify tests or fixtures that assert permission sets remain accurate with `btcpay.store.canmodifystoresettings:<STORE_ID>` as the authority for deleting BTC payment methods.
+3. Revise documentation that explains the key issuance pipeline and wallet actions to remove references to `btcpay.store.canmodifypaymentmethods` and highlight the normalized delete endpoint using the existing portal-internal key.
+4. Run relevant test suites to confirm no regressions and update this plan's Progress, Decision Log, and Outcomes sections accordingly.
 
 ## Concrete Steps
 
 - Work from repository root `/workspace/paypay`.
-- Inspect apps/bff BTCPay key generation utilities to adjust permission constants and usage.
-- Modify or add unit tests under apps/bff or shared test directories to assert the new permission.
+- Inspect apps/bff BTCPay key generation utilities to ensure permission constants stay minimal and store-scoped.
+- Update or add unit tests under apps/bff or shared test directories to assert the expected store permissions (including store settings) without extra scopes.
 - Update documentation under docs/ and the existing wallet settings ExecPlan as needed.
 - Run targeted tests (e.g., `pnpm test --filter bff` or specific package tests) to validate changes.
 
 ## Validation and Acceptance
 
-- Generating a per-store key for a given STORE_ID produces a permissions array containing all prior entries plus `btcpay.store.canmodifypaymentmethods:<STORE_ID>`.
-- The BFF can successfully call the remove-wallet BTCPay endpoint using the per-store key without 400 errors (covered by permission addition).
-- Unit tests covering permission generation pass and confirm the new permission is present.
-- Documentation reflects the updated permission requirement and clarifies security boundaries (no exposure of xpubs/private keys).
+- Generating a per-store key for a given STORE_ID produces a permissions array containing invoice create/view/modify, store settings modify/view, and webhook modification entries—no extra payment-method scope—and continues to authorize BTC payment method deletion.
+- The BFF can successfully call the remove-wallet BTCPay endpoint using the per-store key without 400 errors (authorized by `btcpay.store.canmodifystoresettings:<STORE_ID>`).
+- Unit tests covering permission generation (where present) pass and confirm the expected permission set.
+- Documentation reflects the store-settings requirement and clarifies that removal deletes configuration only, not wallet secrets.
 
 ## Idempotence and Recovery
 

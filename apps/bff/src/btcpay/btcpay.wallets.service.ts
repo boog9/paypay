@@ -268,6 +268,7 @@ export class BtcpayWalletService {
   /**
    * Removes the on-chain wallet configuration from BTCPay.
    * Operation: StoreOnChainWallets_DeleteOnChainWallet
+   * Endpoint: DELETE /api/v1/stores/{storeId}/payment-methods/{paymentMethodId}
    */
   async removeWallet(
     storeId: string,
@@ -275,7 +276,7 @@ export class BtcpayWalletService {
     options?: WalletRequestOptions
   ): Promise<void> {
     const context = await this.prepareStoreContext(storeId, options);
-    const path = this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode);
+    const path = this.buildPaymentMethodPath(context.store.btcpayStoreId, cryptoCode);
 
     try {
       await context.http.delete(path);
@@ -620,6 +621,12 @@ export class BtcpayWalletService {
     const normalizedCode = this.normalizeCryptoCode(cryptoCode);
     const paymentMethodId = normalizePaymentMethodId(normalizedCode, 'chain');
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet`;
+  }
+
+  private buildPaymentMethodPath(storeId: string, cryptoCode: string): string {
+    const normalizedCode = this.normalizeCryptoCode(cryptoCode);
+    const paymentMethodId = normalizePaymentMethodId(normalizedCode, 'chain');
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}`;
   }
 
   private buildTransactionsPath(storeId: string, cryptoCode: string): string {

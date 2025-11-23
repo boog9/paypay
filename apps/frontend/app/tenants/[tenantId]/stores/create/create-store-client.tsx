@@ -9,6 +9,7 @@ const REQUIRED_PERMISSIONS = [
   "btcpay.store.cancreateinvoice",
   "btcpay.store.canviewinvoices",
   "btcpay.store.canmodifyinvoices",
+  "btcpay.store.canmodifypaymentmethods",
   "btcpay.store.canviewstoresettings",
   "btcpay.store.webhooks.canmodifywebhooks"
 ];

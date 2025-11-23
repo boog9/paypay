@@ -6,15 +6,10 @@ import { ToastProvider } from "../../../../../../../../components/ui/toast";
 import { ReceiveClient } from "./receive-client";
 import type { useBtcReceiveAddress, useBtcReservedAddresses } from "@/lib/hooks/use-btc-receive";
 
-const mockUseReceive = vi.fn<ReturnType<typeof useBtcReceiveAddress>, Parameters<typeof useBtcReceiveAddress>>();
-const mockUseReserved = vi.fn<
-  ReturnType<typeof useBtcReservedAddresses>,
-  Parameters<typeof useBtcReservedAddresses>
->();
-const mockedUseBtcReceiveAddress: typeof useBtcReceiveAddress = (...args) =>
-  mockUseReceive(...args) as ReturnType<typeof useBtcReceiveAddress>;
-const mockedUseBtcReservedAddresses: typeof useBtcReservedAddresses = (...args) =>
-  mockUseReserved(...args) as ReturnType<typeof useBtcReservedAddresses>;
+const mockUseReceive = vi.fn<typeof useBtcReceiveAddress>();
+const mockUseReserved = vi.fn<typeof useBtcReservedAddresses>();
+const mockedUseBtcReceiveAddress: typeof useBtcReceiveAddress = (...args) => mockUseReceive(...args);
+const mockedUseBtcReservedAddresses: typeof useBtcReservedAddresses = (...args) => mockUseReserved(...args);
 const mockGenerate = vi.fn();
 const mockToast = { toast: vi.fn() };
 
@@ -52,7 +47,7 @@ describe("ReceiveClient", () => {
       isFetching: false,
       generate: mockGenerate,
       isGenerating: false,
-    });
+    } as unknown as ReturnType<typeof useBtcReceiveAddress>);
 
     mockUseReserved.mockReturnValue({
       data: { items: [] },
@@ -60,7 +55,7 @@ describe("ReceiveClient", () => {
       error: null,
       refetch: vi.fn(),
       isFetching: false,
-    });
+    } as unknown as ReturnType<typeof useBtcReservedAddresses>);
   });
 
   it("renders receive header and QR placeholder", () => {

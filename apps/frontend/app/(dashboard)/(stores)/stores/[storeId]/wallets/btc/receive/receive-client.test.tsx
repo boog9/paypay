@@ -4,15 +4,23 @@ import { vi } from "vitest";
 
 import { ToastProvider } from "../../../../../../../../components/ui/toast";
 import { ReceiveClient } from "./receive-client";
+import type { useBtcReceiveAddress, useBtcReservedAddresses } from "@/lib/hooks/use-btc-receive";
 
-const mockUseReceive = vi.fn();
-const mockUseReserved = vi.fn();
+const mockUseReceive = vi.fn<ReturnType<typeof useBtcReceiveAddress>, Parameters<typeof useBtcReceiveAddress>>();
+const mockUseReserved = vi.fn<
+  ReturnType<typeof useBtcReservedAddresses>,
+  Parameters<typeof useBtcReservedAddresses>
+>();
+const mockedUseBtcReceiveAddress: typeof useBtcReceiveAddress = (...args) =>
+  mockUseReceive(...args) as ReturnType<typeof useBtcReceiveAddress>;
+const mockedUseBtcReservedAddresses: typeof useBtcReservedAddresses = (...args) =>
+  mockUseReserved(...args) as ReturnType<typeof useBtcReservedAddresses>;
 const mockGenerate = vi.fn();
 const mockToast = { toast: vi.fn() };
 
 vi.mock("@/lib/hooks/use-btc-receive", () => ({
-  useBtcReceiveAddress: (...args: unknown[]) => mockUseReceive(...args),
-  useBtcReservedAddresses: (...args: unknown[]) => mockUseReserved(...args),
+  useBtcReceiveAddress: mockedUseBtcReceiveAddress,
+  useBtcReservedAddresses: mockedUseBtcReservedAddresses,
 }));
 
 vi.mock("../../../../../../../../components/ui/toast", () => ({
@@ -72,7 +80,7 @@ describe("ReceiveClient", () => {
     expect(screen.getByText("bitcoin:tb1qexampleaddress0000000001")).toBeInTheDocument();
   });
 
-  it("calls generate when clicking the button", async () => {
+  it("calls generate when clicking the button", () => {
     renderWithProviders(<ReceiveClient storeId="store-123" hasWallet={true} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Generate another address/i }));

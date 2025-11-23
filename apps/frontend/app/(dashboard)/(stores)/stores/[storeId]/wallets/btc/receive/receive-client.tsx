@@ -63,32 +63,34 @@ export function ReceiveClient({ storeId, hasWallet }: ReceiveClientProps) {
   const hasReceiveError = !!receiveQuery.error && !loadingReceive;
   const noWallet = !hasWallet || receiveErrorStatus === 404;
 
-  const handleCopy = async (value: string | null) => {
+  const handleCopy = (value: string | null) => {
     if (!value) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-        toast({ title: "Copied", description: "Value copied to clipboard" });
-      }
-    } catch (error) {
-      console.warn("Failed to copy value", error);
-      toast({
-        title: "Copy failed",
-        description: "Unable to write to clipboard. Please copy manually.",
-        variant: "destructive",
+    if (!navigator.clipboard?.writeText) return;
+
+    navigator.clipboard
+      .writeText(value)
+      .then(() => toast({ title: "Copied", description: "Value copied to clipboard" }))
+      .catch((error) => {
+        console.warn("Failed to copy value", error);
+        toast({
+          title: "Copy failed",
+          description: "Unable to write to clipboard. Please copy manually.",
+          variant: "destructive",
+        });
       });
-    }
   };
 
-  const handleGenerate = async () => {
-    try {
-      await receiveQuery.generate();
-      setMode("address");
-      toast({ title: "New address", description: "A new receive address was generated." });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to generate a new address.";
-      toast({ title: "Unable to generate", description: message, variant: "destructive" });
-    }
+  const handleGenerate = () => {
+    void (async () => {
+      try {
+        await receiveQuery.generate();
+        setMode("address");
+        toast({ title: "New address", description: "A new receive address was generated." });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to generate a new address.";
+        toast({ title: "Unable to generate", description: message, variant: "destructive" });
+      }
+    })();
   };
 
   const renderNoWallet = () => (
@@ -158,7 +160,7 @@ export function ReceiveClient({ storeId, hasWallet }: ReceiveClientProps) {
                 ? "You do not have access to this store."
                 : "Unable to load your receive address. Please try again."}
             </p>
-            <Button onClick={() => receiveQuery.refetch()} disabled={receiveQuery.isFetching}>
+            <Button onClick={() => void receiveQuery.refetch()} disabled={receiveQuery.isFetching}>
               {receiveQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Retry
             </Button>
@@ -229,7 +231,7 @@ export function ReceiveClient({ storeId, hasWallet }: ReceiveClientProps) {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={handleGenerate} disabled={receiveQuery.isGenerating}>
+            <Button onClick={() => handleGenerate()} disabled={receiveQuery.isGenerating}>
               {receiveQuery.isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Generate another address
             </Button>
@@ -278,7 +280,7 @@ export function ReceiveClient({ storeId, hasWallet }: ReceiveClientProps) {
                 ? "You do not have access to this store."
                 : "Unable to load reserved addresses."}
             </p>
-            <Button onClick={() => reservedQuery.refetch()} disabled={reservedQuery.isFetching}>
+            <Button onClick={() => void reservedQuery.refetch()} disabled={reservedQuery.isFetching}>
               {reservedQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Retry
             </Button>

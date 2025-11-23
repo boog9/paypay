@@ -1,5 +1,5 @@
-import { UnprocessableEntityException } from '@nestjs/common';
-import axios, { AxiosError, AxiosInstance } from 'axios';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import { Repository } from 'typeorm';
 import { ManagedStoreEntity } from '../src/stores/managed-store.entity';
 import { EnvelopeEncryptionService } from '../src/security/envelope-encryption.service';
@@ -68,6 +68,24 @@ describe('BtcpayWalletService', () => {
     return new BtcpayWalletService(repository, encryptionService, btcpayService);
   }
 
+  function buildAxiosError(overrides: Partial<AxiosError>): AxiosError {
+    const { config, response, ...rest } = overrides;
+    const mergedConfig = config ? { headers: {}, ...(config as object) } : { headers: {} };
+    const mergedResponse = response
+      ? { ...response, config: { headers: {}, ...(response.config as object) } }
+      : undefined;
+
+    return {
+      isAxiosError: true,
+      toJSON: () => ({}),
+      config: mergedConfig as AxiosError['config'],
+      name: 'AxiosError',
+      message: 'Request failed',
+      ...rest,
+      response: mergedResponse
+    } as AxiosError;
+  }
+
   it('lists transactions with query parameters', async () => {
     const items = [{ transactionHash: 'abcd' }];
     const getMock = jest.fn().mockResolvedValue({ data: items });
@@ -114,21 +132,30 @@ describe('BtcpayWalletService', () => {
     );
   });
 
+  it('uppercases cryptoCode when building wallet paths', async () => {
+    const getMock = jest.fn().mockResolvedValue({ data: { address: 'tb1qexample' } });
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
+
+    const service = buildService();
+
+    await service.getReceiveAddress(store.btcpayStoreId, 'btc', { store });
+
+    expect(getMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/payment-methods/BTC-CHAIN/wallet/address'
+    );
+  });
+
   it('maps error responses to framework exceptions', async () => {
-    const error: AxiosError = {
-      isAxiosError: true,
-      toJSON: () => ({}),
-      config: {},
-      name: 'AxiosError',
+    const error = buildAxiosError({
       message: 'Validation failed',
       response: {
         status: 422,
         data: { message: 'Validation failed' },
         statusText: 'Unprocessable',
         headers: {},
-        config: {}
+        config: { headers: {} as AxiosRequestHeaders }
       }
-    } as AxiosError;
+    });
 
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: jest.fn().mockRejectedValue(error) }));
 
@@ -188,20 +215,16 @@ describe('BtcpayWalletService', () => {
   });
 
   it('returns hasWallet=false when BTCPay responds with 404', async () => {
-    const error: AxiosError = {
-      isAxiosError: true,
-      toJSON: () => ({}),
-      config: {},
-      name: 'AxiosError',
+    const error = buildAxiosError({
       message: 'Wallet not found',
       response: {
         status: 404,
         data: { message: 'Wallet not found' },
         headers: {},
         statusText: 'Not Found',
-        config: {}
+        config: { headers: {} as AxiosRequestHeaders }
       }
-    } as AxiosError;
+    });
 
     const getMock = jest.fn().mockRejectedValue(error);
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
@@ -213,20 +236,16 @@ describe('BtcpayWalletService', () => {
   });
 
   it('rethrows non-404 errors from wallet overview', async () => {
-    const error: AxiosError = {
-      isAxiosError: true,
-      toJSON: () => ({}),
-      config: {},
-      name: 'AxiosError',
+    const error = buildAxiosError({
       message: 'Forbidden',
       response: {
         status: 403,
         data: { message: 'Forbidden' },
         headers: {},
         statusText: 'Forbidden',
-        config: {}
+        config: { headers: {} as AxiosRequestHeaders }
       }
-    } as AxiosError;
+    });
 
     const getMock = jest.fn().mockRejectedValue(error);
     mockedAxios.create.mockReturnValue(mockAxiosInstance({ get: getMock }));
@@ -236,5 +255,35 @@ describe('BtcpayWalletService', () => {
     await expect(
       service.getOnchainWalletOverview(store.btcpayStoreId, 'btc', { store })
     ).rejects.toHaveProperty('status', 403);
+  });
+
+  it('maps wallet-specific 404 responses to a dedicated error', async () => {
+    const error = buildAxiosError({
+      config: {
+        url: '/api/v1/stores/store-123/wallets/BTC/actions/rescan',
+        method: 'post',
+        headers: {} as AxiosRequestHeaders
+      },
+      response: {
+        status: 404,
+        data: { code: 'wallet-not-found', message: 'Wallet not found' },
+        headers: {},
+        statusText: 'Not Found',
+        config: { headers: {} as AxiosRequestHeaders }
+      }
+    });
+
+    const postMock = jest.fn().mockRejectedValue(error);
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await expect(
+      service.rescanWallet(store.btcpayStoreId, 'btc', { store })
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.rescanWallet(store.btcpayStoreId, 'btc', { store })
+    ).rejects.toHaveProperty('message', 'On-chain wallet not found or not configured in BTCPay.');
   });
 });

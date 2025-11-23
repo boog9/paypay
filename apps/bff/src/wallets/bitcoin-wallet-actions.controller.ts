@@ -53,7 +53,7 @@ export class BitcoinWalletActionsController {
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.rescanWallet(store.id, normalizedWalletCode, {
+    await this.btcpayWallets.rescanWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, {
       store,
       startIndex: dto.startIndex,
       gapLimit: dto.gapLimit,
@@ -72,7 +72,7 @@ export class BitcoinWalletActionsController {
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.pruneWalletTransactions(store.id, normalizedWalletCode, { store });
+    await this.btcpayWallets.pruneWalletTransactions(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -86,7 +86,7 @@ export class BitcoinWalletActionsController {
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.clearWalletTransactions(store.id, normalizedWalletCode, { store });
+    await this.btcpayWallets.clearWalletTransactions(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -102,7 +102,7 @@ export class BitcoinWalletActionsController {
     void _body;
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.replaceWallet(store.id, normalizedWalletCode, { store });
+    await this.btcpayWallets.replaceWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -118,7 +118,7 @@ export class BitcoinWalletActionsController {
     void _body;
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.removeWallet(store.id, normalizedWalletCode, { store });
+    await this.btcpayWallets.removeWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 

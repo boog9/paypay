@@ -75,7 +75,7 @@ describe('BitcoinWalletActionsController', () => {
       .expect(202)
       .expect({ status: 'ok' });
 
-    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.id, 'btc', {
+    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', {
       store,
       startIndex: 0,
       gapLimit: 100,
@@ -92,7 +92,7 @@ describe('BitcoinWalletActionsController', () => {
       .expect(202)
       .expect({ status: 'ok' });
 
-    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.id, 'btc', {
+    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', {
       store,
       startIndex: 0,
       gapLimit: 100,
@@ -117,7 +117,7 @@ describe('BitcoinWalletActionsController', () => {
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.pruneWalletTransactions).toHaveBeenCalledWith(store.id, 'btc', { store });
+    expect(wallets.pruneWalletTransactions).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', { store });
   });
 
   it('clears history', async () => {
@@ -128,7 +128,7 @@ describe('BitcoinWalletActionsController', () => {
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.clearWalletTransactions).toHaveBeenCalledWith(store.id, 'btc', { store });
+    expect(wallets.clearWalletTransactions).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', { store });
   });
 
   it('replaces wallet', async () => {
@@ -140,7 +140,7 @@ describe('BitcoinWalletActionsController', () => {
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.replaceWallet).toHaveBeenCalledWith(store.id, 'btc', { store });
+    expect(wallets.replaceWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', { store });
   });
 
   it('removes wallet', async () => {
@@ -152,6 +152,6 @@ describe('BitcoinWalletActionsController', () => {
       .expect(200)
       .expect({ status: 'ok' });
 
-    expect(wallets.removeWallet).toHaveBeenCalledWith(store.id, 'btc', { store });
+    expect(wallets.removeWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', { store });
   });
 });

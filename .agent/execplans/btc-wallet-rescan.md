@@ -13,11 +13,13 @@ The BTC wallet rescan button currently fails with “BTCPay request failed” be
 - [x] (2025-11-23 12:39Z) Updated BFF wallet action routes to accept the BTC wallet code and forward it to the service.
 - [x] (2025-11-23 12:43Z) Pointed `rescanWallet` to the BTCPay wallet actions endpoint while keeping parameter normalization.
 - [x] (2025-11-23 12:22Z) Added coverage for rescan routing/BTCPay path and ran frontend and BFF test suites.
+- [x] (2025-11-23 14:35Z) Added BTCPay wallet debug logging, wallet-not-found handling, and aligned controller calls/tests on BTCPay store IDs with wallet permission notes.
 
 ## Surprises & Discoveries
 
 - Vitest treats async page components as suspending client components when rendered directly; wrapping `RescanPage` rendering in act with awaited params avoids the "async Client Component" warning.
 - Radix dropdown behavior in tests required a lightweight mock to expose menu items without portal interaction so wallet action assertions could exercise the correct handlers.
+- The 2.2.1 Greenfield sources only expose wallet actions under store modify/view policies; there are no wallet-specific permission strings beyond `btcpay.store.canmodifystoresettings` and `btcpay.store.canviewstoresettings`.
 
 ## Decision Log
 
@@ -27,10 +29,13 @@ The BTC wallet rescan button currently fails with “BTCPay request failed” be
 - Decision: Mock Radix dropdown menu primitives in tenant wallet action tests to avoid nested button markup and to trigger `onSelect` handlers deterministically.
   Rationale: The real primitives rely on portal/pointer interactions that were leaving menu items hidden in JSDOM, blocking assertions about downstream callbacks.
   Date/Author: 2025-11-23 / Assistant
+- Decision: Keep wallet maintenance permissions scoped to store modify/view policies because Greenfield 2.2.1 does not define wallet-specific permission identifiers.
+  Rationale: Greenfield controllers guard wallet endpoints with store-setting policies only; introducing custom permissions would diverge from BTCPay’s policy set.
+  Date/Author: 2025-11-23 / Assistant
 
 ## Outcomes & Retrospective
 
-- To be completed after implementation.
+- Rescan requests now log sanitized debug context and map BTCPay wallet-specific 404s to a clear `NotFoundException`, while controllers consistently pass BTCPay store IDs. Wallet permissions remain limited to store modify/view scopes per Greenfield 2.2.1.
 
 ## Context and Orientation
 

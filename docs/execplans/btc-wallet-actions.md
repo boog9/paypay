@@ -14,15 +14,19 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 - [x] Add rescan wallet page with form and behaviour.
 - [x] Update/expand tests for UI interactions and endpoint behaviour.
 - [x] Run test suite and finalize documentation/cleanup.
+- [x] (2025-11-18 14:10Z) Reopened plan to enforce BTC wallet code normalization ("bitcoin" → "btc") and update frontend calls to use `/wallets/btc/...` consistently; began implementation.
+- [x] (2025-11-18 14:50Z) Verified frontend routes use the BTC wallet code helper and added BFF wallet code normalization with back-compat tests; test suites executed.
 
 ## Surprises & Discoveries
 
 - BTCPay Greenfield rescan expects the `startIndex` field (not `startingIndex`), with `gapLimit` and `batchSize` matching the swagger payload. Body defaults remain 0/10000/3000.
 - Frontend `@/` alias resolves to the workspace root, so wallet action API helpers need to live under `apps/frontend/lib/**` rather than `apps/frontend/src/lib/**`.
+- Next.js `pnpm --filter frontend build` attempts live fetches to `/api/auth/me` and fails offline with `ENETUNREACH`; builds must be treated as best-effort in CI without BTCPay connectivity.
 
 ## Decision Log
 
 - Decision: Treat Actions dropdown and rescan page as additions to existing tenant-scoped wallet pages under `apps/frontend/app/tenants/[tenantId]/stores/[storeId]/wallets/bitcoin/`. Rationale: aligns with current routing structure for wallet settings. Date/Author: 2025-03-05 / Assistant.
+- Decision: Normalize `walletCode` in the BFF controller to accept `btc` or `bitcoin` but forward `btc`, while updating frontend helpers to always call `/wallets/btc/actions/...`. Rationale: prevent BTCPay 404s from legacy client calls and enforce canonical BTC routing. Date/Author: 2025-11-18 / Assistant.
 
 ## Outcomes & Retrospective
 
@@ -72,6 +76,7 @@ BTCPay: We must use Greenfield API v1 “Store On-Chain Wallets” endpoints for
 - Implement backend service methods and controller routes; update module wiring as needed.
 - Implement frontend API helpers and UI changes (Actions dropdown, modals, rescan page) using existing components and routing.
 - Add tests and run `pnpm test` (or targeted packages) to validate.
+- Enforce canonical BTC wallet code usage (`btc`) across frontend API calls and normalize legacy `bitcoin` codes in the backend controller to keep BTCPay requests targeting `/wallets/BTC/...`.
 
 ## Validation and Acceptance
 

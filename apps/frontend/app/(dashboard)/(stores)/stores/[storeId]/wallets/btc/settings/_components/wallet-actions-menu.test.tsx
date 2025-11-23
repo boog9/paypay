@@ -1,24 +1,41 @@
+import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { WalletActionsMenu } from "./wallet-actions-menu";
 
-const { push, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWallet, removeBtcWallet } = vi.hoisted(() => ({
-  push: vi.fn(),
-  toast: vi.fn(),
-  pruneBtcWalletHistory: vi.fn(),
-  clearBtcWalletHistory: vi.fn(),
-  replaceBtcWallet: vi.fn(),
-  removeBtcWallet: vi.fn(),
-}));
+const { push, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWallet, removeBtcWallet } = vi.hoisted(() => {
+  const pushMock = vi.fn<[string], void>();
+  const toastMock = vi.fn<[
+    {
+      title: string;
+      description?: string;
+      variant?: string;
+    }
+  ], void>();
+  const pruneBtcWalletHistoryMock = vi.fn<[string], Promise<void>>();
+  const clearBtcWalletHistoryMock = vi.fn<[string], Promise<void>>();
+  const replaceBtcWalletMock = vi.fn<[string], Promise<void>>();
+  const removeBtcWalletMock = vi.fn<[string], Promise<void>>();
+
+  return {
+    push: pushMock,
+    toast: toastMock,
+    pruneBtcWalletHistory: pruneBtcWalletHistoryMock,
+    clearBtcWalletHistory: clearBtcWalletHistoryMock,
+    replaceBtcWallet: replaceBtcWalletMock,
+    removeBtcWallet: removeBtcWalletMock,
+  };
+});
 
 vi.mock("@radix-ui/react-dropdown-menu", () => {
-  const React = require("react");
   type DropdownItemProps = React.ComponentProps<"button"> & { onSelect?: (event: Event) => void };
-  return {
+  const dropdownMenu = {
     Root: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Trigger: ({ children, asChild, ...props }: React.ComponentProps<"button"> & { asChild?: boolean }) =>
-      asChild && React.isValidElement(children) ? React.cloneElement(children, props) : (
+      asChild && React.isValidElement(children) ? (
+        React.cloneElement(children, props)
+      ) : (
         <button type="button" {...props}>
           {children}
         </button>
@@ -31,14 +48,16 @@ vi.mock("@radix-ui/react-dropdown-menu", () => {
         type="button"
         {...props}
         onClick={(event) => {
-          onSelect?.(event as unknown as Event);
+          onSelect?.(event);
           onClick?.(event);
         }}
       >
         {children}
       </button>
     ),
-  } as unknown as typeof import("@radix-ui/react-dropdown-menu");
+  } satisfies typeof import("@radix-ui/react-dropdown-menu");
+
+  return dropdownMenu;
 });
 
 vi.mock("next/navigation", () => ({
@@ -50,10 +69,10 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 vi.mock("@/lib/api/btc-wallet-actions", () => ({
-  pruneBtcWalletHistory: (...args: unknown[]) => pruneBtcWalletHistory(...args),
-  clearBtcWalletHistory: (...args: unknown[]) => clearBtcWalletHistory(...args),
-  replaceBtcWallet: (...args: unknown[]) => replaceBtcWallet(...args),
-  removeBtcWallet: (...args: unknown[]) => removeBtcWallet(...args),
+  pruneBtcWalletHistory,
+  clearBtcWalletHistory,
+  replaceBtcWallet,
+  removeBtcWallet,
 }));
 
 describe("WalletActionsMenu", () => {
@@ -63,9 +82,9 @@ describe("WalletActionsMenu", () => {
     vi.clearAllMocks();
   });
 
-  const openMenu = async (): Promise<void> => {
+  const openMenu = (): void => {
     const trigger = screen.getByRole("button", { name: /actions/i });
-    await act(async () => {
+    act(() => {
       fireEvent.pointerDown(trigger);
       fireEvent.click(trigger);
     });
@@ -76,12 +95,12 @@ describe("WalletActionsMenu", () => {
     clearBtcWalletHistory.mockResolvedValue(undefined);
 
     render(<WalletActionsMenu {...props} />);
-    await openMenu();
+    openMenu();
 
     fireEvent.click(await screen.findByRole("menuitem", { name: /Prune old transactions/i }));
     await waitFor(() => expect(pruneBtcWalletHistory).toHaveBeenCalledWith("store-123"));
 
-    await openMenu();
+    openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: /Clear all transactions/i }));
     await waitFor(() => expect(clearBtcWalletHistory).toHaveBeenCalledWith("store-123"));
   });
@@ -91,7 +110,7 @@ describe("WalletActionsMenu", () => {
     removeBtcWallet.mockResolvedValue(undefined);
 
     render(<WalletActionsMenu {...props} />);
-    await openMenu();
+    openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: /Replace wallet/i }));
 
     const replaceButton = screen.getByRole("button", { name: /Replace wallet/i });
@@ -102,7 +121,7 @@ describe("WalletActionsMenu", () => {
     fireEvent.click(replaceButton);
     await waitFor(() => expect(replaceBtcWallet).toHaveBeenCalledWith("store-123"));
 
-    await openMenu();
+    openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: /Remove wallet/i }));
     const removeButton = screen.getByRole("button", { name: /Remove wallet/i });
     fireEvent.change(screen.getByPlaceholderText(/REMOVE/), { target: { value: "REMOVE" } });

@@ -76,14 +76,13 @@ export function WalletActionsMenu({ storeId, actions, error }: WalletActionsMenu
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Action failed";
       toast({ title: "Action failed", description: message, variant: "destructive" });
-      // eslint-disable-next-line no-console
       console.error(caught);
     } finally {
       setPending(null);
     }
   };
 
-  const handleImmediateAction = (actionId: Exclude<WalletActionId, ConfirmableAction>): void => {
+  const handleImmediateAction = (actionId: WalletActionId): void => {
     if (actionId === "prune-history") {
       void withToast(
         actionId,
@@ -152,11 +151,14 @@ export function WalletActionsMenu({ storeId, actions, error }: WalletActionsMenu
                   key={action}
                   className="cursor-pointer select-none rounded-sm px-3 py-2 outline-none hover:bg-muted disabled:opacity-50"
                   disabled={pending === action}
-                  onSelect={() =>
-                    requiresConfirmation
-                      ? openConfirm(action)
-                      : handleImmediateAction(action as Exclude<WalletActionId, ConfirmableAction>)
-                  }
+                  onSelect={() => {
+                    if (requiresConfirmation) {
+                      openConfirm(action);
+                      return;
+                    }
+
+                    handleImmediateAction(action);
+                  }}
                 >
                   <span className={isDangerous ? "text-destructive" : undefined}>{label}</span>
                 </DropdownMenu.Item>
@@ -169,7 +171,9 @@ export function WalletActionsMenu({ storeId, actions, error }: WalletActionsMenu
       <ConfirmDangerDialog
         open={confirmAction === "replace"}
         onCancel={resetConfirmation}
-        onConfirm={handleConfirm}
+        onConfirm={() => {
+          void handleConfirm();
+        }}
         value={confirmation}
         onValueChange={setConfirmation}
         keyword="REPLACE"
@@ -192,7 +196,9 @@ export function WalletActionsMenu({ storeId, actions, error }: WalletActionsMenu
       <ConfirmDangerDialog
         open={confirmAction === "remove"}
         onCancel={resetConfirmation}
-        onConfirm={handleConfirm}
+        onConfirm={() => {
+          void handleConfirm();
+        }}
         value={confirmation}
         onValueChange={setConfirmation}
         keyword="REMOVE"

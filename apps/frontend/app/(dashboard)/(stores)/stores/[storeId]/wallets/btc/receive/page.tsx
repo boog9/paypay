@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { Card, CardContent, CardHeader, CardTitle } from "../../../../../../../../components/ui/card";
 import { getWalletPresence } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
 import type { WalletPresenceResult } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
+import { ReceiveClient } from "./receive-client";
 
 export const metadata: Metadata = {
   title: "BTC wallet receive",
@@ -13,7 +13,7 @@ type PageProps = {
   params: Promise<{ storeId: string }>;
 };
 
-export default async function WalletReceivePlaceholder({ params }: PageProps) {
+export default async function WalletReceivePage({ params }: PageProps) {
   const { storeId } = await params;
   const normalizedStoreId = typeof storeId === "string" ? storeId.trim() : "";
 
@@ -36,14 +36,7 @@ export default async function WalletReceivePlaceholder({ params }: PageProps) {
     redirect(dashboardPath);
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Receive (coming soon)</CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        This section will show your next on-chain receiving address and QR codes once the feature is available.
-      </CardContent>
-    </Card>
-  );
+  const hasWallet = presence.status === 200 ? presence.hasWallet : false;
+
+  return <ReceiveClient storeId={normalizedStoreId} hasWallet={hasWallet} />;
 }

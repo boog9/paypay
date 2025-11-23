@@ -36,6 +36,32 @@ export interface ListTransactionsResult {
   items: unknown[];
 }
 
+export interface WalletReceiveAddress {
+  address: string;
+  paymentLink: string;
+  reservedAt?: string;
+  isPayjoinEnabled?: boolean;
+}
+
+export interface WalletReservedAddress {
+  address: string;
+  label?: string;
+  reservedAt?: string;
+}
+
+interface ReceiveAddressOptions {
+  store: ManagedStoreEntity;
+  walletCode: string;
+  forceGenerate?: boolean;
+}
+
+interface ListReservedAddressesOptions {
+  store: ManagedStoreEntity;
+  walletCode: string;
+  take?: number;
+  skip?: number;
+}
+
 interface StoreContext {
   store: ManagedStoreEntity;
   apiKey: string;
@@ -211,6 +237,59 @@ export class BtcpayWalletService {
     throw new InternalServerErrorException('Failed to load on-chain receive address.');
   }
 
+  async getNextReceiveAddress(options: ReceiveAddressOptions): Promise<WalletReceiveAddress> {
+    const walletCode = this.normalizeCryptoCode(options.walletCode);
+    const context = await this.prepareStoreContext(options.store.btcpayStoreId ?? options.store.id, {
+      store: options.store
+    });
+
+    const params = options.forceGenerate ? { forceGenerate: true } : undefined;
+
+    try {
+      const response = await context.http.get(
+        this.buildAddressPath(context.store.btcpayStoreId ?? context.store.id, walletCode),
+        params ? { params } : undefined
+      );
+      return this.normalizeReceiveAddressResponse(response.data);
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    throw new InternalServerErrorException('Failed to load on-chain receive address.');
+  }
+
+  async listReservedAddresses(
+    options: ListReservedAddressesOptions
+  ): Promise<{ items: WalletReservedAddress[]; total?: number }> {
+    const walletCode = this.normalizeCryptoCode(options.walletCode);
+    const context = await this.prepareStoreContext(options.store.btcpayStoreId ?? options.store.id, {
+      store: options.store
+    });
+
+    const params = { type: 'address', includeNeighbourData: false } as const;
+
+    try {
+      const response = await context.http.get(
+        this.buildWalletObjectsPath(context.store.btcpayStoreId ?? context.store.id, walletCode),
+        { params }
+      );
+      const normalized = this.normalizeReservedAddressesResponse(response.data);
+      const skip = this.normalizeNonNegativeInt(options.skip, 0);
+      const take = options.take ? this.normalizePositiveInt(options.take, normalized.items.length || 25) : null;
+      const items = take ? normalized.items.slice(skip, skip + take) : normalized.items.slice(skip);
+      const total = normalized.total ?? normalized.items.length;
+      return { items, total };
+    } catch (error) {
+      this.handleBtcpayError(error);
+    } finally {
+      context.cleanup();
+    }
+
+    throw new InternalServerErrorException('Failed to list reserved on-chain addresses.');
+  }
+
   /**
    * Prunes historical transactions without affecting current wallet state.
    * Operation: StoreOnChainWallets_PruneOnChainWalletTransactions
@@ -312,6 +391,122 @@ export class BtcpayWalletService {
     }
 
     throw new InternalServerErrorException('Failed to load on-chain fee rate.');
+  }
+
+  private normalizeReceiveAddressResponse(payload: unknown): WalletReceiveAddress {
+    if (!payload || typeof payload !== 'object') {
+      throw new InternalServerErrorException('BTCPay returned an invalid receive address payload.');
+    }
+
+    const record = payload as Record<string, unknown>;
+    const address = typeof record.address === 'string' ? record.address.trim() : '';
+    const paymentLink = typeof record.paymentLink === 'string' ? record.paymentLink.trim() : null;
+    const reservedAt = typeof record.reservedAt === 'string' ? record.reservedAt.trim() : undefined;
+    const isPayjoinEnabled =
+      typeof record.isPayjoinEnabled === 'boolean'
+        ? record.isPayjoinEnabled
+        : typeof record.payjoinEnabled === 'boolean'
+          ? record.payjoinEnabled
+          : undefined;
+
+    if (!address) {
+      throw new InternalServerErrorException('BTCPay returned a receive address without address details.');
+    }
+
+    const link = paymentLink && paymentLink.toLowerCase().startsWith('bitcoin:') ? paymentLink : `bitcoin:${address}`;
+
+    return {
+      address,
+      paymentLink: link,
+      reservedAt: reservedAt || undefined,
+      isPayjoinEnabled: isPayjoinEnabled ?? undefined
+    } satisfies WalletReceiveAddress;
+  }
+
+  private normalizeNonNegativeInt(value: number | undefined, fallback: number): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(0, Math.trunc(value));
+    }
+    return fallback;
+  }
+
+  private normalizePositiveInt(value: number | undefined, fallback: number): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(1, Math.trunc(value));
+    }
+    return fallback;
+  }
+
+  private normalizeReservedAddressesResponse(payload: unknown): {
+    items: WalletReservedAddress[];
+    total?: number;
+  } {
+    if (!payload) {
+      return { items: [] };
+    }
+
+    if (Array.isArray(payload)) {
+      const items = payload
+        .map((entry) => this.normalizeReservedAddressEntry(entry))
+        .filter((entry): entry is WalletReservedAddress => entry !== null);
+      return { items, total: payload.length };
+    }
+
+    if (typeof payload === 'object') {
+      const record = payload as Record<string, unknown>;
+      const data = record.data;
+      const itemsSource = Array.isArray(data) ? data : Array.isArray(record.items) ? record.items : [];
+      const items = itemsSource
+        .map((entry) => this.normalizeReservedAddressEntry(entry))
+        .filter((entry): entry is WalletReservedAddress => entry !== null);
+      const totalValue = record.total;
+      const total = typeof totalValue === 'number' && Number.isFinite(totalValue) ? totalValue : undefined;
+      return { items, total };
+    }
+
+    return { items: [] };
+  }
+
+  private normalizeReservedAddressEntry(payload: unknown): WalletReservedAddress | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const data = record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : {};
+
+    const addressCandidates = [
+      typeof data.address === 'string' ? data.address.trim() : null,
+      typeof record.id === 'string' ? record.id.trim() : null
+    ].filter((value): value is string => !!value);
+
+    const address = addressCandidates.find((value) => value.length > 0);
+    if (!address) {
+      return null;
+    }
+
+    const label = typeof data.label === 'string' && data.label.trim() ? data.label.trim() : undefined;
+    const reservedAt = this.extractTimestamp(data);
+
+    return { address, label, reservedAt } satisfies WalletReservedAddress;
+  }
+
+  private extractTimestamp(record: Record<string, unknown>): string | undefined {
+    const candidates = [
+      record.reservedAt,
+      record.createdAt,
+      record.creationTime,
+      record.timestamp,
+      record.date
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    return undefined;
   }
 
   private buildTransactionsQuery(query: ListTransactionsQuery | undefined):
@@ -648,6 +843,10 @@ export class BtcpayWalletService {
     return `${this.buildWalletBasePath(storeId, cryptoCode)}/address`;
   }
 
+  private buildWalletObjectsPath(storeId: string, cryptoCode: string): string {
+    return `${this.buildWalletBasePath(storeId, cryptoCode)}/objects`;
+  }
+
   private buildFeeRatePath(storeId: string, cryptoCode: string): string {
     return `${this.buildWalletBasePath(storeId, cryptoCode)}/feerate`;
   }
@@ -680,17 +879,4 @@ export class BtcpayWalletService {
     }
   }
 
-  private normalizeNonNegativeInt(value: number | undefined, fallback: number): number {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return fallback;
-    }
-    return Math.max(0, Math.trunc(value));
-  }
-
-  private normalizePositiveInt(value: number | undefined, fallback: number): number {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return fallback;
-    }
-    return Math.max(1, Math.trunc(value));
-  }
 }

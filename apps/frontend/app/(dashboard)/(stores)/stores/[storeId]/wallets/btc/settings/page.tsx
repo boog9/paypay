@@ -5,6 +5,7 @@ import { WalletSettingsPanel } from "./_components/wallet-settings-panel";
 import { WalletActionsMenu } from "./_components/wallet-actions-menu";
 import { getWalletSettings } from "./_lib/get-wallet-settings";
 import { getWalletActions } from "./_lib/get-wallet-actions";
+import { getWalletPresence } from "@/app/(dashboard)/(stores)/stores/[storeId]/_lib/get-wallet-presence";
 
 export const metadata: Metadata = {
   title: "BTC wallet settings",
@@ -30,6 +31,21 @@ export default async function SettingsPage({ params, searchParams }: SettingsPag
   const normalizedStoreId = normalizeStoreId(storeId);
   if (!normalizedStoreId) {
     redirect("/stores");
+  }
+
+  const dashboardPath = `/stores/${normalizedStoreId}/dashboard`;
+  const presence = await getWalletPresence(normalizedStoreId);
+
+  if (presence.status === 401) {
+    redirect("/sign-in?reason=session-expired");
+  }
+
+  if (presence.status === 403) {
+    redirect(dashboardPath);
+  }
+
+  if (presence.status === 404 || (presence.status === 200 && !presence.hasWallet)) {
+    redirect(dashboardPath);
   }
 
   const connectedFlag = search?.connected;

@@ -138,12 +138,12 @@ export class BitcoinWalletActionsController {
     @Param('storeId') storeId: string,
     @Param('walletCode') walletCode: string,
     @Body(confirmValidationPipe) _body: ConfirmDangerousActionDto
-  ): Promise<{ status: 'ok' }> {
+  ): Promise<{ removed: true }> {
     void _body;
     const store = await this.requireStore(user, storeId);
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
     await this.btcpayWallets.removeWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
-    return { status: 'ok' } as const;
+    return { removed: true } as const;
   }
 
   private async requireStore(user: RequestUser, storeId: string): Promise<ManagedStoreEntity> {

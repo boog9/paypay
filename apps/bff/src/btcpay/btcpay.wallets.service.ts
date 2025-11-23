@@ -281,6 +281,9 @@ export class BtcpayWalletService {
     try {
       await context.http.delete(path);
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return;
+      }
       this.handleBtcpayError(error);
     } finally {
       context.cleanup();

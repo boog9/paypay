@@ -30,8 +30,9 @@ Deliver a read-only "Bitcoin wallet settings" page that shows whether an on-chai
 
 Implemented a read-only Bitcoin wallet settings flow that sources safe on-chain payment method fields from BTCPay via the BFF,
 exposes a dedicated endpoint, and renders descriptor data in the dashboard with banner/error handling. Added unit coverage for
-the new service method, controller wiring, data loader, and UI panel. Remaining follow-up: keep an eye on BTCPay API surface
-changes for the legacy on-chain endpoint naming.
+the new service method, controller wiring, data loader, and UI panel. Wallet routes now consult the wallet presence endpoint
+and redirect to the store dashboard to launch the wizard whenever the BTC payment method is absent, including after a remove-wallet
+action. Remaining follow-up: keep an eye on BTCPay API surface changes for the legacy on-chain endpoint naming.
 
 ## Context and Orientation
 

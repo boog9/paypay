@@ -5,8 +5,10 @@ import { vi } from "vitest";
 import type { WalletActionId } from "../_lib/get-wallet-actions";
 import { WalletActionsMenu } from "./wallet-actions-menu";
 
-const { push, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWallet, removeBtcWallet } = vi.hoisted(() => {
+const { push, refresh, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWallet, removeBtcWallet } = vi.hoisted(
+  () => {
   const pushMock = vi.fn<(path: string) => void>();
+  const refreshMock = vi.fn<() => void>();
   const toastMock = vi.fn<
     (options: {
       title: string;
@@ -26,8 +28,10 @@ const { push, toast, pruneBtcWalletHistory, clearBtcWalletHistory, replaceBtcWal
     clearBtcWalletHistory: clearBtcWalletHistoryMock,
     replaceBtcWallet: replaceBtcWalletMock,
     removeBtcWallet: removeBtcWalletMock,
+    refresh: refreshMock,
   };
-});
+  }
+);
 
 vi.mock("@radix-ui/react-dropdown-menu", () => {
   type DropdownItemProps = React.ComponentProps<"button"> & { onSelect?: (event: Event) => void };
@@ -62,7 +66,7 @@ vi.mock("@radix-ui/react-dropdown-menu", () => {
 });
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, refresh }),
 }));
 
 vi.mock("@/components/ui/toast", () => ({
@@ -132,7 +136,8 @@ describe("WalletActionsMenu", () => {
     fireEvent.click(removeButton);
 
     await waitFor(() => expect(removeBtcWallet).toHaveBeenCalledWith("store-123"));
-    expect(push).toHaveBeenCalledWith("/stores/store-123/wallets/btc");
+    expect(push).toHaveBeenCalledWith("/stores/store-123/dashboard");
+    expect(refresh).toHaveBeenCalled();
   });
 
   it("shows empty state when no actions are available", () => {

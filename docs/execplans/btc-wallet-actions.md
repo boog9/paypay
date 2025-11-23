@@ -2,9 +2,11 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds. Maintain this plan in accordance with .agent/PLANS.md.
 
+Update (2025-11-23): The BTC wallet rescan action has been removed from the portal and BFF. Historical notes remain below, but rescan-specific tasks are now deprecated and should be ignored.
+
 ## Purpose / Big Picture
 
-We need merchants to manage their BTCPay on-chain BTC wallet from the portal using only Greenfield API v1. After this change, the Bitcoin wallet settings page will expose an Actions dropdown with maintenance operations (rescan, prune, clear history, replace, remove) and a dedicated rescan form page. The backend will proxy these actions to BTCPay using store-scoped keys, ensuring no wallet secrets reach the frontend. Users will be able to start a rescan, prune or clear history, or reset/remove the wallet directly from the portal.
+We need merchants to manage their BTCPay on-chain BTC wallet from the portal using only Greenfield API v1. After this change, the Bitcoin wallet settings page will expose an Actions dropdown with maintenance operations (prune, clear history, replace, remove). The backend will proxy these actions to BTCPay using store-scoped keys, ensuring no wallet secrets reach the frontend.
 
 ## Progress
 
@@ -32,7 +34,7 @@ We need merchants to manage their BTCPay on-chain BTC wallet from the portal usi
 
 ## Outcomes & Retrospective
 
-- Wallet routes and UI now normalize the BTC wallet code, target `/wallets/{cryptoCode}/actions/rescan`, and surface clear `NotFound` errors when BTCPay reports missing wallets. Store-scoped API keys include store modify/view permissions that cover wallet maintenance per Greenfield 2.2.1.
+- Wallet routes and UI now normalize the BTC wallet code and handle maintenance actions. The rescan feature described earlier has since been removed; prune, clear, replace, and remove actions remain in scope. Store-scoped API keys include store modify/view permissions that cover wallet maintenance per Greenfield 2.2.1.
 
 ## Context and Orientation
 

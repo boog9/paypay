@@ -37,7 +37,6 @@ describe('BitcoinWalletActionsController', () => {
         {
           provide: BtcpayWalletService,
           useValue: {
-            rescanWallet: jest.fn(),
             pruneWalletTransactions: jest.fn(),
             clearWalletTransactions: jest.fn(),
             replaceWallet: jest.fn(),
@@ -64,49 +63,6 @@ describe('BitcoinWalletActionsController', () => {
 
   afterEach(async () => {
     await app?.close();
-  });
-
-  it('rescan accepts defaults and forwards payload', async () => {
-    wallets.rescanWallet.mockResolvedValue(undefined);
-
-    await request(server)
-      .post(`/stores/${store.id}/wallets/btc/actions/rescan`)
-      .send({ startIndex: 0, gapLimit: 100, batchSize: 50 })
-      .expect(202)
-      .expect({ status: 'ok' });
-
-    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', {
-      store,
-      startIndex: 0,
-      gapLimit: 100,
-      batchSize: 50
-    });
-  });
-
-  it('normalizes walletCode "bitcoin" to "btc"', async () => {
-    wallets.rescanWallet.mockResolvedValue(undefined);
-
-    await request(server)
-      .post(`/stores/${store.id}/wallets/bitcoin/actions/rescan`)
-      .send({ startIndex: 0, gapLimit: 100, batchSize: 50 })
-      .expect(202)
-      .expect({ status: 'ok' });
-
-    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.btcpayStoreId, 'btc', {
-      store,
-      startIndex: 0,
-      gapLimit: 100,
-      batchSize: 50
-    });
-  });
-
-  it('rejects invalid rescan payloads', async () => {
-    await request(server)
-      .post(`/stores/${store.id}/wallets/btc/actions/rescan`)
-      .send({ startIndex: -1 })
-      .expect(400);
-
-    expect(wallets.rescanWallet).not.toHaveBeenCalled();
   });
 
   it('prunes history', async () => {

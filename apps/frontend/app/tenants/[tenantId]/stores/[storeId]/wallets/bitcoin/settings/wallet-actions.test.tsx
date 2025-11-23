@@ -77,16 +77,6 @@ describe("WalletActions", () => {
     expect(screen.getByRole("button", { name: /actions/i })).toBeInTheDocument();
   });
 
-  it("navigates to rescan page", async () => {
-    render(<WalletActions {...props} />);
-
-    await openMenu();
-    const rescan = await screen.findByRole("menuitem", { name: /Rescan wallet/i });
-    fireEvent.click(rescan);
-
-    expect(push).toHaveBeenCalledWith("/tenants/t1/stores/s1/wallets/bitcoin/rescan");
-  });
-
   it("calls prune and clear helpers", async () => {
     pruneBtcWalletHistory.mockResolvedValue(undefined);
     clearBtcWalletHistory.mockResolvedValue(undefined);

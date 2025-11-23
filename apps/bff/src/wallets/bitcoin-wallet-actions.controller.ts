@@ -18,9 +18,7 @@ import { CsrfGuard } from '../security/csrf.guard';
 import { ManagedStoreEntity } from '../stores/managed-store.entity';
 import { isUuid } from '../shared/is-uuid';
 import { BtcpayWalletService } from '../btcpay/btcpay.wallets.service';
-import { ConfirmDangerousActionDto, RescanWalletBodyDto } from './dto/bitcoin-wallet-actions.dto';
-
-const rescanValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
+import { ConfirmDangerousActionDto } from './dto/bitcoin-wallet-actions.dto';
 const confirmValidationPipe = new ValidationPipe({ transform: true, whitelist: true });
 
 @Controller('stores/:storeId/wallets/:walletCode/actions')
@@ -40,26 +38,6 @@ export class BitcoinWalletActionsController {
     }
 
     throw new NotFoundException('Wallet not found or unsupported.');
-  }
-
-  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
-  @HttpCode(202)
-  @Post('rescan')
-  async rescan(
-    @ReqUser() user: RequestUser,
-    @Param('storeId') storeId: string,
-    @Param('walletCode') walletCode: string,
-    @Body(rescanValidationPipe) dto: RescanWalletBodyDto
-  ): Promise<{ status: 'ok' }> {
-    const store = await this.requireStore(user, storeId);
-    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
-    await this.btcpayWallets.rescanWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, {
-      store,
-      startIndex: dto.startIndex,
-      gapLimit: dto.gapLimit,
-      batchSize: dto.batchSize
-    });
-    return { status: 'ok' } as const;
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })

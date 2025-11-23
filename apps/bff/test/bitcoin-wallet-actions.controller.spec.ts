@@ -83,6 +83,23 @@ describe('BitcoinWalletActionsController', () => {
     });
   });
 
+  it('normalizes walletCode "bitcoin" to "btc"', async () => {
+    wallets.rescanWallet.mockResolvedValue(undefined);
+
+    await request(server)
+      .post(`/stores/${store.id}/wallets/bitcoin/actions/rescan`)
+      .send({ startIndex: 0, gapLimit: 100, batchSize: 50 })
+      .expect(202)
+      .expect({ status: 'ok' });
+
+    expect(wallets.rescanWallet).toHaveBeenCalledWith(store.id, 'btc', {
+      store,
+      startIndex: 0,
+      gapLimit: 100,
+      batchSize: 50
+    });
+  });
+
   it('rejects invalid rescan payloads', async () => {
     await request(server)
       .post(`/stores/${store.id}/wallets/btc/actions/rescan`)

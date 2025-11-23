@@ -32,6 +32,16 @@ export class BitcoinWalletActionsController {
     private readonly btcpayWallets: BtcpayWalletService
   ) {}
 
+  private normalizeWalletCode(walletCode: string): string {
+    const value = typeof walletCode === 'string' ? walletCode.trim().toLowerCase() : '';
+
+    if (value === 'btc' || value === 'bitcoin') {
+      return 'btc';
+    }
+
+    throw new NotFoundException('Wallet not found or unsupported.');
+  }
+
   @Throttle({ default: { limit: 20, ttl: seconds(60) } })
   @HttpCode(202)
   @Post('rescan')
@@ -42,7 +52,8 @@ export class BitcoinWalletActionsController {
     @Body(rescanValidationPipe) dto: RescanWalletBodyDto
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.rescanWallet(store.id, walletCode, {
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+    await this.btcpayWallets.rescanWallet(store.id, normalizedWalletCode, {
       store,
       startIndex: dto.startIndex,
       gapLimit: dto.gapLimit,
@@ -60,7 +71,8 @@ export class BitcoinWalletActionsController {
     @Param('walletCode') walletCode: string
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.pruneWalletTransactions(store.id, walletCode, { store });
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+    await this.btcpayWallets.pruneWalletTransactions(store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -73,7 +85,8 @@ export class BitcoinWalletActionsController {
     @Param('walletCode') walletCode: string
   ): Promise<{ status: 'ok' }> {
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.clearWalletTransactions(store.id, walletCode, { store });
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+    await this.btcpayWallets.clearWalletTransactions(store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -88,7 +101,8 @@ export class BitcoinWalletActionsController {
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.replaceWallet(store.id, walletCode, { store });
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+    await this.btcpayWallets.replaceWallet(store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 
@@ -103,7 +117,8 @@ export class BitcoinWalletActionsController {
   ): Promise<{ status: 'ok' }> {
     void _body;
     const store = await this.requireStore(user, storeId);
-    await this.btcpayWallets.removeWallet(store.id, walletCode, { store });
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode);
+    await this.btcpayWallets.removeWallet(store.id, normalizedWalletCode, { store });
     return { status: 'ok' } as const;
   }
 

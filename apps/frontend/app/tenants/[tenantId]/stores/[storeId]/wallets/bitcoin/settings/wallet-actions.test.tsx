@@ -39,7 +39,7 @@ vi.mock("@radix-ui/react-dropdown-menu", () => {
         {children}
       </button>
     )
-  } satisfies typeof import("@radix-ui/react-dropdown-menu");
+  } as unknown as typeof import("@radix-ui/react-dropdown-menu");
 });
 
 vi.mock("next/navigation", () => ({

@@ -11,12 +11,7 @@ import { getCsrfToken } from "../../../../../../../../lib/auth";
 import { CSRF_HEADER } from "../../../../../../../../lib/http-headers";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { bffFetch } from "../../../../../../../../lib/bff-fetch";
-import {
-  descriptorPreviewSchema,
-  detectNetworkFromInput,
-  importWalletSchema,
-  resolveInstanceNetwork,
-} from "./validation";
+import { detectNetworkFromInput, importWalletSchema, resolveInstanceNetwork } from "./validation";
 
 type WizardStep = "connect" | "enter" | "confirm";
 
@@ -29,8 +24,6 @@ type PreviewAddress = {
 type PreviewResponse = {
   addresses: PreviewAddress[];
 };
-
-type WizardMode = "descriptor" | "import";
 
 function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -184,7 +177,7 @@ function extractMessageFromBody(body: unknown): string | null {
 }
 
 function normalizePreviewErrorMessage(error: ApiError): string {
-  const fallback = "Failed to preview derivation scheme.";
+  const fallback = "Failed to preview wallet configuration.";
   const bodyMessage = extractMessageFromBody(error.body);
   if (bodyMessage && !containsExtendedKeySnippet(bodyMessage)) {
     return bodyMessage;
@@ -200,9 +193,7 @@ function normalizePreviewErrorMessage(error: ApiError): string {
 
 const INSTANCE_NETWORK = resolveInstanceNetwork(process.env.NEXT_PUBLIC_BTCPAY_NETWORK);
 
-type FormErrors = Partial<
-  Record<"derivationScheme" | "descriptorAccountKeyPath" | "tpub" | "rootFingerprint" | "accountKeyPath", string>
->;
+type FormErrors = Partial<Record<"tpub" | "rootFingerprint" | "accountKeyPath", string>>;
 
 type WizardProps = {
   params: Promise<{ storeId: string }>;
@@ -214,11 +205,6 @@ export default function WalletWizardPage({ params }: WizardProps) {
   const toastContext = useToast();
 
   const [step, setStep] = useState<WizardStep>("connect");
-  const [mode, setMode] = useState<WizardMode>("import");
-  const [descriptorInput, setDescriptorInput] = useState<{ derivationScheme: string; accountKeyPath: string }>(() => ({
-    derivationScheme: "",
-    accountKeyPath: "m/84'/1'/0'",
-  }));
   const [importInput, setImportInput] = useState<{ tpub: string; rootFingerprint: string; accountKeyPath: string }>(() => ({
     tpub: "",
     rootFingerprint: "",
@@ -229,11 +215,8 @@ export default function WalletWizardPage({ params }: WizardProps) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const isDescriptorMode = mode === "descriptor";
-  const isImportMode = mode === "import";
   const addresses = useMemo(() => preview?.addresses ?? [], [preview]);
-  const previewSource = mode === "descriptor" ? descriptorInput.derivationScheme : importInput.tpub;
-  const derivedNetwork = useMemo(() => detectNetworkFromInput(previewSource), [previewSource]);
+  const derivedNetwork = useMemo(() => detectNetworkFromInput(importInput.tpub), [importInput.tpub]);
   const networkWarning = useMemo(() => {
     if (!INSTANCE_NETWORK || !derivedNetwork) {
       return null;
@@ -243,16 +226,6 @@ export default function WalletWizardPage({ params }: WizardProps) {
     }
     return `This key looks like it belongs to ${derivedNetwork}, but the BTCPay instance is ${INSTANCE_NETWORK}. Preview may fail if they do not match.`;
   }, [derivedNetwork]);
-
-  const handleDescriptorChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.currentTarget.value;
-    setDescriptorInput((prev) => ({ ...prev, derivationScheme: value }));
-  }, []);
-
-  const handleDescriptorPathChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.currentTarget.value;
-    setDescriptorInput((prev) => ({ ...prev, accountKeyPath: value }));
-  }, []);
 
   const handleTpubChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const value = event.currentTarget.value;
@@ -270,11 +243,8 @@ export default function WalletWizardPage({ params }: WizardProps) {
   }, []);
 
   const showImportPathHint = useMemo(() => {
-    if (mode !== "import") {
-      return false;
-    }
     return importInput.accountKeyPath.trim().length === 0;
-  }, [mode, importInput.accountKeyPath]);
+  }, [importInput.accountKeyPath]);
 
   const showTestnetAddressHint = useMemo(() => {
     if (INSTANCE_NETWORK === "testnet" || derivedNetwork === "testnet") {
@@ -283,14 +253,6 @@ export default function WalletWizardPage({ params }: WizardProps) {
 
     return addresses.some((item) => item.address.toLowerCase().startsWith("tb1"));
   }, [addresses, derivedNetwork]);
-
-  const handleSelectMode = useCallback((nextMode: WizardMode) => {
-    setMode(nextMode);
-    setStep("enter");
-    setFormError(null);
-    setFormErrors({});
-    setPreview(null);
-  }, []);
 
   const handlePreview = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -303,52 +265,29 @@ export default function WalletWizardPage({ params }: WizardProps) {
     setFormErrors({});
 
     try {
-      let requestBody: Record<string, unknown> = {};
-      if (mode === "descriptor") {
-        const parsed = descriptorPreviewSchema.safeParse(descriptorInput);
-        if (!parsed.success) {
-          const nextErrors: FormErrors = {};
-          const fieldErrors = parsed.error.flatten().fieldErrors;
-          if (fieldErrors.derivationScheme?.length) {
-            nextErrors.derivationScheme = fieldErrors.derivationScheme[0] ?? null;
-          }
-          if (fieldErrors.accountKeyPath?.length) {
-            nextErrors.descriptorAccountKeyPath = fieldErrors.accountKeyPath[0] ?? null;
-          }
-          setFormErrors(nextErrors);
-          setIsLoading(false);
-          return;
+      const parsed = importWalletSchema.safeParse(importInput);
+      if (!parsed.success) {
+        const nextErrors: FormErrors = {};
+        const fieldErrors = parsed.error.flatten().fieldErrors;
+        if (fieldErrors.tpub?.length) {
+          nextErrors.tpub = fieldErrors.tpub[0] ?? null;
         }
-        setDescriptorInput(parsed.data);
-        requestBody = {
-          derivationScheme: parsed.data.derivationScheme,
-          accountKeyPath: parsed.data.accountKeyPath
-        };
-      } else {
-        const parsed = importWalletSchema.safeParse(importInput);
-        if (!parsed.success) {
-          const nextErrors: FormErrors = {};
-          const fieldErrors = parsed.error.flatten().fieldErrors;
-          if (fieldErrors.tpub?.length) {
-            nextErrors.tpub = fieldErrors.tpub[0] ?? null;
-          }
-          if (fieldErrors.rootFingerprint?.length) {
-            nextErrors.rootFingerprint = fieldErrors.rootFingerprint[0] ?? null;
-          }
-          if (fieldErrors.accountKeyPath?.length) {
-            nextErrors.accountKeyPath = fieldErrors.accountKeyPath[0] ?? null;
-          }
-          setFormErrors(nextErrors);
-          setIsLoading(false);
-          return;
+        if (fieldErrors.rootFingerprint?.length) {
+          nextErrors.rootFingerprint = fieldErrors.rootFingerprint[0] ?? null;
         }
-        setImportInput(parsed.data);
-        requestBody = {
-          tpub: parsed.data.tpub,
-          rootFingerprint: parsed.data.rootFingerprint,
-          accountKeyPath: parsed.data.accountKeyPath
-        };
+        if (fieldErrors.accountKeyPath?.length) {
+          nextErrors.accountKeyPath = fieldErrors.accountKeyPath[0] ?? null;
+        }
+        setFormErrors(nextErrors);
+        setIsLoading(false);
+        return;
       }
+      setImportInput(parsed.data);
+      const requestBody = {
+        tpub: parsed.data.tpub,
+        rootFingerprint: parsed.data.rootFingerprint,
+        accountKeyPath: parsed.data.accountKeyPath,
+      };
 
       const csrfToken = await getCsrfToken();
 
@@ -383,11 +322,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
       if (isApiError(error)) {
         if (error.status === 400) {
           const message = normalizePreviewErrorMessage(error);
-          if (mode === "descriptor") {
-            setFormErrors({ derivationScheme: message });
-          } else {
-            setFormErrors({ tpub: message });
-          }
+          setFormErrors({ tpub: message });
           setFormError(null);
           return;
         }
@@ -410,10 +345,10 @@ export default function WalletWizardPage({ params }: WizardProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [descriptorInput, importInput, isLoading, mode, storeId, toastContext]);
+  }, [importInput, isLoading, storeId, toastContext]);
 
   const handleConfirm = useCallback(async () => {
-    if (!preview || isLoading || mode !== "import") {
+    if (!preview || isLoading) {
       return;
     }
 
@@ -454,7 +389,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [importInput, isLoading, mode, preview, router, storeId, toastContext]);
+  }, [importInput, isLoading, preview, router, storeId, toastContext]);
 
   const handleBackToEnter = useCallback(() => {
     setStep("enter");
@@ -499,9 +434,8 @@ export default function WalletWizardPage({ params }: WizardProps) {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold text-foreground">Connect a Bitcoin wallet</h1>
         <p className="text-sm text-muted-foreground">
-          Use Import mode to store a testnet extended public key, fingerprint, and account path in BTCPay, or run a
-          descriptor-only preview to verify addresses without saving. Only public information is requested—never paste
-          seeds or private keys.
+          Store a testnet extended public key, fingerprint, and account path in BTCPay. Only public information is
+          requested—never paste seeds or private keys.
         </p>
       </header>
 
@@ -516,22 +450,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => handleSelectMode("import")}>Start import</Button>
-            </CardContent>
-          </Card>
-
-          <Card className="border border-muted">
-            <CardHeader>
-              <CardTitle className="text-lg">Preview with descriptor</CardTitle>
-              <CardDescription>
-                Paste a descriptor (for example <code>wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub…/0/*)</code>) to preview addresses
-                without saving configuration. Use this to double-check descriptors exported by other wallets.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => handleSelectMode("descriptor")}>
-                Preview descriptor
-              </Button>
+              <Button onClick={() => setStep("enter")}>Start import</Button>
             </CardContent>
           </Card>
         </section>
@@ -540,22 +459,11 @@ export default function WalletWizardPage({ params }: WizardProps) {
       {step === "enter" && (
         <Card className="border border-muted">
           <CardHeader>
-            <CardTitle className="text-lg">
-              {isImportMode ? "Import your wallet configuration" : "Preview using a descriptor"}
-            </CardTitle>
+            <CardTitle className="text-lg">Import your wallet configuration</CardTitle>
             <CardDescription>
-              {isImportMode ? (
-                <>
-                  Paste the read-only extended public key exported by your wallet (tpub/upub/vpub on testnet), provide
-                  the master fingerprint, and confirm the BIP84/BIP86 account path. This information is stored in BTCPay
-                  so invoices derive addresses from your wallet.
-                </>
-              ) : (
-                <>
-                  Provide a descriptor such as <code>wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub…/0/*)</code> and the matching account
-                  path starting with <code>m/</code>. The preview shows addresses without saving configuration.
-                </>
-              )}
+              Paste the read-only extended public key exported by your wallet (tpub/upub/vpub on testnet), provide the
+              master fingerprint, and confirm the BIP84/BIP86 account path. This information is stored in BTCPay so
+              invoices derive addresses from your wallet.
             </CardDescription>
             <p className="text-xs text-muted-foreground">
               Never paste private keys, recovery phrases, or other secrets. Only share public information exported by your
@@ -569,124 +477,75 @@ export default function WalletWizardPage({ params }: WizardProps) {
                 void handlePreview(event);
               }}
             >
-              {isDescriptorMode ? (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="derivationScheme">
-                      Descriptor expression
-                    </label>
-                    <Input
-                      id="derivationScheme"
-                      name="derivationScheme"
-                      value={descriptorInput.derivationScheme}
-                      onChange={handleDescriptorChange}
-                      placeholder="wpkh([FPR/84&apos;/1&apos;/0&apos;]tpub.../0/*)"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      required
-                    />
-                    {formErrors.derivationScheme && (
-                      <p className="text-sm text-destructive">{formErrors.derivationScheme}</p>
-                    )}
-                    {networkWarning && !formErrors.derivationScheme && (
-                      <p className="text-sm text-amber-600">{networkWarning}</p>
-                    )}
-                  </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="tpub">
+                  Extended public key (testnet)
+                </label>
+                <Input
+                  id="tpub"
+                  name="tpub"
+                  value={importInput.tpub}
+                  onChange={handleTpubChange}
+                  placeholder="tpub..."
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  required
+                />
+                {formErrors.tpub && <p className="text-sm text-destructive">{formErrors.tpub}</p>}
+                {networkWarning && !formErrors.tpub && (
+                  <p className="text-sm text-amber-600">{networkWarning}</p>
+                )}
+              </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="descriptorAccountKeyPath">
-                      Account key path (must start with m/)
-                    </label>
-                    <Input
-                      id="descriptorAccountKeyPath"
-                      name="descriptorAccountKeyPath"
-                      value={descriptorInput.accountKeyPath}
-                      onChange={handleDescriptorPathChange}
-                      placeholder="m/84&apos;/1&apos;/0&apos;"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      required
-                    />
-                    {formErrors.descriptorAccountKeyPath && (
-                      <p className="text-sm text-destructive">{formErrors.descriptorAccountKeyPath}</p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="tpub">
-                      Extended public key (testnet)
-                    </label>
-                    <Input
-                      id="tpub"
-                      name="tpub"
-                      value={importInput.tpub}
-                      onChange={handleTpubChange}
-                      placeholder="tpub..."
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      required
-                    />
-                    {formErrors.tpub && <p className="text-sm text-destructive">{formErrors.tpub}</p>}
-                    {networkWarning && !formErrors.tpub && (
-                      <p className="text-sm text-amber-600">{networkWarning}</p>
-                    )}
-                  </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="rootFingerprint">
+                  Master fingerprint (uppercase hex)
+                </label>
+                <Input
+                  id="rootFingerprint"
+                  name="rootFingerprint"
+                  value={importInput.rootFingerprint}
+                  onChange={handleRootFingerprintChange}
+                  placeholder="F23A9C10"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  pattern="[0-9A-F]{8}"
+                  title="Enter an 8-digit hexadecimal fingerprint"
+                  required
+                />
+                {formErrors.rootFingerprint && (
+                  <p className="text-sm text-destructive">{formErrors.rootFingerprint}</p>
+                )}
+              </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="rootFingerprint">
-                      Root fingerprint
-                    </label>
-                    <Input
-                      id="rootFingerprint"
-                      name="rootFingerprint"
-                      value={importInput.rootFingerprint}
-                      onChange={handleRootFingerprintChange}
-                      placeholder="00000000"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">8 hexadecimal characters (e.g., F23A9C01).</p>
-                    {formErrors.rootFingerprint && (
-                      <p className="text-sm text-destructive">{formErrors.rootFingerprint}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground" htmlFor="accountKeyPath">
-                      Account key path (without m/ prefix)
-                    </label>
-                    <Input
-                      id="accountKeyPath"
-                      name="accountKeyPath"
-                      value={importInput.accountKeyPath}
-                      onChange={handleImportAccountPathChange}
-                      placeholder="84&apos;/1&apos;/0&apos;"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Use the account path reported by your wallet. Testnet BIP84 wallets often use
-                      <code className="ml-1">84&apos;/1&apos;/0&apos;</code>.
-                    </p>
-                    {showImportPathHint && !formErrors.accountKeyPath && (
-                      <p className="text-xs text-sky-600">Enter the BIP84 or BIP86 account path without the m/ prefix.</p>
-                    )}
-                    {formErrors.accountKeyPath && (
-                      <p className="text-sm text-destructive">{formErrors.accountKeyPath}</p>
-                    )}
-                  </div>
-                </>
-              )}
-
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="accountKeyPath">
+                  Account key path (without m/)
+                </label>
+                <Input
+                  id="accountKeyPath"
+                  name="accountKeyPath"
+                  value={importInput.accountKeyPath}
+                  onChange={handleImportAccountPathChange}
+                  placeholder="84&apos;/1&apos;/0&apos;"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use the account path reported by your wallet. Testnet BIP84 wallets often use
+                  <code className="ml-1">84&apos;/1&apos;/0&apos;</code>.
+                </p>
+                {showImportPathHint && !formErrors.accountKeyPath && (
+                  <p className="text-xs text-sky-600">Enter the BIP84 or BIP86 account path without the m/ prefix.</p>
+                )}
+                {formErrors.accountKeyPath && (
+                  <p className="text-sm text-destructive">{formErrors.accountKeyPath}</p>
+                )}
+              </div>
               {formError && <p className="text-sm text-destructive">{formError}</p>}
 
               <div className="flex items-center justify-between gap-4">
@@ -713,32 +572,16 @@ export default function WalletWizardPage({ params }: WizardProps) {
       {step === "confirm" && preview && (
         <Card className="border border-muted">
           <CardHeader className="space-y-2">
-            <CardTitle className="text-lg">
-              {isImportMode ? "Confirm receiving addresses" : "Preview receiving addresses"}
-            </CardTitle>
+            <CardTitle className="text-lg">Confirm receiving addresses</CardTitle>
             <CardDescription>
               Compare the first deposit addresses with your external wallet. Confirm that each address matches before
-              {isImportMode ? " saving this configuration." : " trusting the descriptor."}
+              saving this configuration.
             </CardDescription>
             <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-primary">
-              {isImportMode ? (
-                <>
-                  Extended public key: <span className="font-mono text-foreground break-all">{importInput.tpub}</span>
-                  <br />Fingerprint: <span className="font-mono text-foreground">{importInput.rootFingerprint}</span>
-                  <br />Account key path: <span className="font-mono text-foreground">{importInput.accountKeyPath}</span>
-                </>
-              ) : (
-                <>
-                  Descriptor: <span className="font-mono text-foreground break-all">{descriptorInput.derivationScheme}</span>
-                  <br />Account key path: <span className="font-mono text-foreground">{descriptorInput.accountKeyPath}</span>
-                </>
-              )}
+              Extended public key: <span className="font-mono text-foreground break-all">{importInput.tpub}</span>
+              <br />Fingerprint: <span className="font-mono text-foreground">{importInput.rootFingerprint}</span>
+              <br />Account key path: <span className="font-mono text-foreground">{importInput.accountKeyPath}</span>
             </div>
-            {!isImportMode && (
-              <p className="text-xs text-muted-foreground">
-                Saving is disabled for descriptor previews. Switch to Import mode to store the configuration in BTCPay.
-              </p>
-            )}
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
@@ -770,20 +613,14 @@ export default function WalletWizardPage({ params }: WizardProps) {
               <Button variant="secondary" onClick={handleBackToEnter}>
                 Back
               </Button>
-              {isImportMode ? (
-                <Button
-                  onClick={() => {
-                    void handleConfirm();
-                  }}
-                  disabled={isLoading || !preview}
-                >
-                  {isLoading ? "Saving…" : "Confirm and save"}
-                </Button>
-              ) : (
-                <Button disabled variant="outline" title="Use Import mode to save the wallet configuration.">
-                  Saving requires Import mode
-                </Button>
-              )}
+              <Button
+                onClick={() => {
+                  void handleConfirm();
+                }}
+                disabled={isLoading || !preview}
+              >
+                {isLoading ? "Saving…" : "Confirm and save"}
+              </Button>
             </div>
           </CardContent>
         </Card>

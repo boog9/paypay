@@ -224,7 +224,7 @@ export class BtcpayWalletService {
     options?: RescanWalletOptions
   ): Promise<void> {
     const context = await this.prepareStoreContext(storeId, options);
-    const path = `${this.buildWalletBasePath(context.store.btcpayStoreId, cryptoCode)}/rescan`;
+    const path = this.buildWalletRescanPath(context.store.btcpayStoreId, cryptoCode);
 
     const startIndex = this.normalizeNonNegativeInt(options?.startIndex, 0);
     const gapLimit = this.normalizeNonNegativeInt(options?.gapLimit, 10_000);
@@ -580,6 +580,11 @@ export class BtcpayWalletService {
     const normalizedCode = this.normalizeCryptoCode(cryptoCode);
     const paymentMethodId = normalizePaymentMethodId(normalizedCode, 'chain');
     return `/api/v1/stores/${encodeURIComponent(storeId)}/payment-methods/${encodeURIComponent(paymentMethodId)}/wallet`;
+  }
+
+  private buildWalletRescanPath(storeId: string, cryptoCode: string): string {
+    const normalizedCode = this.normalizeCryptoCode(cryptoCode);
+    return `/api/v1/stores/${encodeURIComponent(storeId)}/wallets/${encodeURIComponent(normalizedCode)}/actions/rescan`;
   }
 
   private buildTransactionsPath(storeId: string, cryptoCode: string): string {

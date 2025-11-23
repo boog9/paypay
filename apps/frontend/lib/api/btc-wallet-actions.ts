@@ -1,5 +1,7 @@
 import { bffFetch } from "@/lib/bff-fetch";
 
+const BTC_WALLET_CODE = "btc";
+
 async function assertOk(response: Response): Promise<void> {
   if (response.ok) return;
 
@@ -30,7 +32,7 @@ export async function rescanBtcWallet(
   storeId: string,
   payload: { startIndex: number; gapLimit: number; batchSize: number }
 ): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/rescan`, {
+  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/rescan`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -41,28 +43,28 @@ export async function rescanBtcWallet(
 }
 
 export async function pruneBtcWalletHistory(storeId: string): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/prune-history`, {
+  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/prune-history`, {
     method: "POST"
   });
   await assertOk(response);
 }
 
 export async function clearBtcWalletHistory(storeId: string): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/clear-history`, {
+  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/clear-history`, {
     method: "POST"
   });
   await assertOk(response);
 }
 
 export async function replaceBtcWallet(storeId: string): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/replace`, {
+  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/replace`, {
     method: "POST"
   });
   await assertOk(response);
 }
 
 export async function removeBtcWallet(storeId: string): Promise<void> {
-  const response = await bffFetch(`/api/stores/${storeId}/wallets/bitcoin/actions/remove`, {
+  const response = await bffFetch(`/api/stores/${storeId}/wallets/${BTC_WALLET_CODE}/actions/remove`, {
     method: "POST"
   });
   await assertOk(response);

@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RescanClient } from "./rescan-client";
 
-const pushMock = vi.fn<(path: string) => void>();
-const toastMock = vi.fn<(payload: { title: string; description: string }) => void>();
-const rescanMock = vi.fn<(storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }) => Promise<void>>();
-const rescanBtcWalletMock = (storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }): Promise<void> => rescanMock(storeId, payload);
+const { pushMock, toastMock, rescanMock } = vi.hoisted(() => ({
+  pushMock: vi.fn<(path: string) => void>(),
+  toastMock: vi.fn<(payload: { title: string; description: string }) => void>(),
+  rescanMock: vi.fn<
+    (storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }) => Promise<void>
+  >()
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
@@ -17,7 +20,8 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 vi.mock("@/lib/api/btc-wallet-actions", () => ({
-  rescanBtcWallet: rescanBtcWalletMock,
+  rescanBtcWallet: (storeId: string, payload: { startIndex: number; gapLimit: number; batchSize: number }) =>
+    rescanMock(storeId, payload),
 }));
 
 describe("RescanClient", () => {

@@ -92,6 +92,28 @@ describe('BtcpayWalletService', () => {
     expect(result).toEqual({ items });
   });
 
+  it('rescans the wallet using the wallet actions endpoint', async () => {
+    const postMock = jest.fn().mockResolvedValue({});
+    mockedAxios.create.mockReturnValue(mockAxiosInstance({ post: postMock }));
+
+    const service = buildService();
+
+    await service.rescanWallet(store.btcpayStoreId, 'btc', {
+      store,
+      startIndex: -5,
+      gapLimit: undefined
+    });
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/api/v1/stores/store-123/wallets/BTC/actions/rescan',
+      {
+        startIndex: 0,
+        gapLimit: 10_000,
+        batchSize: 3_000
+      }
+    );
+  });
+
   it('maps error responses to framework exceptions', async () => {
     const error: AxiosError = {
       isAxiosError: true,

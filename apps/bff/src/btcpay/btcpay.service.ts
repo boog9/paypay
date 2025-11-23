@@ -116,44 +116,163 @@ export class BtcpayService {
     return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
   }
 
+  private safeTruncate(value: string, maxLength = 512): string {
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return value.slice(0, Math.max(0, maxLength));
+  }
+
   private summariseErrorPayload(payload: unknown): unknown {
     if (!payload) {
       return undefined;
     }
     if (typeof payload === 'string') {
-      return payload.slice(0, 200);
+      const trimmed = payload.trim();
+      return trimmed ? this.safeTruncate(trimmed, 512) : undefined;
     }
     if (Array.isArray(payload)) {
       const entries = payload as unknown[];
-      return entries.slice(0, 5).map((entry) => {
-        if (entry && typeof entry === 'object') {
-          const item = entry as Record<string, unknown>;
-          const result: Record<string, unknown> = {};
-          if (typeof item.path === 'string') {
-            result.path = item.path;
+      const summarized = entries
+        .slice(0, 5)
+        .map((entry) => {
+          if (!entry) {
+            return undefined;
           }
-          if (typeof item.message === 'string') {
-            result.message = item.message;
+
+          if (typeof entry === 'string') {
+            const trimmed = entry.trim();
+            return trimmed ? this.safeTruncate(trimmed, 256) : undefined;
           }
-          if (typeof item.code === 'string') {
-            result.code = item.code;
+
+          if (entry && typeof entry === 'object') {
+            const item = entry as Record<string, unknown>;
+            const result: Record<string, unknown> = {};
+            if (typeof item.path === 'string' && item.path.trim()) {
+              result.path = this.safeTruncate(item.path.trim(), 128);
+            }
+            if (typeof item.message === 'string' && item.message.trim()) {
+              result.message = this.safeTruncate(item.message.trim(), 256);
+            }
+            if (typeof item.code === 'string' && item.code.trim()) {
+              result.code = this.safeTruncate(item.code.trim(), 128);
+            }
+            if (typeof item.detail === 'string' && item.detail.trim()) {
+              result.detail = this.safeTruncate(item.detail.trim(), 256);
+            }
+
+            return Object.keys(result).length > 0 ? result : undefined;
           }
-          return result;
-        }
-        return entry;
-      });
+          return undefined;
+        })
+        .filter((entry) => entry !== undefined);
+
+      return summarized.length > 0 ? summarized : undefined;
     }
     if (typeof payload === 'object') {
       const source = payload as Record<string, unknown>;
-      const allowedKeys = ['code', 'error', 'message', 'errors', 'detail'];
+      const allowedKeys = ['code', 'error', 'message', 'errors', 'detail', 'description'];
       const filtered = allowedKeys.reduce<Record<string, unknown>>((acc, key) => {
         if (key in source) {
-          acc[key] = source[key];
+          const value = source[key];
+          if (typeof value === 'string' && value.trim()) {
+            acc[key] = this.safeTruncate(value.trim(), key === 'code' ? 128 : 256);
+            return acc;
+          }
+
+          if (Array.isArray(value)) {
+            const summarized = this.summariseErrorPayload(value);
+            if (summarized !== undefined) {
+              acc[key] = summarized;
+            }
+            return acc;
+          }
+
+          if (value && typeof value === 'object') {
+            const summarized = this.summariseErrorPayload(value);
+            if (summarized !== undefined) {
+              acc[key] = summarized;
+            }
+            return acc;
+          }
+
+          if (typeof value === 'number' || typeof value === 'boolean') {
+            acc[key] = value;
+          }
         }
         return acc;
       }, {});
       return Object.keys(filtered).length > 0 ? filtered : undefined;
     }
+    return undefined;
+  }
+
+  private extractErrorCode(payload: unknown): string | undefined {
+    if (!payload) {
+      return undefined;
+    }
+
+    if (typeof payload === 'object') {
+      const record = payload as Record<string, unknown>;
+      const code = record.code ?? record.error;
+      if (typeof code === 'string' && code.trim()) {
+        return this.safeTruncate(code.trim(), 128);
+      }
+
+      if (Array.isArray(record.errors)) {
+        const nested = this.extractErrorCode(record.errors);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+
+    if (Array.isArray(payload)) {
+      for (const entry of payload) {
+        const nested = this.extractErrorCode(entry);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private extractErrorMessage(payload: unknown): string | undefined {
+    if (!payload) {
+      return undefined;
+    }
+
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      return trimmed ? this.safeTruncate(trimmed, 512) : undefined;
+    }
+
+    if (Array.isArray(payload)) {
+      for (const entry of payload) {
+        const nested = this.extractErrorMessage(entry);
+        if (nested) {
+          return nested;
+        }
+      }
+      return undefined;
+    }
+
+    if (typeof payload === 'object' && payload !== null) {
+      const record = payload as Record<string, unknown>;
+      const candidates = [record.message, record.description, record.detail, record.error];
+      for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+          return this.safeTruncate(candidate.trim(), 512);
+        }
+      }
+
+      if (Array.isArray(record.errors)) {
+        return this.extractErrorMessage(record.errors);
+      }
+    }
+
     return undefined;
   }
 
@@ -306,16 +425,16 @@ export class BtcpayService {
 
   private maskError(error: unknown, context?: BtcpayRequestContext): never {
     if (axios.isAxiosError(error)) {
-      const err = error as AxiosError<{ message?: string; errors?: unknown }>;
+      const err = error as AxiosError<unknown>;
       const code = err.response?.status ?? 500;
-      const body = err.response?.data as { message?: string } | undefined;
-      const message =
-        body?.message && typeof body.message === 'string' ? body.message : 'BTCPay request failed';
+      const errorCode = this.extractErrorCode(err.response?.data);
+      const errorMessage = this.extractErrorMessage(err.response?.data);
+      const message = errorMessage ?? 'BTCPay request failed';
 
-      const logPayload: Record<string, unknown> = {
-        statusCode: code,
-        message,
-      };
+      const logPayload: Record<string, unknown> = { statusCode: code, message };
+      if (errorCode) {
+        logPayload.errorCode = errorCode;
+      }
       if (context?.correlationId) {
         logPayload.correlationId = context.correlationId;
       }
@@ -326,28 +445,42 @@ export class BtcpayService {
       this.logger.error(logPayload, context?.action ?? 'BTCPay request failed');
 
       if (code >= 400 && code < 500) {
+        const responsePayload: Record<string, unknown> = { statusCode: code, message };
+        if (errorCode) {
+          responsePayload.errorCode = errorCode;
+        }
+        if (errorMessage) {
+          responsePayload.errorMessage = errorMessage;
+        }
+
+        const cause = error instanceof Error ? error : undefined;
         switch (code) {
           case 401:
-            throw new UnauthorizedException(message, { cause: error as Error });
+            throw new UnauthorizedException(responsePayload, { cause });
           case 403:
-            throw new ForbiddenException(message, { cause: error as Error });
+            throw new ForbiddenException(responsePayload, { cause });
           case 404:
-            throw new NotFoundException(message, { cause: error as Error });
+            throw new NotFoundException(responsePayload, { cause });
           case 409:
-            throw new ConflictException(message, { cause: error as Error });
+            throw new ConflictException(responsePayload, { cause });
           default:
-            throw new HttpException(message, code, { cause: error as Error });
+            throw new HttpException(responsePayload, code, { cause });
         }
       }
 
       if (code >= 500 && code < 600) {
-        throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+        throw new BadGatewayException(
+          { statusCode: code, message, errorCode, errorMessage },
+          { cause: error instanceof Error ? error : undefined }
+        );
       }
 
-      throw new BadGatewayException('BTCPay request failed', { cause: error as Error });
+      throw new BadGatewayException('BTCPay request failed', { cause: error instanceof Error ? error : undefined });
     }
 
-    throw new InternalServerErrorException('Unexpected BTCPay error', { cause: error as Error });
+    throw new InternalServerErrorException('Unexpected BTCPay error', {
+      cause: error instanceof Error ? error : undefined,
+    });
   }
 
   async createUser(

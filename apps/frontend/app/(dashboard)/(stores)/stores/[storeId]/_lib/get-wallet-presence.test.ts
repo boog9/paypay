@@ -48,8 +48,38 @@ describe("getWalletPresence", () => {
     });
     expect(mockFetch).toHaveBeenCalledWith(
       walletPresencePath("store-1"),
-      expect.objectContaining({ cache: "no-store" }),
+      expect.objectContaining({ cache: "no-store", next: { revalidate: 0 } }),
     );
+  });
+
+  it("re-fetches presence instead of serving cached data", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ hasWallet: false }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ hasWallet: true }),
+      } as unknown as Response);
+
+    await expect(getWalletPresence("store-5")).resolves.toEqual({
+      status: 200,
+      connected: false,
+      hasWallet: false,
+      payload: { hasWallet: false },
+    });
+
+    await expect(getWalletPresence("store-5")).resolves.toEqual({
+      status: 200,
+      connected: true,
+      hasWallet: true,
+      payload: { hasWallet: true },
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it("returns false when response is not ok", async () => {

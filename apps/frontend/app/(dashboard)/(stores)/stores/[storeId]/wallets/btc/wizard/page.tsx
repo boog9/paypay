@@ -11,6 +11,7 @@ import { getCsrfToken } from "../../../../../../../../lib/auth";
 import { CSRF_HEADER } from "../../../../../../../../lib/http-headers";
 import { useToast } from "../../../../../../../../components/ui/toast";
 import { bffFetch } from "../../../../../../../../lib/bff-fetch";
+import { useWalletPresence } from "../../../../../../../../src/contexts/wallet-presence";
 import { detectNetworkFromInput, importWalletSchema, resolveInstanceNetwork } from "./validation";
 
 type WizardStep = "connect" | "enter" | "confirm";
@@ -203,6 +204,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
   const { storeId } = use(params);
   const router = useRouter();
   const toastContext = useToast();
+  const { refresh: refreshWalletPresence } = useWalletPresence();
 
   const [step, setStep] = useState<WizardStep>("connect");
   const [importInput, setImportInput] = useState<{ tpub: string; rootFingerprint: string; accountKeyPath: string }>(() => ({
@@ -365,6 +367,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
         body: payload,
         headers: { "Content-Type": "application/json", [CSRF_HEADER]: csrfToken },
       });
+      await refreshWalletPresence();
       toastContext.toast({
         title: "Wallet connected",
         description: "The on-chain Bitcoin wallet has been saved for this store.",
@@ -389,7 +392,7 @@ export default function WalletWizardPage({ params }: WizardProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [importInput, isLoading, preview, router, storeId, toastContext]);
+  }, [importInput, isLoading, preview, refreshWalletPresence, router, storeId, toastContext]);
 
   const handleBackToEnter = useCallback(() => {
     setStep("enter");

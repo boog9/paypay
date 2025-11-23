@@ -1,5 +1,3 @@
-import { cache } from "react";
-
 import { bffFetch } from "../../../../../../lib/bff-fetch";
 import { walletPresencePath } from "../../../../../../lib/walletPaths";
 
@@ -14,7 +12,7 @@ export interface WalletPresenceResult {
   payload: WalletPresenceResponse | null;
 }
 
-export const getWalletPresence = cache(async (storeId: string): Promise<WalletPresenceResult> => {
+export const getWalletPresence = async (storeId: string): Promise<WalletPresenceResult> => {
   const normalized = typeof storeId === "string" ? storeId.trim() : "";
   if (!normalized) {
     return { status: 400, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
@@ -23,6 +21,7 @@ export const getWalletPresence = cache(async (storeId: string): Promise<WalletPr
   try {
     const response = await bffFetch(walletPresencePath(normalized), {
       cache: "no-store",
+      next: { revalidate: 0 },
     });
 
     const status = typeof response.status === "number" ? response.status : response.ok ? 200 : 0;
@@ -44,7 +43,7 @@ export const getWalletPresence = cache(async (storeId: string): Promise<WalletPr
   } catch {
     return { status: 0, connected: false, hasWallet: false, payload: null } satisfies WalletPresenceResult;
   }
-});
+};
 
 export function parseWalletPresence(data: unknown): WalletPresenceResponse | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) {

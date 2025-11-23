@@ -26,3 +26,21 @@ export interface WalletOverview {
   unconfirmedBalance: string;
   label?: string | null;
 }
+
+export interface WalletReceiveAddress {
+  address: string;
+  paymentLink: string;
+  reservedAt?: string;
+  isPayjoinEnabled?: boolean;
+}
+
+export interface WalletReservedAddress {
+  address: string;
+  label?: string;
+  reservedAt?: string;
+}
+
+export interface WalletReservedAddressesResponse {
+  items: WalletReservedAddress[];
+  total?: number;
+}

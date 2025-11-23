@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UnauthorizedException,
   UseGuards,
   ValidationPipe
@@ -86,6 +87,53 @@ export class BitcoinWalletActionsController {
     return { actions: [...ACTIONS] } satisfies BitcoinWalletActionsResponse;
   }
 
+  @SkipThrottle()
+  @Get('receive/next')
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Vary', 'Cookie')
+  async getNextReceiveAddress(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string,
+    @Query('forceGenerate') forceGenerate?: boolean | string
+  ) {
+    const store = await this.requireStore(user, storeId);
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode).toUpperCase();
+    const shouldForceGenerate = this.parseBooleanQuery(forceGenerate);
+
+    return this.btcpayWallets.getNextReceiveAddress({
+      store,
+      walletCode: normalizedWalletCode,
+      forceGenerate: shouldForceGenerate
+    });
+  }
+
+  @SkipThrottle()
+  @Get('receive/reserved')
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Vary', 'Cookie')
+  async listReservedAddresses(
+    @ReqUser() user: RequestUser,
+    @Param('storeId') storeId: string,
+    @Param('walletCode') walletCode: string,
+    @Query('take') take?: number | string,
+    @Query('skip') skip?: number | string
+  ) {
+    const store = await this.requireStore(user, storeId);
+    const normalizedWalletCode = this.normalizeWalletCode(walletCode).toUpperCase();
+    const normalizedTake = this.parsePositiveInt(take, 25);
+    const normalizedSkip = this.parseNonNegativeInt(skip, 0);
+
+    return this.btcpayWallets.listReservedAddresses({
+      store,
+      walletCode: normalizedWalletCode,
+      take: normalizedTake,
+      skip: normalizedSkip
+    });
+  }
+
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @HttpCode(200)
   @Post('prune-history')
@@ -144,6 +192,43 @@ export class BitcoinWalletActionsController {
     const normalizedWalletCode = this.normalizeWalletCode(walletCode);
     await this.btcpayWallets.removeWallet(store.btcpayStoreId ?? store.id, normalizedWalletCode, { store });
     return { removed: true } as const;
+  }
+
+  private parseBooleanQuery(value: string | boolean | null | undefined): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value !== 'string') {
+      return false;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+
+  private parseNonNegativeInt(value: string | number | undefined, fallback: number): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(0, Math.trunc(value));
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.trunc(parsed));
+      }
+    }
+    return fallback;
+  }
+
+  private parsePositiveInt(value: string | number | undefined, fallback: number): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(1, Math.trunc(value));
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1, Math.trunc(parsed));
+      }
+    }
+    return fallback;
   }
 
   private async requireStore(user: RequestUser, storeId: string): Promise<ManagedStoreEntity> {
